@@ -19,7 +19,10 @@
   const content = $('#content');
   const state = { view: 'inbox', pageId: null, editor: null, saveTimer: null, expanded: new Set(), query: '', focusNew: false, openedHtml: '', openedPage: null, versionTimer: null, sectionView: {} };
   const isNarrow = () => matchMedia('(max-width: 899px)').matches;
-  const isDark = () => matchMedia('(prefers-color-scheme: dark)').matches;
+  const themePref = () => { try { return localStorage.getItem('nc-theme') || 'system'; } catch (e) { return 'system'; } };
+  const applyTheme = (t) => { if (t === 'system') document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme', t); try { localStorage.setItem('nc-theme', t); } catch (e) { /* ignore */ } };
+  applyTheme(themePref());
+  const isDark = () => { const t = document.documentElement.getAttribute('data-theme'); return t ? t === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches; };
   const NB_COLOURS = ['#2f5d8a', '#2e7d5b', '#b8651b', '#7b3f8c', '#1d7f8c', '#8d5a2b', '#5b6472', '#b03a5b'];
 
   // ---------- small UI helpers ----------
@@ -940,6 +943,9 @@
         el('div', {}, el('button', { class: 'btn primary', type: 'button', onclick: () => G.signIn().catch((e) => toast(e.message)) }, g.available ? 'Sign in to Microsoft' : 'Sign-in unavailable')));
     }
     view.append(acct);
+    const cur = themePref();
+    const seg = el('div', { class: 'seg' }, ...[['system', 'Match phone'], ['light', 'Light'], ['dark', 'Dark']].map(([k, v]) => el('button', { type: 'button', class: k === cur ? 'on' : '', onclick: () => { applyTheme(k); renderSettings(); } }, v)));
+    view.append(el('div', { class: 'panel' }, el('h2', {}, 'Appearance'), el('p', { class: 'rule' }, 'Note paper stays white in either mode.'), seg));
     view.append(el('div', { class: 'panel' }, el('h2', {}, 'This device'),
       el('div', { class: 'kv' }, el('span', {}, 'Name'), el('span', {}, dev)),
       el('div', { class: 'kv' }, el('span', {}, 'Installed as app'), el('span', {}, (navigator.standalone || matchMedia('(display-mode: standalone)').matches) ? 'Yes' : 'No (use Add to Home Screen)')),
