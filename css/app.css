@@ -227,15 +227,13 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; letter-spacing: -0.01e
   .scrim { display: block; position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 35; opacity: 0; pointer-events: none; transition: opacity .2s; }
   .scrim.open { opacity: 1; pointer-events: auto; }
   .content { padding-bottom: calc(var(--tabbar) + 24px + env(safe-area-inset-bottom, 0px)); }
-  /* Bottom bar: a row of notebook divider tabs. Inactive tabs sit lower and tuck behind their neighbour; the current tab stands up, in paper. */
-  .tabbar { --tabh: 54px; display: flex; align-items: flex-end; position: fixed; inset: auto 0 0 0; height: calc(var(--tabbar) + 8px + env(safe-area-inset-bottom, 0px)); padding: 0 8px env(safe-area-inset-bottom, 0px); background: var(--raised); border-top: 1px solid var(--line); z-index: 30; gap: 0; }
-  .tabbar a { position: relative; flex: 1; height: var(--tabh); margin-left: -6px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; text-decoration: none; color: var(--muted); font-size: .8rem; font-weight: 500; letter-spacing: .01em; background: var(--raised); border: 1px solid var(--line); border-bottom: 0; border-radius: 14px 14px 0 0; transition: height .15s ease, background .15s ease; }
-  .tabbar a:first-child { margin-left: 0; }
-  .tabbar a:nth-child(1) { z-index: 4; } .tabbar a:nth-child(2) { z-index: 3; } .tabbar a:nth-child(3) { z-index: 2; } .tabbar a:nth-child(4) { z-index: 1; }
+  /* Bottom bar: a row of notebook divider tabs, side by side. The current tab stands taller, in paper. */
+  .tabbar { --tabh: 52px; display: flex; align-items: flex-end; gap: 6px; position: fixed; inset: auto 0 0 0; padding: 8px 8px calc(6px + env(safe-area-inset-bottom, 0px)); background: var(--raised); border-top: 1px solid var(--line); z-index: 30; }
+  .tabbar a { flex: 1 1 0; min-width: 0; height: var(--tabh); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; text-decoration: none; color: var(--muted); font-size: .8rem; font-weight: 500; letter-spacing: .01em; background: color-mix(in srgb, var(--paper) 60%, var(--raised)); border: 1px solid var(--line); border-bottom: 1px solid var(--line); border-radius: 12px 12px 4px 4px; transition: height .15s ease, background .15s ease; position: relative; }
   .tabbar a svg { width: 22px; height: 22px; }
-  .tabbar a.active { height: calc(var(--tabh) + 8px); z-index: 5; background: var(--paper); color: var(--accent); font-weight: 600; border-color: var(--line-strong); box-shadow: 0 -2px 6px rgba(20,30,45,.08); }
+  .tabbar a.active { height: calc(var(--tabh) + 8px); background: var(--paper); color: var(--accent); font-weight: 600; border-color: var(--line-strong); box-shadow: 0 2px 8px rgba(20,30,45,.10); }
   .tabbar a.active::after { content: ""; position: absolute; left: 14px; right: 14px; top: 0; height: 3px; border-radius: 0 0 3px 3px; background: var(--accent); }
-  .content { padding-bottom: calc(var(--tabbar) + 36px + env(safe-area-inset-bottom, 0px)); }
+  .content { padding-bottom: calc(var(--tabbar) + 44px + env(safe-area-inset-bottom, 0px)); }
   .editor-host { min-height: 50vh; }
   .view-head h1 { font-size: 1.35rem; }
   .title-input { font-size: 1.45rem; }
