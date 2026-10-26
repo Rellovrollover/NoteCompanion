@@ -539,10 +539,9 @@
   }
   // A 24px baseline grid: every line of body text, list item and heading sits on it, so ruled and squared paper line up.
   const EDITOR_CSS = `
-    :root { --pitch: 24px; --rule: rgba(31,58,95,.16); --grid: rgba(31,58,95,.12); --ink: #1c1e24; }
-    @media (prefers-color-scheme: dark) { :root { --rule: rgba(255,255,255,.13); --grid: rgba(255,255,255,.09); --ink: #ecebe6; } }
-    html { background: transparent; }
-    body { font-family: -apple-system, "Segoe UI Variable Text", "Segoe UI", system-ui, Roboto, sans-serif; font-size: 16px; line-height: var(--pitch); padding: var(--pitch) 24px var(--pitch); max-width: 50rem; margin: 0 auto; box-sizing: border-box; min-height: 100%; }
+    :root { --pitch: 24px; --rule: rgba(47,93,138,.18); --grid: rgba(47,93,138,.13); --ink: #1a1d23; color-scheme: light; }
+    html { background: #ffffff; }
+    body { background: #ffffff; color: var(--ink); font-family: -apple-system, "Segoe UI Variable Text", "Segoe UI", system-ui, Roboto, sans-serif; font-size: 16px; line-height: var(--pitch); padding: var(--pitch) 24px var(--pitch); max-width: 50rem; margin: 0 auto; box-sizing: border-box; min-height: 100%; }
     body.paper-ruled { background-image: repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--pitch) - 1px), var(--rule) calc(var(--pitch) - 1px), var(--rule) var(--pitch)); background-origin: border-box; }
     body.paper-grid { background-image: repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--pitch) - 1px), var(--grid) calc(var(--pitch) - 1px), var(--grid) var(--pitch)), repeating-linear-gradient(to right, transparent 0, transparent calc(var(--pitch) - 1px), var(--grid) calc(var(--pitch) - 1px), var(--grid) var(--pitch)); background-origin: border-box; }
     body.paper-dots { background-image: radial-gradient(circle, var(--rule) 1.2px, transparent 1.6px); background-size: var(--pitch) var(--pitch); background-position: calc(var(--pitch) / 2) calc(var(--pitch) / 2); background-origin: border-box; }
@@ -572,7 +571,6 @@
     .callout-danger { background: rgba(179,38,30,.1); border-color: rgba(179,38,30,.3); } .callout-danger::before { content: "✕"; }
     details { border-left: 3px solid #b9b4a8; padding-left: 12px; }
     details > summary { font-weight: 600; line-height: var(--pitch); cursor: pointer; }
-    @media (prefers-color-scheme: dark) { a.wikilink { color: #8fb4e8; } }
   `;
   const PAPERS = { plain: 'Plain', ruled: 'Lined', grid: 'Graph', dots: 'Dotted' };
   function applyPaper(ed, paper) {
@@ -671,7 +669,7 @@
     const focusNew = state.focusNew; state.focusNew = false;
     const editors = await tinymce.init({
       target: ta, base_url: new URL('vendor/tinymce', C.redirectUri).href, suffix: '.min', license_key: 'gpl', promotion: false, branding: false,
-      skin: dark ? 'oxide-dark' : 'oxide', content_css: dark ? 'dark' : 'default', content_style: EDITOR_CSS,
+      skin: dark ? 'oxide-dark' : 'oxide', content_css: 'default', content_style: EDITOR_CSS,
       plugins: 'lists advlist table link image autolink autoresize searchreplace codesample quickbars accordion',
       menubar: false, statusbar: false, toolbar_mode: 'sliding', toolbar_sticky: true, toolbar_sticky_offset: 52,
       toolbar: 'undo redo | blocks | bold italic underline strikethrough | forecolor backcolor | bullist numlist todo | outdent indent | alignleft aligncenter alignright | callout accordion table image link pagelink | fontsize fontfamily | codesample removeformat searchreplace',

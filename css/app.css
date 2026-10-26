@@ -160,7 +160,7 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; letter-spacing: -0.01e
 .seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 9px; overflow: hidden; }
 .seg button { border: 0; background: var(--paper); padding: 6px 11px; cursor: pointer; font-size: .85rem; color: var(--muted); }
 .seg button.on { background: var(--accent); color: var(--accent-ink); }
-.editor-host { background: var(--paper); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.editor-host { background: #ffffff; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
 .editor-host .tox-tinymce { border: 0 !important; border-radius: 0 !important; }
 .editor-host .tox .tox-toolbar__primary, .editor-host .tox .tox-toolbar-overlord { background: var(--raised) !important; }
 .editor-host .tox .tox-edit-area::before { display: none; }
