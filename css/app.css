@@ -128,6 +128,11 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; letter-spacing: -0.01e
 .btn.danger { color: var(--bad); }
 .btn.small { padding: 5px 10px; font-size: .85rem; }
 .btn.recording { background: var(--bad); color: #fff; border-color: var(--bad); animation: pulse .8s infinite alternate; }
+.ic { display: inline-flex; width: 20px; height: 20px; flex: none; }
+.ic svg { width: 100%; height: 100%; }
+.btn .ic { margin-left: -2px; color: var(--accent); }
+.btn.primary .ic, .btn.recording .ic { color: inherit; }
+.filelink { display: inline-flex; align-items: center; gap: 8px; text-decoration: none; }
 .spacer { flex: 1; }
 .cards { display: grid; gap: 10px; }
 .card { background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: grid; gap: 8px; box-shadow: 0 1px 2px rgba(20,30,45,.05); }

@@ -77,6 +77,16 @@
   const linkIds = (html) => [...new Set([...(html || '').matchAll(/#page\/([0-9a-f-]{36})/g)].map((m) => m[1]))];
   const pinnedFirst = (a, b) => (b.pinned || 0) - (a.pinned || 0) || (a.title || '').localeCompare(b.title || '');
 
+  const ICONS = {
+    photo: '<path d="M4 8.5A1.5 1.5 0 0 1 5.5 7H8l1.5-2h5L16 7h2.5A1.5 1.5 0 0 1 20 8.5V18a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18z"/><circle cx="12" cy="13" r="3.5"/>',
+    scan: '<path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16"/><path d="M7 12h10"/>',
+    mic: '<rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M6 11.5a6 6 0 0 0 12 0M12 17.5V21M9 21h6"/>',
+    stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
+    file: '<path d="M14.5 4H7.5A1.5 1.5 0 0 0 6 5.5v13A1.5 1.5 0 0 0 7.5 20h9a1.5 1.5 0 0 0 1.5-1.5V7.5z"/><path d="M14 4v4h4M9 13h6M9 16.5h6"/>'
+  };
+  const icon = (name) => el('span', { class: 'ic', html: '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + ICONS[name] + '</svg>' });
+  const setBtn = (btn, name, label) => { btn.replaceChildren(icon(name), el('span', {}, label)); };
+
   function onChanged() { S.schedule(); refreshTree(); refreshInboxCount(); }
 
   // ---------- assets ----------
@@ -152,11 +162,11 @@
       recStream.getTracks().forEach((t) => t.stop());
       const blob = new Blob(recChunks, { type: recorder.mimeType || mime || 'audio/webm' });
       recorder = null; recStream = null;
-      btn.classList.remove('recording'); btn.textContent = '● Record';
+      btn.classList.remove('recording'); setBtn(btn, 'mic', 'Record');
       if (blob.size > 0) { await captureAudio(blob, Math.round((Date.now() - started) / 1000)); renderInbox(); toast('Voice note saved'); }
     };
     recorder.start();
-    btn.classList.add('recording'); btn.textContent = '■ Stop';
+    btn.classList.add('recording'); setBtn(btn, 'stop', 'Stop');
   }
 
   async function renderInbox() {
@@ -174,10 +184,10 @@
       renderInbox(); toast('Added to inbox');
     });
     const saveBtn = el('button', { class: 'btn primary', type: 'button', onclick: async () => { if (await captureText(ta.value)) { ta.value = ''; ta.style.height = ''; renderInbox(); } } }, 'Save');
-    const photoBtn = el('button', { class: 'btn', type: 'button', onclick: () => $('#file-image').click() }, '📷 Photo');
-    const scanBtn = el('button', { class: 'btn', type: 'button', onclick: () => $('#file-scan').click() }, '▣ Scan');
-    const recBtn = el('button', { class: 'btn', type: 'button', onclick: () => toggleRecording(recBtn) }, '● Record');
-    const fileBtn = el('button', { class: 'btn', type: 'button', onclick: () => $('#file-any').click() }, '📎 File');
+    const photoBtn = el('button', { class: 'btn', type: 'button', onclick: () => $('#file-image').click() }, icon('photo'), el('span', {}, 'Photo'));
+    const scanBtn = el('button', { class: 'btn', type: 'button', onclick: () => $('#file-scan').click() }, icon('scan'), el('span', {}, 'Scan'));
+    const recBtn = el('button', { class: 'btn', type: 'button', onclick: () => toggleRecording(recBtn) }, icon('mic'), el('span', {}, 'Record'));
+    const fileBtn = el('button', { class: 'btn', type: 'button', onclick: () => $('#file-any').click() }, icon('file'), el('span', {}, 'File'));
     const composer = el('div', { class: 'composer' }, ta, el('div', { class: 'bar' }, photoBtn, scanBtn, recBtn, fileBtn, el('span', { class: 'spacer' }), saveBtn));
     composer.addEventListener('dragover', (e) => { e.preventDefault(); });
     composer.addEventListener('drop', async (e) => {
@@ -204,7 +214,7 @@
     } else if (p.kind === 'audio' && p.assetId) {
       card.append(el('div', {}, p.title), el('audio', { controls: '', src: assetUrl(p.assetId), preload: 'none' }));
     } else if (p.kind === 'file' && p.assetId) {
-      card.append(el('a', { href: assetUrl(p.assetId), target: '_blank', rel: 'noopener' }, '📎 ' + p.title));
+      card.append(el('a', { class: 'filelink', href: assetUrl(p.assetId), target: '_blank', rel: 'noopener' }, icon('file'), el('span', {}, p.title)));
     } else {
       const text = textOf(p);
       card.append(el('div', { class: 'body' + (text.length < 220 ? ' short' : ''), onclick: () => quickLook(p) }, text || p.title));
