@@ -72,7 +72,7 @@
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const textToHtml = (text) => text.split(/\n{2,}/).map((para) => '<p>' + esc(para).replace(/\n/g, '<br>') + '</p>').join('\n');
   const htmlOf = (p) => (p.html != null && p.html !== '') ? p.html : (p.md ? (window.marked ? marked.parse(p.md) : textToHtml(p.md)) : '');
-  const textOf = (p) => { const d = document.createElement('div'); d.innerHTML = htmlOf(p); const props = (p.props || []).map((x) => x.k + ' ' + x.v).join(' '); return ((d.textContent || '') + ' ' + props).replace(/\s+/g, ' ').trim(); };
+  const textOf = (p) => { const d = document.createElement('div'); d.innerHTML = htmlOf(p); const props = (p.props || []).map((x) => x.k + ' ' + x.v).join(' '); return ((d.textContent || '') + ' ' + props + ' ' + (p.kind === 'pdf' ? (p.pdfText || '') : '')).replace(/\s+/g, ' ').trim(); };
   const wordCount = (html) => { const d = document.createElement('div'); d.innerHTML = html || ''; return ((d.textContent || '').match(/\S+/g) || []).length; };
   const linkIds = (html) => [...new Set([...(html || '').matchAll(/#page\/([0-9a-f-]{36})/g)].map((m) => m[1]))];
   const pinnedFirst = (a, b) => (b.pinned || 0) - (a.pinned || 0) || (a.title || '').localeCompare(b.title || '');
@@ -169,10 +169,16 @@
     const p = await pages.create({ inbox: 1, kind: kind || 'image', title: file.name ? file.name.replace(/\.\w+$/, '') : 'Photo', html: '<p><img src="' + assetUrl(a.id) + '" alt="' + esc(file.name || 'photo') + '"></p>', assetId: a.id });
     onChanged(); return p;
   }
-  async function captureFile(file) {
+  async function captureFile(file, target) {
     const a = await storeAsset(file);
-    const p = await pages.create({ inbox: 1, kind: 'file', title: file.name || 'File', html: '<p><a href="' + assetUrl(a.id) + '">📎 ' + esc(file.name || 'file') + '</a></p>', assetId: a.id });
-    onChanged(); return p;
+    const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
+    const base = Object.assign({ inbox: 1 }, target || {});
+    const p = isPdf
+      ? await pages.create(Object.assign(base, { kind: 'pdf', title: (file.name || 'Document').replace(/\.pdf$/i, ''), html: '', assetId: a.id, annots: {} }))
+      : await pages.create(Object.assign(base, { kind: 'file', title: file.name || 'File', html: '<p><a href="' + assetUrl(a.id) + '">📎 ' + esc(file.name || 'file') + '</a></p>', assetId: a.id }));
+    onChanged();
+    if (isPdf) window.NCPDF.enrich(p.id, a.id).then(() => { if (state.view === 'pdfs') renderLibrary(); refreshTree(); });
+    return p;
   }
   async function captureAudio(blob, seconds) {
     const name = 'Voice note ' + new Date().toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
@@ -244,6 +250,8 @@
       card.append(el('img', { src: assetUrl(p.assetId), alt: p.title, loading: 'lazy', onclick: () => quickLook(p) }));
     } else if (p.kind === 'audio' && p.assetId) {
       card.append(el('div', {}, p.title), el('audio', { controls: '', src: assetUrl(p.assetId), preload: 'none' }));
+    } else if (p.kind === 'pdf') {
+      card.append(el('div', { class: 'pdfcard-row', onclick: () => openPage(p.id) }, p.thumb ? el('img', { class: 'pdfthumb', src: p.thumb, alt: '' }) : el('span', { class: 'pdfglyph' }, 'PDF'), el('div', {}, el('b', {}, p.title), el('div', { class: 'sub' }, (p.pdfPages ? p.pdfPages + ' pages' : 'PDF')))));
     } else if (p.kind === 'file' && p.assetId) {
       card.append(el('a', { class: 'filelink', href: assetUrl(p.assetId), target: '_blank', rel: 'noopener' }, icon('file'), el('span', {}, p.title)));
     } else {
@@ -267,7 +275,7 @@
   }
   function quickLook(p) {
     sheet((box, close) => {
-      const body = el('div', { class: 'quicklook', html: htmlOf(p) });
+      const body = p.kind === 'pdf' ? el('div', { class: 'quicklook' }, p.thumb ? el('img', { src: p.thumb, alt: '' }) : null, el('p', {}, (p.pdfPages || '?') + ' pages')) : el('div', { class: 'quicklook', html: htmlOf(p) });
       box.append(el('h2', {}, p.title || 'Untitled'), el('p', { class: 'rule' }, fmtWhen(p.updated) + ' · ' + wordCount(htmlOf(p)) + ' words'), body,
         el('div', { class: 'actions' }, el('button', { class: 'btn', type: 'button', onclick: () => close() }, 'Close'), el('button', { class: 'btn primary', type: 'button', onclick: () => { close(); openPage(p.id); } }, 'Open')));
     });
@@ -351,7 +359,7 @@
           if (sopen) {
             const pgs = livePages.filter((p) => p.sectionId === s.id).sort(pinnedFirst);
             const pl = el('div', { class: 'pages' });
-            for (const p of pgs) pl.append(gestures(el('button', { class: 'page-row' + (p.id === state.pageId ? ' active' : '') + (p.pinned ? ' pinned' : ''), type: 'button', onclick: () => openPage(p.id) }, el('span', { class: 'page-dot' }), el('span', { class: 'page-title' }, p.title || 'Untitled')),
+            for (const p of pgs) pl.append(gestures(el('button', { class: 'page-row' + (p.id === state.pageId ? ' active' : '') + (p.pinned ? ' pinned' : ''), type: 'button', onclick: () => openPage(p.id) }, p.kind === 'pdf' ? el('span', { class: 'page-pdf' }, 'PDF') : el('span', { class: 'page-dot' }), el('span', { class: 'page-title' }, p.title || 'Untitled')),
               { onDelete: async () => { if (await confirm('Delete "' + (p.title || 'Untitled') + '"?')) { if (state.pageId === p.id) destroyEditor(); await pages.remove(p.id); onChanged(); if (state.pageId === p.id) go('#notes'); } }, onLongPress: () => pageQuickMenu(p) }));
             pl.append(el('button', { class: 'addrow', type: 'button', onclick: () => newPage(nb.id, s.id) }, '+ New page'));
             secEl.append(pl);
@@ -407,6 +415,7 @@
     const view = el('div', { class: 'view' });
     const recent = await pages.recent(8);
     view.append(el('div', { class: 'view-head' }, el('h1', {}, 'Notebooks'), el('div', { class: 'toolrow' },
+      el('a', { class: 'btn small', href: '#pdfs' }, 'PDFs'),
       el('button', { class: 'btn small', type: 'button', onclick: async () => { const n = await ask('New notebook', 'Notebook name'); if (n) { const nb = await notebooks.create(n); await sections.create(nb.id, 'General'); state.expanded.add(nb.id); onChanged(); renderNotes(); } } }, '+ Notebook'))));
     const tv = el('div', { class: 'tree-view panel' }); tv.append(await buildTree());
     view.append(tv);
@@ -472,6 +481,35 @@
     content.replaceChildren(view); syncNav();
   }
 
+  // ---------- PDF library ----------
+  async function renderLibrary() {
+    state.view = 'pdfs';
+    const all = (await pages.live()).filter((p) => p.kind === 'pdf').sort((a, b) => (b.pinned || 0) - (a.pinned || 0) || (b.updated || 0) - (a.updated || 0));
+    const view = el('div', { class: 'view' });
+    view.append(el('div', { class: 'view-head' }, el('h1', {}, 'PDF library'), el('button', { class: 'btn small primary', type: 'button', onclick: () => $('#file-pdf').click() }, '+ Add PDF')));
+    const filter = el('input', { class: 'searchbox', type: 'search', placeholder: 'Filter PDFs…', id: 'pdf-filter' });
+    const grid = el('div', { class: 'pdfgrid' });
+    const draw = async () => {
+      const q = filter.value.trim().toLowerCase(); grid.innerHTML = '';
+      const rows = all.filter((p) => !q || (p.title || '').toLowerCase().includes(q) || (p.tags || []).join(' ').includes(q));
+      if (!rows.length) grid.append(el('p', { class: 'sub' }, all.length ? 'Nothing matched.' : 'No PDFs yet. Add one here or through the Inbox File button.'));
+      for (const p of rows) {
+        const where = p.inbox ? 'Inbox' : await whereIs(p);
+        const nAnn = Object.values(p.annots || {}).reduce((n, l) => n + l.length, 0);
+        grid.append(gestures(el('a', { class: 'pdftile', href: '#page/' + p.id }, p.thumb ? el('img', { src: p.thumb, alt: '' }) : el('div', { class: 'pdfglyph big' }, 'PDF'),
+          el('div', { class: 'pdftitle' }, (p.pinned ? '📌 ' : '') + p.title), el('div', { class: 'pdfmeta' }, (p.pdfPages ? p.pdfPages + ' pp' : '') + (nAnn ? ' · ' + nAnn + ' marks' : '') + ' · ' + where)),
+          { onDelete: async () => { if (await confirm('Delete "' + p.title + '"?')) { await pages.remove(p.id); onChanged(); renderLibrary(); } }, onLongPress: () => pageQuickMenu(p, () => renderLibrary()) }));
+      }
+    };
+    filter.addEventListener('input', draw);
+    view.append(filter, grid); draw();
+    content.replaceChildren(view); syncNav();
+  }
+  $('#file-pdf').addEventListener('change', async (e) => {
+    for (const f of [...e.target.files]) await captureFile(f);
+    e.target.value = ''; toast('PDF added to the Inbox'); if (state.view === 'pdfs') renderLibrary(); else if (state.view === 'inbox') renderInbox();
+  });
+
   // ---------- new page ----------
   async function newPage(notebookId, sectionId) {
     const paper = await sheet((box, close) => {
@@ -494,6 +532,8 @@
   }
   function destroyEditor() {
     clearTimeout(state.saveTimer); clearInterval(state.versionTimer);
+    if (state.pendingSave) { const ps = state.pendingSave; state.pendingSave = null; pages.update(ps.id, ps.patch).then(() => S.schedule()); }
+    if (state.pdfTeardown) { try { state.pdfTeardown(); } catch (e) { /* ignore */ } state.pdfTeardown = null; }
     if (state.editor) { snapshotIfChanged().catch(() => {}); try { state.editor.remove(); } catch (e) { /* ignore */ } state.editor = null; }
     state.openedPage = null;
   }
@@ -571,6 +611,14 @@
     title.addEventListener('input', () => queueSave({ title: title.value }));
     title.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); if (state.editor) state.editor.focus(); } });
     view.append(title);
+
+    if (p.kind === 'pdf') {
+      const host = el('div', { class: 'pdfhost' });
+      view.append(host);
+      content.replaceChildren(view); syncNav();
+      state.pdfTeardown = await window.NCPDF.render(p, host, { queueSave: (patch) => queueSave(patch) });
+      return;
+    }
 
     // Properties: small key-value chips under the title.
     const props = el('div', { class: 'props' });
@@ -708,22 +756,24 @@
     function queueSave(patch) {
       Object.assign(p, patch);
       clearTimeout(state.saveTimer);
-      state.saveTimer = setTimeout(async () => { await pages.update(p.id, patch); S.schedule(); refreshTree(); }, 700);
+      state.pendingSave = { id: p.id, patch };
+      state.saveTimer = setTimeout(async () => { state.pendingSave = null; await pages.update(p.id, patch); S.schedule(); refreshTree(); }, 700);
     }
   }
   function pageMenu(p) {
     const html = state.editor && state.pageId === p.id ? state.editor.getContent() : htmlOf(p);
     const words = wordCount(html);
+    const note = p.kind === 'pdf' ? ((p.pdfPages || '?') + ' pages · ' + Object.values(p.annots || {}).reduce((n, l) => n + l.length, 0) + ' marks · edited ' + fmtWhen(p.updated)) : (words + (words === 1 ? ' word' : ' words') + ' · about ' + Math.max(1, Math.round(words / 220)) + ' min read · edited ' + fmtWhen(p.updated));
     menu(p.title || 'Untitled', [
       p.inbox ? { label: 'File to section…', fn: async () => { if (await fileInto(p.id)) renderPage(p.id); } } : { label: 'Move to…', fn: async () => { const t = await pickSection('Move page to'); if (t) { await pages.update(p.id, { inbox: 0, notebookId: t.notebookId, sectionId: t.sectionId }); onChanged(); renderPage(p.id); } } },
       { label: p.pinned ? 'Unpin' : 'Pin to top of section', fn: async () => { await pages.update(p.id, { pinned: p.pinned ? 0 : 1 }); onChanged(); renderPage(p.id); } },
-      { label: 'Paper: ' + (PAPERS[p.paper] || 'Plain') + '…', fn: () => menu('Paper', Object.entries(PAPERS).map(([k, v]) => ({ label: v + (k === (p.paper || 'plain') ? '  ✓' : ''), fn: async () => { p.paper = k; await pages.update(p.id, { paper: k }); S.schedule(); if (state.editor && state.pageId === p.id) applyPaper(state.editor, k); } }))) },
-      { label: 'History…', fn: () => historySheet(p) },
-      { label: 'Export as Markdown (.md)', fn: () => exportPage(p, 'md') },
-      { label: 'Export as Word (.doc)', fn: () => exportPage(p, 'doc') },
-      { label: 'Print / Save as PDF', fn: () => setTimeout(() => window.print(), 200) },
+      p.kind === 'pdf' ? null : { label: 'Paper: ' + (PAPERS[p.paper] || 'Plain') + '…', fn: () => menu('Paper', Object.entries(PAPERS).map(([k, v]) => ({ label: v + (k === (p.paper || 'plain') ? '  ✓' : ''), fn: async () => { p.paper = k; await pages.update(p.id, { paper: k }); S.schedule(); if (state.editor && state.pageId === p.id) applyPaper(state.editor, k); } }))) },
+      p.kind === 'pdf' ? null : { label: 'History…', fn: () => historySheet(p) },
+      p.kind === 'pdf' ? { label: 'Export annotated PDF', fn: async () => { try { toast('Preparing PDF…'); const blob = await window.NCPDF.exportAnnotated(p); await deliver(blob, (p.title || 'document') + ' (annotated).pdf'); } catch (e) { toast(e.message); } } } : { label: 'Export as Markdown (.md)', fn: () => exportPage(p, 'md') },
+      p.kind === 'pdf' ? { label: 'Export original PDF', fn: async () => { const a = await assets.get(p.assetId); if (a && a.blob) await deliver(a.blob, (p.title || 'document') + '.pdf'); else toast('PDF not on this device'); } } : { label: 'Export as Word (.doc)', fn: () => exportPage(p, 'doc') },
+      p.kind === 'pdf' ? { label: 'Clear all marks', danger: true, fn: async () => { if (await confirm('Remove every pen and highlighter mark from this PDF?', null, 'Clear')) { await pages.update(p.id, { annots: {} }); S.schedule(); renderPage(p.id); } } } : { label: 'Print / Save as PDF', fn: () => setTimeout(() => window.print(), 200) },
       { label: 'Delete page', danger: true, fn: async () => { if (await confirm('Delete "' + (p.title || 'Untitled') + '"?')) { destroyEditor(); await pages.remove(p.id); onChanged(); go(p.inbox ? '#inbox' : '#notes'); } } }
-    ], words + (words === 1 ? ' word' : ' words') + ' · about ' + Math.max(1, Math.round(words / 220)) + ' min read · edited ' + fmtWhen(p.updated));
+    ], note);
   }
   async function historySheet(p) {
     await snapshotIfChanged().catch(() => {});
@@ -917,7 +967,7 @@
 
   // ---------- navigation ----------
   function syncNav() {
-    document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === state.view || ((state.view === 'page' || state.view === 'section') && a.dataset.nav === 'notes')));
+    document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === state.view || ((state.view === 'page' || state.view === 'section' || (state.view === 'pdfs' && a.closest('.tabbar'))) && a.dataset.nav === 'notes')));
     closeSidebar();
   }
   function go(hash) { if (location.hash === hash) route(); else location.hash = hash; }
@@ -928,6 +978,7 @@
     destroyEditor(); state.pageId = null;
     if (h.startsWith('#section/')) return renderSection(h.slice(9));
     if (h === '#notes') return renderNotes();
+    if (h === '#pdfs') return renderLibrary();
     if (h === '#search') return renderSearch();
     if (h === '#settings') return renderSettings();
     return renderInbox();
