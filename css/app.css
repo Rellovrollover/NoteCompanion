@@ -64,7 +64,9 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; letter-spacing: -0.01e
 .textbtn { background: transparent; border: 0; color: var(--accent); cursor: pointer; padding: 6px 4px; text-decoration: none; font-weight: 600; font-size: .9rem; }
 .scrim { display: none; }
 .content { flex: 1; min-width: 0; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 18px calc(28px + env(safe-area-inset-bottom, 0px)); }
-.content > .view { max-width: 56rem; margin: 0 auto; display: grid; gap: 16px; }
+.content { overflow-x: hidden; }
+.content > .view { max-width: 56rem; margin: 0 auto; display: grid; gap: 16px; min-width: 0; }
+.content > .view > * { min-width: 0; max-width: 100%; }
 .view-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .view-head h1 { font-size: 1.55rem; }
 .sub { color: var(--muted); font-size: .92rem; margin: 0; }
@@ -266,8 +268,9 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; letter-spacing: -0.01e
 .proptxt { color: var(--muted); font-size: .82rem; }
 
 /* Section table (database view) */
-.dbwrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
-.dbtable { border-collapse: collapse; width: 100%; font-size: .92rem; min-width: 480px; }
+.dbwrap { overflow-x: auto; -webkit-overflow-scrolling: touch; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); max-width: 100%; }
+.dbtable { border-collapse: collapse; width: 100%; font-size: .92rem; }
+.dbtable td, .dbtable th { max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dbtable th { text-align: left; padding: 9px 12px; background: var(--raised); color: var(--muted); font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; cursor: pointer; white-space: nowrap; user-select: none; }
 .dbtable td { padding: 9px 12px; border-top: 1px solid var(--line); vertical-align: top; }
 .dbtable tr:hover td { background: var(--raised); cursor: pointer; }

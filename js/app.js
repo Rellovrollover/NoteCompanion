@@ -49,12 +49,12 @@
       el('button', { class: 'btn primary', type: 'button', onclick: () => close(input.value.trim()) }, okLabel || 'OK')));
   });
   const confirm = (title, note, okLabel) => sheet((box, close) => {
-    box.append(el('h2', {}, title), note ? el('p', { class: 'danger-note' }, note) : null, el('div', { class: 'actions' },
+    box.append(el('h2', {}, title), ...(note ? [el('p', { class: 'danger-note' }, note)] : []), el('div', { class: 'actions' },
       el('button', { class: 'btn', type: 'button', onclick: () => close(false) }, 'Cancel'),
       el('button', { class: 'btn danger', type: 'button', onclick: () => close(true) }, okLabel || 'Delete')));
   });
   const menu = (title, items, note) => sheet((box, close) => {
-    box.append(el('h2', {}, title), note ? el('p', { class: 'rule' }, note) : null,
+    box.append(el('h2', {}, title), ...(note ? [el('p', { class: 'rule' }, note)] : []),
       el('div', { class: 'list' }, items.filter(Boolean).map((it) => el('button', { type: 'button', style: it.danger ? 'color: var(--bad)' : (it.accent ? 'color: var(--accent)' : ''), onclick: () => { close(); it.fn(); } }, it.label))),
       el('div', { class: 'actions' }, el('button', { class: 'btn', type: 'button', onclick: () => close() }, 'Close')));
   });
@@ -353,7 +353,7 @@
           const secEl = el('div', { class: 'sec' + (sopen ? ' open' : '') });
           secEl.append(el('div', { class: 'sec-head' },
             el('button', { class: 'sec-toggle', type: 'button', 'aria-label': 'Expand', onclick: () => toggle(s.id) }, chevron(sopen)),
-            el('button', { class: 'sec-name', type: 'button', title: 'Open section', onclick: () => go('#section/' + s.id) }, s.name, s.view === 'table' ? el('span', { class: 'sec-kind' }, '▦') : null),
+            el('button', { class: 'sec-name', type: 'button', title: 'Open section', onclick: () => go('#section/' + s.id) }, s.name),
             el('span', { class: 'sec-count' }, count ? String(count) : ''),
             el('button', { class: 'more', type: 'button', 'aria-label': 'Section options', onclick: (e) => { e.stopPropagation(); sectionMenu(nb, s); } }, '···')));
           if (sopen) {
