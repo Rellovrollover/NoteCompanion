@@ -333,3 +333,8 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; letter-spacing: -0.01e
 .pdfmeta { font-size: .75rem; color: var(--muted); }
 .pdfgrid .swipe { border-radius: 12px; }
 @media print { .pdfbar { display: none !important; } }
+
+/* Filing suggestions on inbox cards */
+.suggest { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.suggest-label { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--faint); }
+.suggest .chip { background: var(--accent-soft); color: var(--accent); font-weight: 600; }

@@ -236,7 +236,8 @@
       renderInbox();
     });
     const cur = (await allNotebooks()).find((n) => n.current);
-    view.append(el('div', { class: 'view-head' }, el('h1', {}, 'Inbox'), el('p', { class: 'sub' }, list.length ? list.length + ' to file' : 'Capture now, file later')), composer);
+    view.append(el('div', { class: 'view-head' }, el('h1', {}, 'Inbox')), composer);
+    state.suggestIndex = await buildSuggestIndex();
     if (cur) view.append(el('p', { class: 'rule' }, 'Current rotation: ', el('b', {}, cur.name), ' — filing offers it first.'));
     const cards = el('div', { class: 'cards' });
     for (const p of list) cards.append(inboxCard(p));
@@ -246,6 +247,33 @@
     if (location.hash === '#capture') setTimeout(() => ta.focus(), 50);
   }
 
+  // Suggested filing: score each section by how many of the capture's words appear in its name, its pages' titles, tags and text.
+  const STOP = new Set('the a an and or of to in on for with at by from is are was were be this that it as its into about over after before not no yes you your my our we i he she they them his her their what which who when where how why can will would should could'.split(' '));
+  const tokens = (t) => (t || '').toLowerCase().replace(/[^a-z0-9\u00c0-\u024f#+-]+/g, ' ').split(' ').filter((w) => w.length > 2 && !STOP.has(w));
+  async function buildSuggestIndex() {
+    const nbs = await notebooks.all(); const nbById = new Map(nbs.map((n) => [n.id, n]));
+    const secs = (await window.NCDB.db.sections.where('deleted').equals(0).toArray()).filter((sc) => nbById.has(sc.notebookId));
+    const live = (await pages.live()).filter((q) => !q.inbox && q.sectionId);
+    const idx = [];
+    for (const sc of secs) {
+      const nb = nbById.get(sc.notebookId);
+      const strong = new Set(tokens(sc.name + ' ' + nb.name));
+      const weak = new Map();
+      for (const q of live) if (q.sectionId === sc.id) {
+        for (const w of tokens(q.title)) strong.add(w);
+        for (const w of (q.tags || [])) strong.add(w.toLowerCase());
+        for (const w of tokens(textOf(q).slice(0, 3000))) weak.set(w, (weak.get(w) || 0) + 1);
+      }
+      idx.push({ sc, nb, strong, weak, boost: nb.current ? 1.5 : 0 });
+    }
+    return idx;
+  }
+  function suggestFor(p, idx) {
+    const words = [...new Set(tokens((p.title || '') + ' ' + textOf(p).slice(0, 2000) + ' ' + (p.tags || []).join(' ')))];
+    if (!words.length) return [];
+    const scored = idx.map((e) => { let sc = 0; for (const w of words) { if (e.strong.has(w)) sc += 3; else if (e.weak.has(w)) sc += Math.min(2, e.weak.get(w) * 0.5); } return { e, sc: sc ? sc + e.boost : 0 }; }).filter((x) => x.sc >= 3).sort((a, b) => b.sc - a.sc);
+    return scored.slice(0, 2).map((x) => x.e);
+  }
   function inboxCard(p) {
     const card = el('div', { class: 'card' + (p.pinned ? ' pinned' : '') });
     card.append(el('div', { class: 'meta' }, el('span', { class: 'kind' }, p.kind), el('span', {}, fmtWhen(p.updated)), p.tags && p.tags.length ? el('span', {}, p.tags.map((t) => '#' + t).join(' ')) : null));
@@ -261,6 +289,8 @@
       const text = textOf(p);
       card.append(el('div', { class: 'body' + (text.length < 220 ? ' short' : ''), onclick: () => quickLook(p) }, text || p.title));
     }
+    const sugg = state.suggestIndex ? suggestFor(p, state.suggestIndex) : [];
+    if (sugg.length) card.append(el('div', { class: 'suggest' }, el('span', { class: 'suggest-label' }, 'File to'), ...sugg.map((e) => el('button', { class: 'chip', type: 'button', onclick: async () => { await pages.update(p.id, { inbox: 0, notebookId: e.nb.id, sectionId: e.sc.id }); onChanged(); toast('Filed to ' + e.sc.name); renderInbox(); } }, e.nb.name + ' › ' + e.sc.name))));
     const fileBtn = el('button', { class: 'btn small', type: 'button', onclick: async () => { if (await fileInto(p.id)) renderInbox(); } }, 'File to…');
     const openBtn = el('button', { class: 'btn small', type: 'button', onclick: () => openPage(p.id) }, 'Open');
     const pinBtn = el('button', { class: 'btn small', type: 'button', onclick: async () => { await pages.update(p.id, { pinned: p.pinned ? 0 : 1 }); onChanged(); renderInbox(); } }, p.pinned ? 'Unpin' : 'Pin');
