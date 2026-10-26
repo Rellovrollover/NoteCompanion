@@ -78,7 +78,6 @@
   const pinnedFirst = (a, b) => (b.pinned || 0) - (a.pinned || 0) || (a.title || '').localeCompare(b.title || '');
 
   const ICONS = {
-    photo: '<path d="M4 8.5A1.5 1.5 0 0 1 5.5 7H8l1.5-2h5L16 7h2.5A1.5 1.5 0 0 1 20 8.5V18a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18z"/><circle cx="12" cy="13" r="3.5"/>',
     scan: '<path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16"/><path d="M7 12h10"/>',
     mic: '<rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M6 11.5a6 6 0 0 0 12 0M12 17.5V21M9 21h6"/>',
     stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
@@ -217,11 +216,10 @@
       renderInbox(); toast('Added to inbox');
     });
     const saveBtn = el('button', { class: 'btn primary', type: 'button', onclick: async () => { if (await captureText(ta.value)) { ta.value = ''; ta.style.height = ''; renderInbox(); } } }, 'Save');
-    const photoBtn = el('button', { class: 'btn', type: 'button', onclick: () => $('#file-image').click() }, icon('photo'), el('span', {}, 'Photo'));
     const scanBtn = el('button', { class: 'btn', type: 'button', onclick: () => $('#file-scan').click() }, icon('scan'), el('span', {}, 'Scan'));
     const recBtn = el('button', { class: 'btn', type: 'button', onclick: () => toggleRecording(recBtn) }, icon('mic'), el('span', {}, 'Record'));
     const fileBtn = el('button', { class: 'btn', type: 'button', onclick: () => $('#file-any').click() }, icon('file'), el('span', {}, 'File'));
-    const composer = el('div', { class: 'composer' }, ta, el('div', { class: 'bar' }, photoBtn, scanBtn, recBtn, fileBtn, el('span', { class: 'spacer' }), saveBtn));
+    const composer = el('div', { class: 'composer' }, ta, el('div', { class: 'bar' }, fileBtn, scanBtn, recBtn, el('span', { class: 'spacer' }), saveBtn));
     composer.addEventListener('dragover', (e) => { e.preventDefault(); });
     composer.addEventListener('drop', async (e) => {
       e.preventDefault();
@@ -275,10 +273,6 @@
     });
   }
 
-  $('#file-image').addEventListener('change', async (e) => {
-    for (const f of [...e.target.files]) await captureImage(f);
-    e.target.value = ''; if (state.view === 'inbox') renderInbox(); toast('Photo added to inbox');
-  });
   $('#file-scan').addEventListener('change', async (e) => {
     for (const f of [...e.target.files]) { try { await captureImage(await scanify(f), 'scan'); } catch (err) { await captureImage(f, 'scan'); } }
     e.target.value = ''; if (state.view === 'inbox') renderInbox(); toast('Scan added to inbox');
@@ -917,7 +911,7 @@
     view.append(el('div', { class: 'panel help' }, el('h2', {}, 'Capture from the iPhone Share Sheet'),
       el('p', {}, 'In the Shortcuts app, make a shortcut with "Receive Text and URLs from Share Sheet", then an "Open URLs" action set to:'),
       el('p', {}, el('code', {}, C.redirectUri + '?capture=1&text=[Shortcut Input]')),
-      el('p', {}, 'Tick "Show in Share Sheet". Sharing text or a link from any app then lands in the Inbox. Photos: use the Photo button in the Inbox, or paste on desktop.')));
+      el('p', {}, 'Tick "Show in Share Sheet". Sharing text or a link from any app then lands in the Inbox. Photos and files: use the File button in the Inbox, or paste on desktop.')));
     content.replaceChildren(view); syncNav();
   }
 
