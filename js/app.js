@@ -531,6 +531,26 @@
     }
     return apps.sort((a, b) => (b.pinned || 0) - (a.pinned || 0) || (a.title || '').localeCompare(b.title || ''));
   }
+  // Import a seed file (a notebook of pages) into NoteCompanion; idempotent by page id.
+  async function importSeed(file) {
+    const res = await fetch(file); if (!res.ok) throw new Error('Could not load ' + file);
+    const seed = await res.json();
+    let nb = (await window.NCDB.db.notebooks.where('deleted').equals(0).toArray()).find((n) => n.name === seed.notebook);
+    if (!nb) nb = await notebooks.create(seed.notebook);
+    const secs = new Map((await sections.forNotebook(nb.id)).map((sc) => [sc.name, sc]));
+    const existing = new Set((await window.NCDB.db.pages.toArray()).map((q) => q.id));
+    let n = 0;
+    for (const pg of seed.pages) {
+      if (existing.has(pg.id)) continue;
+      let sc = secs.get(pg.section);
+      if (!sc) { sc = await sections.create(nb.id, pg.section); await sections.update(sc.id, { view: 'table' }); sc.view = 'table'; secs.set(pg.section, sc); }
+      await pages.create({ id: pg.id, notebookId: nb.id, sectionId: sc.id, title: pg.title, html: pg.html, props: pg.props || [], tags: pg.tags || [], pinned: pg.pinned || 0, created: pg.created ? Date.parse(pg.created) || Date.now() : Date.now() });
+      n++;
+    }
+    state.expanded.add(nb.id); onChanged();
+    return { notebook: nb, added: n, total: seed.pages.length };
+  }
+  const SEED_FILES = { 'Trials & Pearls': 'seed/trials-pearls.json' };
   const appIcon = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/></svg>';
   async function renderApps() {
     state.view = 'apps';
@@ -548,7 +568,8 @@
         el('div', { class: 'appdesc' }, textOf(a).slice(0, 120)),
         el('div', { class: 'actions' },
           a.url ? el('a', { class: 'btn small primary', href: a.url, target: '_blank', rel: 'noopener' }, 'Open') : el('span', { class: 'sub' }, 'No link yet'),
-          el('button', { class: 'btn small', type: 'button', onclick: () => openPage(a.id) }, 'Notes')));
+          el('button', { class: 'btn small', type: 'button', onclick: () => openPage(a.id) }, 'Notes'),
+          SEED_FILES[a.title] ? el('button', { class: 'btn small', type: 'button', onclick: async (e) => { e.target.disabled = true; toast('Importing…'); try { const r = await importSeed(SEED_FILES[a.title]); toast(r.added ? 'Imported ' + r.added + ' pages into ' + r.notebook.name : 'Already imported (' + r.total + ' pages)'); } catch (err) { toast(err.message); } e.target.disabled = false; } }, 'Import into NoteCompanion') : null));
       grid.append(gestures(tile, { onDelete: async () => { if (await confirm('Remove "' + a.title + '" from the hub?', null, 'Remove')) { await pages.remove(a.id); S.schedule(); renderApps(); } }, onLongPress: () => menu(a.title, [
         { label: 'Open notes', fn: () => openPage(a.id) },
         { label: 'Change link', fn: async () => { const u = await ask('Link', 'https://…', a.url || '', 'Save'); if (u !== undefined) { await pages.update(a.id, { url: u }); S.schedule(); renderApps(); } } },
