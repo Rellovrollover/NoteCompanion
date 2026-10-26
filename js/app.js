@@ -547,13 +547,12 @@
     body.paper-grid { background-image: repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--pitch) - 1px), var(--grid) calc(var(--pitch) - 1px), var(--grid) var(--pitch)), repeating-linear-gradient(to right, transparent 0, transparent calc(var(--pitch) - 1px), var(--grid) calc(var(--pitch) - 1px), var(--grid) var(--pitch)); background-origin: border-box; }
     body.paper-dots { background-image: radial-gradient(circle, var(--rule) 1.2px, transparent 1.6px); background-size: var(--pitch) var(--pitch); background-position: calc(var(--pitch) / 2) calc(var(--pitch) / 2); background-origin: border-box; }
     body.paper-ruled, body.paper-grid, body.paper-dots { background-attachment: local; }
-    p, ul, ol, blockquote, pre, table, details, .callout { margin: 0 0 var(--pitch); }
+    p, ul, ol, blockquote, pre, table, details, .callout { margin: 0; }
     li { line-height: var(--pitch); }
-    h1, h2, h3 { font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif; letter-spacing: -0.01em; margin: 0 0 var(--pitch); }
+    h1, h2, h3 { font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif; letter-spacing: -0.01em; margin: 0; }
     h1 { font-size: 28px; line-height: calc(var(--pitch) * 2); }
-    h2 { font-size: 22px; line-height: var(--pitch); margin-top: var(--pitch); }
+    h2 { font-size: 22px; line-height: var(--pitch); }
     h3 { font-size: 18px; line-height: var(--pitch); }
-    h2:first-child, h3:first-child { margin-top: 0; }
     img { max-width: 100%; height: auto; border-radius: 8px; vertical-align: top; }
     table { border-collapse: collapse; width: 100%; } td, th { border: 1px solid #b9b4a8; padding: 0 8px; line-height: var(--pitch); vertical-align: top; } th { background: rgba(127,127,127,.12); }
     a.wikilink { color: #1f3a5f; text-decoration: none; border-bottom: 1px dashed currentColor; }
