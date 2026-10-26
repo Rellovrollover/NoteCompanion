@@ -276,3 +276,17 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; letter-spacing: -0.01e
 /* Graph */
 .graphwrap { background: var(--paper); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
 .graph { display: block; touch-action: none; }
+
+/* Swipe-to-delete and press-and-hold */
+.swipe { position: relative; overflow: hidden; border-radius: 12px; }
+.swipe-under { position: absolute; inset: 0; display: flex; justify-content: flex-end; align-items: stretch; background: var(--bad); border-radius: inherit; }
+.swipe-del { width: 96px; border: 0; background: transparent; color: #fff; font-weight: 600; cursor: pointer; }
+.swipe-front { position: relative; transition: transform .18s ease; touch-action: pan-y; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.tree .pages .swipe { border-radius: 8px; }
+.tree .pages .swipe-front { background: var(--paper); width: 100%; }
+.pagelist .swipe-front { display: flex; }
+.papers button { display: flex; align-items: center; gap: 12px; }
+.papers .swatch { width: 44px; height: 30px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--paper); flex: none; }
+.papers .paper-ruled .swatch { background-image: repeating-linear-gradient(to bottom, transparent 0 7px, var(--line-strong) 7px 8px); }
+.papers .paper-grid .swatch { background-image: repeating-linear-gradient(to bottom, transparent 0 7px, var(--line-strong) 7px 8px), repeating-linear-gradient(to right, transparent 0 7px, var(--line-strong) 7px 8px); }
+.papers .paper-dots .swatch { background-image: radial-gradient(circle, var(--line-strong) 1px, transparent 1.4px); background-size: 8px 8px; background-position: 4px 4px; }

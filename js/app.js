@@ -87,6 +87,39 @@
   const icon = (name) => el('span', { class: 'ic', html: '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + ICONS[name] + '</svg>' });
   const setBtn = (btn, name, label) => { btn.replaceChildren(icon(name), el('span', {}, label)); };
 
+  // Swipe left to reveal Delete; press and hold (or right-click) for a menu.
+  function gestures(front, { onDelete, onLongPress }) {
+    const wrap = el('div', { class: 'swipe' });
+    const under = el('div', { class: 'swipe-under' }, el('button', { class: 'swipe-del', type: 'button', onclick: (e) => { e.stopPropagation(); reset(); onDelete(); } }, 'Delete'));
+    front.classList.add('swipe-front');
+    wrap.append(under, front);
+    let sx = 0, sy = 0, dx = 0, dragging = null, open = false, lp = null, fired = false;
+    const reset = () => { open = false; front.style.transform = ''; wrap.classList.remove('open'); };
+    const setX = (x) => { front.style.transition = 'none'; front.style.transform = 'translateX(' + x + 'px)'; };
+    front.addEventListener('touchstart', (e) => {
+      const t = e.touches[0]; sx = t.clientX; sy = t.clientY; dx = 0; dragging = null; fired = false;
+      clearTimeout(lp); lp = setTimeout(() => { lp = null; if (dragging === null && onLongPress) { fired = true; if (navigator.vibrate) navigator.vibrate(10); onLongPress(); } }, 480);
+    }, { passive: true });
+    front.addEventListener('touchmove', (e) => {
+      const t = e.touches[0]; dx = t.clientX - sx; const dy = t.clientY - sy;
+      if (dragging === null) { if (Math.abs(dx) > 8 || Math.abs(dy) > 8) { dragging = Math.abs(dx) > Math.abs(dy); clearTimeout(lp); lp = null; } else return; }
+      if (!dragging) return;
+      e.preventDefault();
+      const base = open ? -96 : 0;
+      setX(Math.max(-140, Math.min(0, base + dx)));
+    }, { passive: false });
+    front.addEventListener('touchend', () => {
+      clearTimeout(lp); lp = null;
+      front.style.transition = '';
+      if (dragging) { const pos = (open ? -96 : 0) + dx; if (pos < -70) { open = true; front.style.transform = 'translateX(-96px)'; wrap.classList.add('open'); } else reset(); }
+      dragging = null;
+    });
+    front.addEventListener('touchcancel', () => { clearTimeout(lp); lp = null; front.style.transition = ''; dragging = null; });
+    front.addEventListener('click', (e) => { if (fired || open) { e.preventDefault(); e.stopPropagation(); fired = false; reset(); } }, true);
+    front.addEventListener('contextmenu', (e) => { if (onLongPress) { e.preventDefault(); onLongPress(); } });
+    return wrap;
+  }
+
   function onChanged() { S.schedule(); refreshTree(); refreshInboxCount(); }
 
   // ---------- assets ----------
@@ -224,7 +257,15 @@
     const pinBtn = el('button', { class: 'btn small', type: 'button', onclick: async () => { await pages.update(p.id, { pinned: p.pinned ? 0 : 1 }); onChanged(); renderInbox(); } }, p.pinned ? 'Unpin' : 'Pin');
     const delBtn = el('button', { class: 'btn small danger', type: 'button', onclick: async () => { if (await confirm('Delete this capture?')) { await pages.remove(p.id); onChanged(); renderInbox(); } } }, 'Delete');
     card.append(el('div', { class: 'actions' }, openBtn, fileBtn, pinBtn, el('span', { class: 'spacer' }), delBtn));
-    return card;
+    return gestures(card, { onDelete: () => delBtn.click(), onLongPress: () => pageQuickMenu(p, () => renderInbox()) });
+  }
+  function pageQuickMenu(p, after) {
+    menu(p.title || 'Untitled', [
+      { label: 'Open', fn: () => openPage(p.id) },
+      p.inbox ? { label: 'File to…', fn: async () => { if (await fileInto(p.id)) after && after(); } } : { label: 'Move to…', fn: async () => { const t = await pickSection('Move page to'); if (t) { await pages.update(p.id, { inbox: 0, notebookId: t.notebookId, sectionId: t.sectionId }); onChanged(); after && after(); } } },
+      { label: p.pinned ? 'Unpin' : 'Pin', fn: async () => { await pages.update(p.id, { pinned: p.pinned ? 0 : 1 }); onChanged(); after && after(); } },
+      { label: 'Delete', danger: true, fn: async () => { if (await confirm('Delete "' + (p.title || 'Untitled') + '"?')) { if (state.pageId === p.id) destroyEditor(); await pages.remove(p.id); onChanged(); if (state.pageId === p.id) go('#notes'); else after && after(); } } }
+    ]);
   }
   function quickLook(p) {
     sheet((box, close) => {
@@ -316,7 +357,8 @@
           if (sopen) {
             const pgs = livePages.filter((p) => p.sectionId === s.id).sort(pinnedFirst);
             const pl = el('div', { class: 'pages' });
-            for (const p of pgs) pl.append(el('button', { class: 'page-row' + (p.id === state.pageId ? ' active' : '') + (p.pinned ? ' pinned' : ''), type: 'button', onclick: () => openPage(p.id) }, el('span', { class: 'page-dot' }), el('span', { class: 'page-title' }, p.title || 'Untitled')));
+            for (const p of pgs) pl.append(gestures(el('button', { class: 'page-row' + (p.id === state.pageId ? ' active' : '') + (p.pinned ? ' pinned' : ''), type: 'button', onclick: () => openPage(p.id) }, el('span', { class: 'page-dot' }), el('span', { class: 'page-title' }, p.title || 'Untitled')),
+              { onDelete: async () => { if (await confirm('Delete "' + (p.title || 'Untitled') + '"?')) { if (state.pageId === p.id) destroyEditor(); await pages.remove(p.id); onChanged(); if (state.pageId === p.id) go('#notes'); } }, onLongPress: () => pageQuickMenu(p) }));
             pl.append(el('button', { class: 'addrow', type: 'button', onclick: () => newPage(nb.id, s.id) }, '+ New page'));
             secEl.append(pl);
           }
@@ -427,7 +469,8 @@
         holder.append(el('div', { class: 'dbwrap' }, table));
       } else {
         const pl = el('div', { class: 'pagelist' });
-        for (const p of rows) pl.append(el('a', { href: '#page/' + p.id }, el('span', {}, (p.pinned ? '📌 ' : '') + (p.title || 'Untitled'), (p.props || []).length ? el('span', { class: 'proptxt' }, ' · ' + p.props.map((x) => x.k + ': ' + x.v).join(' · ')) : null), el('span', { class: 'when' }, fmtWhen(p.updated))));
+        for (const p of rows) pl.append(gestures(el('a', { href: '#page/' + p.id }, el('span', {}, (p.pinned ? '📌 ' : '') + (p.title || 'Untitled'), (p.props || []).length ? el('span', { class: 'proptxt' }, ' · ' + p.props.map((x) => x.k + ': ' + x.v).join(' · ')) : null), el('span', { class: 'when' }, fmtWhen(p.updated))),
+          { onDelete: async () => { if (await confirm('Delete "' + (p.title || 'Untitled') + '"?')) { await pages.remove(p.id); onChanged(); renderSection(id); } }, onLongPress: () => pageQuickMenu(p, () => renderSection(id)) }));
         holder.append(pl);
       }
     };
@@ -435,26 +478,18 @@
     content.replaceChildren(view); syncNav();
   }
 
-  // ---------- templates ----------
-  const today = () => new Date().toLocaleDateString('en-GB');
-  const TEMPLATES = {
-    'Blank': () => '',
-    'Teaching session': () => '<h2>Teaching: </h2><p><strong>Date:</strong> ' + today() + '<br><strong>Speaker:</strong> <br><strong>Hours:</strong> core&nbsp; / non-core&nbsp;</p><h3>Key points</h3><ul><li></li></ul><h3>Reflection</h3><p></p>',
-    'Journal club': () => '<h2>Journal club: </h2><p><strong>Paper:</strong> <br><strong>Date:</strong> ' + today() + '</p><table><tbody>' + ['Question', 'Design', 'Population', 'Intervention', 'Comparator', 'Outcome', 'Result', 'Limitations'].map((r) => '<tr><td><strong>' + r + '</strong></td><td>&nbsp;</td></tr>').join('') + '</tbody></table><h3>Bottom line</h3><p></p>',
-    'Reading note': () => '<h2></h2><p><strong>Source:</strong> </p><h3>Summary</h3><p></p><h3>Key points</h3><ul><li></li></ul><h3>Cards to make</h3><ul><li data-todo=""></li></ul>',
-    'Procedure log': () => '<h2>Procedure: </h2><p><strong>Date:</strong> ' + today() + '<br><strong>Supervision:</strong> observed / supervised / independent</p><h3>What went well</h3><p></p><h3>What to do differently</h3><p></p>',
-    'Meeting': () => '<h2>Meeting: </h2><p><strong>Date:</strong> ' + today() + '<br><strong>Present:</strong> </p><h3>Discussion</h3><ul><li></li></ul><h3>Actions</h3><ul><li data-todo=""></li></ul>'
-  };
+  // ---------- new page ----------
   async function newPage(notebookId, sectionId) {
-    const tpl = await sheet((box, close) => {
-      box.append(el('h2', {}, 'New page'), el('div', { class: 'list' }, Object.keys(TEMPLATES).map((k) => el('button', { type: 'button', onclick: () => close(k) }, k))),
+    const paper = await sheet((box, close) => {
+      box.append(el('h2', {}, 'New page'), el('p', { class: 'rule' }, 'Paper'), el('div', { class: 'list papers' }, Object.entries(PAPERS).map(([k, v]) => el('button', { type: 'button', class: 'paper-' + k, onclick: () => close(k) }, el('span', { class: 'swatch' }), v))),
         el('div', { class: 'actions' }, el('button', { class: 'btn', type: 'button', onclick: () => close(undefined) }, 'Cancel')));
     });
-    if (tpl === undefined) return;
-    const p = await pages.create({ notebookId, sectionId, title: tpl === 'Blank' ? '' : tpl, html: TEMPLATES[tpl]() });
+    if (paper === undefined) return;
+    const p = await pages.create({ notebookId, sectionId, title: '', html: '', paper });
     state.expanded.add(notebookId); state.expanded.add(sectionId);
     onChanged(); state.focusNew = true; go('#page/' + p.id);
   }
+
   // ---------- page view ----------
   async function snapshotIfChanged() {
     const p = state.openedPage; if (!p || !state.editor) return;
@@ -506,7 +541,7 @@
     details > summary { font-weight: 600; line-height: var(--pitch); cursor: pointer; }
     @media (prefers-color-scheme: dark) { a.wikilink { color: #8fb4e8; } }
   `;
-  const PAPERS = { plain: 'Plain', ruled: 'Ruled lines', grid: 'Squared', dots: 'Dotted' };
+  const PAPERS = { plain: 'Plain', ruled: 'Lined', grid: 'Graph', dots: 'Dotted' };
   function applyPaper(ed, paper) {
     const b = ed.getBody(); if (!b) return;
     b.className = b.className.replace(/\bpaper-\w+/g, '').trim();
@@ -883,8 +918,6 @@
       el('p', {}, 'In the Shortcuts app, make a shortcut with "Receive Text and URLs from Share Sheet", then an "Open URLs" action set to:'),
       el('p', {}, el('code', {}, C.redirectUri + '?capture=1&text=[Shortcut Input]')),
       el('p', {}, 'Tick "Show in Share Sheet". Sharing text or a link from any app then lands in the Inbox. Photos: use the Photo button in the Inbox, or paste on desktop.')));
-    view.append(el('div', { class: 'panel' }, el('h2', {}, 'Rules of the house'),
-      el('p', { class: 'rule' }, 'No patient-identifiable data. Notes, references, teaching and portfolio material only.')));
     content.replaceChildren(view); syncNav();
   }
 
