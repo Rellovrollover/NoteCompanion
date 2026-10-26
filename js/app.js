@@ -17,7 +17,7 @@
     return n;
   };
   const content = $('#content');
-  const state = { view: 'inbox', pageId: null, editor: null, viewer: null, saveTimer: null, mode: 'read', expanded: new Set(), query: '' };
+  const state = { view: 'inbox', pageId: null, editor: null, saveTimer: null, expanded: new Set(), query: '', focusNew: false };
   const isNarrow = () => matchMedia('(max-width: 899px)').matches;
   const isDark = () => matchMedia('(prefers-color-scheme: dark)').matches;
 
@@ -52,6 +52,10 @@
       el('button', { class: 'btn', type: 'button', onclick: () => close(false) }, 'Cancel'),
       el('button', { class: 'btn danger', type: 'button', onclick: () => close(true) }, okLabel || 'Delete')));
   });
+  const menu = (title, items) => sheet((box, close) => {
+    box.append(el('h2', {}, title), el('div', { class: 'list' }, items.filter(Boolean).map((it) => el('button', { type: 'button', style: it.danger ? 'color: var(--bad)' : (it.accent ? 'color: var(--accent)' : ''), onclick: () => { close(); it.fn(); } }, it.label))),
+      el('div', { class: 'actions' }, el('button', { class: 'btn', type: 'button', onclick: () => close() }, 'Close')));
+  });
   const fmtWhen = (ms) => {
     if (!ms) return '';
     const d = new Date(ms), now = new Date();
@@ -64,6 +68,10 @@
   };
   const isoDay = (d) => d.toISOString().slice(0, 10);
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const textToHtml = (text) => text.split(/\n{2,}/).map((para) => '<p>' + esc(para).replace(/\n/g, '<br>') + '</p>').join('\n');
+  // Pages store HTML; older pages may only have Markdown, converted on first open.
+  const htmlOf = (p) => (p.html != null && p.html !== '') ? p.html : (p.md ? (window.marked ? marked.parse(p.md) : textToHtml(p.md)) : '');
+  const textOf = (p) => { const d = document.createElement('div'); d.innerHTML = htmlOf(p); return (d.textContent || '').replace(/\s+/g, ' ').trim(); };
 
   function onChanged() { S.schedule(); refreshTree(); refreshInboxCount(); }
 
@@ -77,13 +85,12 @@
       canvas.width = Math.round(bmp.width * scale); canvas.height = Math.round(bmp.height * scale);
       canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
       const blob = await new Promise((r) => canvas.toBlob(r, 'image/jpeg', 0.86));
-      return blob && blob.size < file.size ? new File([blob], file.name.replace(/\.\w+$/, '') + '.jpg', { type: 'image/jpeg' }) : file;
+      return blob && blob.size < file.size ? new File([blob], (file.name || 'image').replace(/\.\w+$/, '') + '.jpg', { type: 'image/jpeg' }) : file;
     } catch (e) { return file; }
   }
   async function storeAsset(file, name) {
-    const blob = file.type.startsWith('image/') ? await downscale(file) : file;
-    const rec = await assets.create(blob, name || file.name || 'file');
-    return rec;
+    const blob = file.type && file.type.startsWith('image/') ? await downscale(file) : file;
+    return assets.create(blob, name || file.name || 'file');
   }
   const assetUrl = (id) => 'asset/' + id;
 
@@ -91,34 +98,31 @@
   let recorder = null, recChunks = [], recStream = null;
   async function captureText(text, title) {
     text = (text || '').trim(); if (!text) return null;
-    const p = await pages.create({ inbox: 1, kind: 'text', title: title || text.split('\n')[0].slice(0, 60), md: text, mode: 'markdown' });
+    const p = await pages.create({ inbox: 1, kind: 'text', title: title || text.split('\n')[0].slice(0, 60), html: textToHtml(text) });
     onChanged(); return p;
   }
   async function captureImage(file) {
     const a = await storeAsset(file);
-    const p = await pages.create({ inbox: 1, kind: 'image', title: file.name ? file.name.replace(/\.\w+$/, '') : 'Photo', md: '![' + (file.name || 'photo') + '](' + assetUrl(a.id) + ')', assetId: a.id });
+    const p = await pages.create({ inbox: 1, kind: 'image', title: file.name ? file.name.replace(/\.\w+$/, '') : 'Photo', html: '<p><img src="' + assetUrl(a.id) + '" alt="' + esc(file.name || 'photo') + '"></p>', assetId: a.id });
     onChanged(); return p;
   }
   async function captureFile(file) {
     const a = await storeAsset(file);
-    const p = await pages.create({ inbox: 1, kind: 'file', title: file.name || 'File', md: '[' + (file.name || 'file') + '](' + assetUrl(a.id) + ')', assetId: a.id });
+    const p = await pages.create({ inbox: 1, kind: 'file', title: file.name || 'File', html: '<p><a href="' + assetUrl(a.id) + '">📎 ' + esc(file.name || 'file') + '</a></p>', assetId: a.id });
     onChanged(); return p;
   }
   async function captureAudio(blob, seconds) {
     const name = 'Voice note ' + new Date().toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
     const ext = blob.type.includes('mp4') ? 'm4a' : blob.type.includes('ogg') ? 'ogg' : 'webm';
     const a = await assets.create(blob, name + '.' + ext);
-    const p = await pages.create({ inbox: 1, kind: 'audio', title: name, md: '🎙 [Play ' + name + '](' + assetUrl(a.id) + ')  \n_' + seconds + ' s recording_', assetId: a.id });
+    const p = await pages.create({ inbox: 1, kind: 'audio', title: name, html: '<p><a href="' + assetUrl(a.id) + '">🎙 Play ' + esc(name) + '</a> <em>(' + seconds + ' s)</em></p>', assetId: a.id });
     onChanged(); return p;
   }
   async function toggleRecording(btn) {
-    if (recorder) {
-      recorder.stop(); return;
-    }
+    if (recorder) { recorder.stop(); return; }
     if (!navigator.mediaDevices || !window.MediaRecorder) { toast('Recording is not available in this browser.'); return; }
-    try {
-      recStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    } catch (e) { toast('Microphone access was refused.'); return; }
+    try { recStream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+    catch (e) { toast('Microphone access was refused.'); return; }
     const mime = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg'].find((m) => MediaRecorder.isTypeSupported(m)) || '';
     recorder = new MediaRecorder(recStream, mime ? { mimeType: mime } : undefined);
     recChunks = []; const started = Date.now();
@@ -178,8 +182,8 @@
     } else if (p.kind === 'file' && p.assetId) {
       card.append(el('a', { href: assetUrl(p.assetId), target: '_blank', rel: 'noopener' }, '📎 ' + p.title));
     } else {
-      const body = el('div', { class: 'body' + (p.md.length < 220 ? ' short' : ''), onclick: () => openPage(p.id) }, p.md);
-      card.append(body);
+      const text = textOf(p);
+      card.append(el('div', { class: 'body' + (text.length < 220 ? ' short' : ''), onclick: () => openPage(p.id) }, text || p.title));
     }
     const fileBtn = el('button', { class: 'btn small', type: 'button', onclick: async () => { if (await fileInto(p.id)) renderInbox(); } }, 'File to…');
     const openBtn = el('button', { class: 'btn small', type: 'button', onclick: () => openPage(p.id) }, 'Open');
@@ -239,7 +243,7 @@
     const livePages = await pages.live();
     const pagesBySec = new Map();
     for (const p of livePages) if (p.sectionId) pagesBySec.set(p.sectionId, (pagesBySec.get(p.sectionId) || 0) + 1);
-    nbs.forEach((nb, i) => { if (nbs.length <= 2) state.expanded.add(nb.id); });
+    if (nbs.length <= 2) nbs.forEach((nb) => state.expanded.add(nb.id));
     for (const [i, nb] of nbs.entries()) {
       const colour = nb.color || NB_COLOURS[i % NB_COLOURS.length];
       const open = state.expanded.has(nb.id);
@@ -286,22 +290,18 @@
     const n = (await pages.inbox()).length; $('#inbox-count').textContent = n ? String(n) : '';
   }
   function notebookMenu(nb) {
-    sheet((box, close) => {
-      box.append(el('h2', {}, nb.name), el('div', { class: 'list' },
-        el('button', { type: 'button', onclick: async () => { close(); const n = await ask('Rename notebook', '', nb.name, 'Rename'); if (n && n !== nb.name) { await notebooks.update(nb.id, { name: n }); onChanged(); } } }, 'Rename'),
-        el('button', { type: 'button', onclick: async () => { close(); const n = await ask('New section in ' + nb.name, 'Section name'); if (n) { const s = await sections.create(nb.id, n); state.expanded.add(nb.id); state.expanded.add(s.id); onChanged(); } } }, 'Add section'),
-        el('button', { type: 'button', style: 'color: var(--bad)', onclick: async () => { close(); if (await confirm('Delete notebook "' + nb.name + '"?', 'All its sections and pages go to the bin too.')) { await notebooks.remove(nb.id); onChanged(); if (state.view === 'page') go('#inbox'); } } }, 'Delete notebook')),
-        el('div', { class: 'actions' }, el('button', { class: 'btn', type: 'button', onclick: () => close() }, 'Close')));
-    });
+    menu(nb.name, [
+      { label: 'Rename', fn: async () => { const n = await ask('Rename notebook', '', nb.name, 'Rename'); if (n && n !== nb.name) { await notebooks.update(nb.id, { name: n }); onChanged(); } } },
+      { label: 'Add section', fn: async () => { const n = await ask('New section in ' + nb.name, 'Section name'); if (n) { const s = await sections.create(nb.id, n); state.expanded.add(nb.id); state.expanded.add(s.id); onChanged(); } } },
+      { label: 'Delete notebook', danger: true, fn: async () => { if (await confirm('Delete notebook "' + nb.name + '"?', 'All its sections and pages go to the bin too.')) { await notebooks.remove(nb.id); onChanged(); if (state.view === 'page') go('#inbox'); } } }
+    ]);
   }
   function sectionMenu(nb, s) {
-    sheet((box, close) => {
-      box.append(el('h2', {}, nb.name + ' › ' + s.name), el('div', { class: 'list' },
-        el('button', { type: 'button', onclick: () => { close(); newPage(nb.id, s.id); } }, 'New page'),
-        el('button', { type: 'button', onclick: async () => { close(); const n = await ask('Rename section', '', s.name, 'Rename'); if (n && n !== s.name) { await sections.update(s.id, { name: n }); onChanged(); } } }, 'Rename'),
-        el('button', { type: 'button', style: 'color: var(--bad)', onclick: async () => { close(); if (await confirm('Delete section "' + s.name + '"?', 'Its pages go to the bin too.')) { await sections.remove(s.id); onChanged(); if (state.view === 'page') go('#inbox'); } } }, 'Delete section')),
-        el('div', { class: 'actions' }, el('button', { class: 'btn', type: 'button', onclick: () => close() }, 'Close')));
-    });
+    menu(nb.name + ' › ' + s.name, [
+      { label: 'New page', fn: () => newPage(nb.id, s.id) },
+      { label: 'Rename', fn: async () => { const n = await ask('Rename section', '', s.name, 'Rename'); if (n && n !== s.name) { await sections.update(s.id, { name: n }); onChanged(); } } },
+      { label: 'Delete section', danger: true, fn: async () => { if (await confirm('Delete section "' + s.name + '"?', 'Its pages go to the bin too.')) { await sections.remove(s.id); onChanged(); if (state.view === 'page') go('#inbox'); } } }
+    ]);
   }
   async function renderNotes() {
     state.view = 'notes';
@@ -320,13 +320,14 @@
   }
 
   // ---------- templates ----------
+  const today = () => new Date().toLocaleDateString('en-GB');
   const TEMPLATES = {
     'Blank': () => '',
-    'Teaching session': () => '## Teaching: \n\n**Date:** ' + new Date().toLocaleDateString('en-GB') + '  \n**Speaker:**  \n**Hours:** core  / non-core \n\n### Key points\n\n- \n\n### Reflection\n\n',
-    'Journal club': () => '## Journal club: \n\n**Paper:**  \n**Date:** ' + new Date().toLocaleDateString('en-GB') + '\n\n| | |\n| --- | --- |\n| Question | |\n| Design | |\n| Population | |\n| Intervention | |\n| Comparator | |\n| Outcome | |\n| Result | |\n| Limitations | |\n\n### Bottom line\n\n',
-    'Reading note': () => '## \n\n**Source:**  \n**Tags:** \n\n### Summary\n\n### Key points\n\n- \n\n### Cards to make\n\n- [ ] ',
-    'Procedure log': () => '## Procedure: \n\n**Date:** ' + new Date().toLocaleDateString('en-GB') + '  \n**Supervision:** observed / supervised / independent  \n\n### What went well\n\n### What to do differently\n\n',
-    'Meeting': () => '## Meeting: \n\n**Date:** ' + new Date().toLocaleDateString('en-GB') + '  \n**Present:** \n\n### Discussion\n\n- \n\n### Actions\n\n- [ ] '
+    'Teaching session': () => '<h2>Teaching: </h2><p><strong>Date:</strong> ' + today() + '<br><strong>Speaker:</strong> <br><strong>Hours:</strong> core&nbsp; / non-core&nbsp;</p><h3>Key points</h3><ul><li></li></ul><h3>Reflection</h3><p></p>',
+    'Journal club': () => '<h2>Journal club: </h2><p><strong>Paper:</strong> <br><strong>Date:</strong> ' + today() + '</p><table><tbody>' + ['Question', 'Design', 'Population', 'Intervention', 'Comparator', 'Outcome', 'Result', 'Limitations'].map((r) => '<tr><td><strong>' + r + '</strong></td><td>&nbsp;</td></tr>').join('') + '</tbody></table><h3>Bottom line</h3><p></p>',
+    'Reading note': () => '<h2></h2><p><strong>Source:</strong> </p><h3>Summary</h3><p></p><h3>Key points</h3><ul><li></li></ul><h3>Cards to make</h3><ul><li data-todo=""></li></ul>',
+    'Procedure log': () => '<h2>Procedure: </h2><p><strong>Date:</strong> ' + today() + '<br><strong>Supervision:</strong> observed / supervised / independent</p><h3>What went well</h3><p></p><h3>What to do differently</h3><p></p>',
+    'Meeting': () => '<h2>Meeting: </h2><p><strong>Date:</strong> ' + today() + '<br><strong>Present:</strong> </p><h3>Discussion</h3><ul><li></li></ul><h3>Actions</h3><ul><li data-todo=""></li></ul>'
   };
   async function newPage(notebookId, sectionId) {
     const tpl = await sheet((box, close) => {
@@ -334,9 +335,9 @@
         el('div', { class: 'actions' }, el('button', { class: 'btn', type: 'button', onclick: () => close(undefined) }, 'Cancel')));
     });
     if (tpl === undefined) return;
-    const p = await pages.create({ notebookId, sectionId, title: tpl === 'Blank' ? '' : tpl, md: TEMPLATES[tpl](), mode: 'wysiwyg' });
+    const p = await pages.create({ notebookId, sectionId, title: tpl === 'Blank' ? '' : tpl, html: TEMPLATES[tpl]() });
     state.expanded.add(notebookId); state.expanded.add(sectionId);
-    onChanged(); state.nextMode = 'edit'; go('#page/' + p.id);
+    onChanged(); state.focusNew = true; go('#page/' + p.id);
   }
   async function todayNote() {
     let nb = (await notebooks.all()).find((n) => n.name === 'Journal');
@@ -347,8 +348,7 @@
     let p = await pages.byTitle(title);
     if (!p) {
       const d = new Date();
-      p = await pages.create({ notebookId: nb.id, sectionId: sec.id, title, md: '## ' + d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) + '\n\n', mode: 'wysiwyg' });
-      state.nextMode = 'edit';
+      p = await pages.create({ notebookId: nb.id, sectionId: sec.id, title, html: '<h2>' + d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) + '</h2><p></p>' });
     }
     state.expanded.add(nb.id); state.expanded.add(sec.id);
     onChanged(); go('#page/' + p.id);
@@ -357,38 +357,24 @@
   // ---------- page view ----------
   function destroyEditor() {
     clearTimeout(state.saveTimer);
-    if (state.editor) { try { state.editor.destroy(); } catch (e) { /* ignore */ } state.editor = null; }
-    if (state.viewer) { try { state.viewer.destroy(); } catch (e) { /* ignore */ } state.viewer = null; }
+    if (state.editor) { try { state.editor.remove(); } catch (e) { /* ignore */ } state.editor = null; }
   }
-  function wikify(root) {
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-    const nodes = []; let n;
-    while ((n = walker.nextNode())) if (n.nodeValue.includes('[[') && !n.parentElement.closest('code, pre, a')) nodes.push(n);
-    for (const node of nodes) {
-      const frag = document.createDocumentFragment();
-      const parts = node.nodeValue.split(/(\[\[[^\]\n]+\]\])/);
-      for (const part of parts) {
-        const m = part.match(/^\[\[([^\]\n]+)\]\]$/);
-        if (m) frag.append(el('a', { class: 'wikilink', 'data-title': m[1].trim(), onclick: (e) => { e.preventDefault(); openByTitle(m[1].trim()); } }, m[1].trim()));
-        else frag.append(part);
-      }
-      node.replaceWith(frag);
-    }
-    pages.live().then((all) => {
-      const titles = new Set(all.map((p) => (p.title || '').toLowerCase()));
-      root.querySelectorAll('.wikilink').forEach((a) => { if (!titles.has(a.dataset.title.toLowerCase())) a.classList.add('missing'); });
-    });
-  }
-  async function openByTitle(title) {
-    let p = await pages.byTitle(title);
-    if (!p) {
-      const cur = state.pageId ? await pages.get(state.pageId) : null;
-      p = await pages.create({ title, notebookId: cur ? cur.notebookId : null, sectionId: cur ? cur.sectionId : null, inbox: cur && cur.sectionId ? 0 : 1, md: '' });
-      onChanged(); toast('Created "' + title + '"');
-    }
-    go('#page/' + p.id);
-  }
-  async function openPage(id) { go('#page/' + id); }
+  const EDITOR_CSS = `
+    body { font-family: -apple-system, "Segoe UI Variable Text", "Segoe UI", system-ui, Roboto, sans-serif; font-size: 16px; line-height: 1.55; padding: 14px 16px 24px; max-width: 48rem; margin: 0 auto; }
+    h1, h2, h3 { font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif; letter-spacing: -0.01em; }
+    h2 { font-size: 1.45rem; } h3 { font-size: 1.15rem; }
+    img { max-width: 100%; height: auto; border-radius: 8px; }
+    table { border-collapse: collapse; width: 100%; } td, th { border: 1px solid #b9b4a8; padding: 6px 8px; vertical-align: top; } th { background: rgba(127,127,127,.12); }
+    a.wikilink { color: #1f3a5f; text-decoration: none; border-bottom: 1px dashed currentColor; }
+    li[data-todo] { list-style: none; position: relative; padding-left: 1.7em; margin-left: -1.4em; }
+    li[data-todo]::before { content: ""; position: absolute; left: 0; top: .28em; width: 1em; height: 1em; border: 1.6px solid #7a7f88; border-radius: 4px; box-sizing: border-box; background: transparent; }
+    li[data-todo="done"]::before { background: #2d7a4f; border-color: #2d7a4f; }
+    li[data-todo="done"] { text-decoration: line-through; opacity: .65; }
+    mark { background: #fde68a; color: inherit; padding: 0 2px; }
+    blockquote { border-left: 3px solid #b9b4a8; margin-left: 0; padding-left: 12px; color: #6a6e78; }
+    pre { background: rgba(127,127,127,.12); padding: 10px 12px; border-radius: 8px; overflow-x: auto; }
+    .dark-mode a.wikilink { color: #8fb4e8; }
+  `;
 
   async function renderPage(id) {
     destroyEditor();
@@ -402,7 +388,9 @@
 
     const crumbs = el('div', { class: 'crumbs' });
     if (p.inbox) crumbs.append('Inbox', el('button', { type: 'button', onclick: async () => { if (await fileInto(p.id)) renderPage(id); } }, 'File to…'));
-    else crumbs.append(nb ? nb.name : '—', '›', sec ? sec.name : '—', el('button', { type: 'button', onclick: async () => { const t = await pickSection('Move page to'); if (t) { await pages.update(p.id, { inbox: 0, notebookId: t.notebookId, sectionId: t.sectionId }); onChanged(); renderPage(id); } } }, 'Move'));
+    else crumbs.append(nb ? nb.name : '—', '›', sec ? sec.name : '—');
+    crumbs.append(el('span', { class: 'spacer' }));
+    crumbs.append(el('button', { class: 'more-page', type: 'button', 'aria-label': 'Page options', onclick: () => pageMenu(p) }, '···'));
     view.append(crumbs);
 
     const title = el('input', { class: 'title-input', id: 'page-title', type: 'text', placeholder: 'Untitled', value: p.title || '' });
@@ -410,28 +398,9 @@
     title.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); if (state.editor) state.editor.focus(); } });
     view.append(title);
 
-    const modeSeg = el('div', { class: 'seg' });
-    const readBtn = el('button', { type: 'button', class: state.mode === 'read' ? 'on' : '', onclick: () => { state.mode = 'read'; renderPage(id); } }, 'Read');
-    const editBtn = el('button', { type: 'button', class: state.mode === 'edit' ? 'on' : '', onclick: () => { state.mode = 'edit'; renderPage(id); } }, 'Edit');
-    modeSeg.append(readBtn, editBtn);
-    const tools = el('div', { class: 'toolrow' }, modeSeg);
-    let wys = null, mdb = null;
-    if (state.mode === 'edit') {
-      const typeSeg = el('div', { class: 'seg' });
-      wys = el('button', { type: 'button', class: p.mode !== 'markdown' ? 'on' : '', onclick: () => { if (state.editor) state.editor.changeMode('wysiwyg'); } }, 'Rich text');
-      mdb = el('button', { type: 'button', class: p.mode === 'markdown' ? 'on' : '', onclick: () => { if (state.editor) state.editor.changeMode('markdown'); } }, 'Markdown');
-      typeSeg.append(wys, mdb); tools.append(typeSeg);
-      tools.append(el('button', { class: 'btn small', type: 'button', onclick: async () => {
-        const t = await pickPage('Link to page'); if (t && state.editor) state.editor.insertText('[[' + t + ']]');
-      } }, '[[ Link'));
-    }
-    tools.append(el('span', { class: 'spacer' }));
-    tools.append(el('button', { class: 'btn small', type: 'button', onclick: () => exportMenu(p) }, 'Export'));
-    tools.append(el('button', { class: 'btn small danger', type: 'button', onclick: async () => { if (await confirm('Delete "' + (p.title || 'Untitled') + '"?')) { destroyEditor(); await pages.remove(p.id); onChanged(); go(p.inbox ? '#inbox' : '#notes'); } } }, 'Delete'));
-    view.append(tools);
-
-    const host = el('div', { class: 'editor-host' + (isDark() ? ' toastui-editor-dark' : '') });
-    view.append(host);
+    const host = el('div', { class: 'editor-host' });
+    const ta = el('textarea', { id: 'page-editor' });
+    host.append(ta); view.append(host);
 
     const tagrow = el('div', { class: 'tagrow' });
     const renderTags = () => {
@@ -448,60 +417,99 @@
       tagrow.append(inp);
     };
     renderTags(); view.append(tagrow);
-
     const back = el('div', { class: 'backlinks' });
     view.append(back);
     content.replaceChildren(view); syncNav();
-
-    if (state.mode === 'edit') {
-      state.editor = new toastui.Editor({
-        el: host, height: 'auto', minHeight: isNarrow() ? '50vh' : '60vh', initialEditType: p.mode === 'markdown' ? 'markdown' : 'wysiwyg',
-        previewStyle: isNarrow() ? 'tab' : 'vertical', initialValue: p.md || '', usageStatistics: false, theme: isDark() ? 'dark' : 'light',
-        placeholder: 'Start writing…', autofocus: false, hideModeSwitch: true,
-        toolbarItems: [['heading', 'bold', 'italic', 'strike'], ['hr', 'quote'], ['ul', 'ol', 'task', 'indent', 'outdent'], ['table', 'image', 'link'], ['code', 'codeblock']],
-        hooks: {
-          addImageBlobHook: async (blob, callback) => {
-            const a = await storeAsset(blob, blob.name || 'image');
-            onChanged(); callback(assetUrl(a.id), (blob.name || 'image').replace(/\.\w+$/, ''));
-          }
-        }
-      });
-      state.editor.on('change', () => queueSave({ md: state.editor.getMarkdown() }));
-      state.editor.on('changeMode', (m) => { p.mode = m; queueSave({ mode: m }); if (wys) wys.classList.toggle('on', m === 'wysiwyg'); if (mdb) mdb.classList.toggle('on', m === 'markdown'); });
-      if (!p.title && !p.md) setTimeout(() => title.focus(), 50);
-    } else {
-      const reader = el('div', { class: 'reader' }); host.append(reader);
-      state.viewer = toastui.Editor.factory({ el: reader, viewer: true, initialValue: p.md || '', usageStatistics: false, theme: isDark() ? 'dark' : 'light' });
-      wikify(reader);
-      reader.addEventListener('dblclick', () => { state.mode = 'edit'; renderPage(id); });
-    }
     renderBacklinks(p, back);
 
+    const initial = htmlOf(p);
+    const dark = isDark();
+    const focusNew = state.focusNew; state.focusNew = false;
+    const editors = await tinymce.init({
+      target: ta, base_url: new URL('vendor/tinymce', C.redirectUri).href, suffix: '.min', license_key: 'gpl', promotion: false, branding: false,
+      skin: dark ? 'oxide-dark' : 'oxide', content_css: dark ? 'dark' : 'default', content_style: EDITOR_CSS,
+      plugins: 'lists advlist table link image autolink autoresize searchreplace codesample quickbars',
+      menubar: false, statusbar: false, toolbar_mode: 'sliding', toolbar_sticky: true, toolbar_sticky_offset: 52,
+      toolbar: 'undo redo | blocks | bold italic underline strikethrough | forecolor backcolor | bullist numlist todo | outdent indent | alignleft aligncenter alignright | table image link pagelink | fontsize fontfamily | codesample removeformat searchreplace',
+      quickbars_selection_toolbar: 'bold italic underline | forecolor backcolor | quicklink',
+      quickbars_insert_toolbar: false, quickbars_image_toolbar: 'alignleft aligncenter alignright | imageoptions',
+      autoresize_bottom_margin: 24, min_height: isNarrow() ? 360 : 460,
+      convert_urls: false, paste_data_images: true, automatic_uploads: true, image_title: false, image_dimensions: false,
+      images_upload_handler: (blobInfo) => storeAsset(blobInfo.blob(), blobInfo.filename()).then((a) => { onChanged(); return assetUrl(a.id); }),
+      link_default_target: '_blank', link_assume_external_targets: 'https',
+      font_size_formats: '12px 14px 16px 18px 20px 24px 28px',
+      font_family_formats: 'System=-apple-system,Segoe UI,system-ui,sans-serif; Serif=Iowan Old Style,Palatino Linotype,Georgia,serif; Mono=ui-monospace,Menlo,Consolas,monospace; Arial=arial,helvetica,sans-serif; Calibri=calibri,sans-serif',
+      block_formats: 'Paragraph=p; Heading 1=h1; Heading 2=h2; Heading 3=h3; Quote=blockquote; Code=pre',
+      table_toolbar: 'tableprops tabledelete | tableinsertrowbefore tableinsertrowafter tabledeleterow | tableinsertcolbefore tableinsertcolafter tabledeletecol',
+      placeholder: 'Start writing…', extended_valid_elements: 'li[data-todo|style|class],a[href|class|target|rel|title],audio[src|controls]',
+      setup: (ed) => {
+        ed.ui.registry.addButton('todo', { icon: 'checklist', tooltip: 'To-do item', onAction: () => {
+          let li = ed.dom.getParent(ed.selection.getNode(), 'li');
+          if (!li) { ed.execCommand('InsertUnorderedList'); li = ed.dom.getParent(ed.selection.getNode(), 'li'); }
+          if (!li) return;
+          if (li.hasAttribute('data-todo')) ed.dom.setAttrib(li, 'data-todo', null); else ed.dom.setAttrib(li, 'data-todo', '');
+          ed.undoManager.add(); scheduleSave();
+        } });
+        ed.ui.registry.addButton('pagelink', { text: '[[', tooltip: 'Link to a page', onAction: async () => {
+          const t = await pickPage('Link to page'); if (!t) return;
+          const sel = ed.selection.getContent({ format: 'text' });
+          ed.insertContent('<a class="wikilink" href="#page/' + t.id + '">' + esc(sel || t.title) + '</a>&nbsp;');
+        } });
+        ed.on('click', (e) => {
+          const a = e.target.closest && e.target.closest('a.wikilink');
+          if (a) { e.preventDefault(); go(a.getAttribute('href')); return; }
+          const li = e.target.closest && e.target.closest('li[data-todo]');
+          if (li && e.target === li && e.offsetX < 24) { ed.dom.setAttrib(li, 'data-todo', li.getAttribute('data-todo') === 'done' ? '' : 'done'); ed.undoManager.add(); scheduleSave(); }
+        });
+        ed.on('input change undo redo SetContent ExecCommand', () => { if (ed.initialized) scheduleSave(); });
+        ed.on('init', () => { ed.setContent(initial); ed.undoManager.clear(); ed.setDirty(false); if (focusNew && !p.title) setTimeout(() => title.focus(), 60); });
+      }
+    });
+    state.editor = editors && editors[0];
+    if (!state.editor) return;
+    function scheduleSave() {
+      if (state.pageId !== id || !state.editor) return;
+      const html = state.editor.getContent();
+      if (html === htmlOf(p)) return;
+      queueSave({ html, md: '' });
+    }
     function queueSave(patch) {
       Object.assign(p, patch);
       clearTimeout(state.saveTimer);
       state.saveTimer = setTimeout(async () => { await pages.update(p.id, patch); S.schedule(); refreshTree(); }, 700);
     }
   }
+  function pageMenu(p) {
+    menu(p.title || 'Untitled', [
+      p.inbox ? { label: 'File to section…', fn: async () => { if (await fileInto(p.id)) renderPage(p.id); } } : { label: 'Move to…', fn: async () => { const t = await pickSection('Move page to'); if (t) { await pages.update(p.id, { inbox: 0, notebookId: t.notebookId, sectionId: t.sectionId }); onChanged(); renderPage(p.id); } } },
+      { label: 'Export as Markdown (.md)', fn: () => exportPage(p, 'md') },
+      { label: 'Export as Word (.doc)', fn: () => exportPage(p, 'doc') },
+      { label: 'Print / Save as PDF', fn: () => setTimeout(() => window.print(), 200) },
+      { label: 'Delete page', danger: true, fn: async () => { if (await confirm('Delete "' + (p.title || 'Untitled') + '"?')) { destroyEditor(); await pages.remove(p.id); onChanged(); go(p.inbox ? '#inbox' : '#notes'); } } }
+    ]);
+  }
   async function renderBacklinks(p, back) {
     back.innerHTML = '';
-    if (!p.title) return;
-    const needle = '[[' + p.title.toLowerCase() + ']]';
-    const all = (await pages.live()).filter((q) => q.id !== p.id && (q.md || '').toLowerCase().includes(needle));
+    const needle = '#page/' + p.id;
+    const all = (await pages.live()).filter((q) => q.id !== p.id && (q.html || '').includes(needle));
     if (!all.length) return;
     back.append(el('h3', {}, 'Linked from'));
     for (const q of all) back.append(el('a', { href: '#page/' + q.id }, q.title || 'Untitled'));
   }
   async function pickPage(title) {
     const all = (await pages.live()).sort((a, b) => (b.updated || 0) - (a.updated || 0));
+    const cur = state.pageId ? await pages.get(state.pageId) : null;
     return sheet((box, close) => {
       const inp = el('input', { type: 'text', placeholder: 'Search pages or type a new title', id: 'pick-input' });
       const list = el('div', { class: 'list' });
       const fill = () => {
         const q = inp.value.trim().toLowerCase(); list.innerHTML = '';
-        const hits = all.filter((p) => p.title && (!q || p.title.toLowerCase().includes(q))).slice(0, 30);
-        for (const p of hits) list.append(el('button', { type: 'button', onclick: () => close(p.title) }, p.title));
-        if (q && !hits.some((p) => p.title.toLowerCase() === q)) list.append(el('button', { type: 'button', style: 'color: var(--accent)', onclick: () => close(inp.value.trim()) }, 'Link to new page "' + inp.value.trim() + '"'));
+        const hits = all.filter((pg) => pg.id !== state.pageId && pg.title && (!q || pg.title.toLowerCase().includes(q))).slice(0, 30);
+        for (const pg of hits) list.append(el('button', { type: 'button', onclick: () => close({ id: pg.id, title: pg.title }) }, pg.title));
+        if (q) list.append(el('button', { type: 'button', style: 'color: var(--accent)', onclick: async () => {
+          const np = await pages.create({ title: inp.value.trim(), notebookId: cur ? cur.notebookId : null, sectionId: cur ? cur.sectionId : null, inbox: cur && cur.sectionId ? 0 : 1, html: '' });
+          onChanged(); close({ id: np.id, title: np.title });
+        } }, 'Create new page "' + inp.value.trim() + '"'));
       };
       inp.addEventListener('input', fill); fill();
       inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { const b = list.querySelector('button'); if (b) b.click(); } });
@@ -510,19 +518,13 @@
   }
 
   // ---------- export ----------
-  async function renderHTML(md) {
-    const tmp = el('div', { style: 'position:absolute; left:-9999px; top:0; width:700px' }); document.body.append(tmp);
-    const v = toastui.Editor.factory({ el: tmp, viewer: true, initialValue: md || '', usageStatistics: false });
-    await new Promise((r) => setTimeout(r, 50));
-    let html = tmp.querySelector('.toastui-editor-contents') ? tmp.querySelector('.toastui-editor-contents').innerHTML : tmp.innerHTML;
-    v.destroy(); tmp.remove();
-    // Inline local assets as data URLs so the export is self-contained.
+  async function inlineAssets(html) {
     const ids = [...html.matchAll(/asset\/([0-9a-f-]{36})/g)].map((m) => m[1]);
-    for (const id of new Set(ids)) {
-      const a = await assets.get(id);
+    for (const aid of new Set(ids)) {
+      const a = await assets.get(aid);
       if (a && a.blob) {
         const data = await new Promise((r) => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(a.blob); });
-        html = html.split('asset/' + id).join(data);
+        html = html.split('asset/' + aid).join(data);
       }
     }
     return html;
@@ -535,20 +537,19 @@
     const a = el('a', { href: URL.createObjectURL(blob), download: filename }); document.body.append(a); a.click();
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
   }
-  function exportMenu(p) {
+  async function exportPage(p, kind) {
     const base = (p.title || 'Untitled').replace(/[\\/:*?"<>|]/g, '_');
-    sheet((box, close) => {
-      box.append(el('h2', {}, 'Export "' + (p.title || 'Untitled') + '"'), el('div', { class: 'list' },
-        el('button', { type: 'button', onclick: async () => { close(); await deliver(new Blob(['# ' + (p.title || '') + '\n\n' + (p.md || '')], { type: 'text/markdown' }), base + '.md'); } }, 'Markdown (.md)'),
-        el('button', { type: 'button', onclick: async () => {
-          close();
-          const html = await renderHTML(p.md);
-          const doc = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><title>' + esc(p.title || '') + '</title><style>body{font-family:Calibri,Arial,sans-serif;font-size:11pt}h1,h2,h3{font-family:Cambria,Georgia,serif}table{border-collapse:collapse}td,th{border:1px solid #999;padding:4px 8px}</style></head><body><h1>' + esc(p.title || '') + '</h1>' + html + '</body></html>';
-          await deliver(new Blob(['﻿', doc], { type: 'application/msword' }), base + '.doc');
-        } }, 'Word (.doc)'),
-        el('button', { type: 'button', onclick: async () => { close(); if (state.mode !== 'read') { state.mode = 'read'; await renderPage(p.id); } setTimeout(() => window.print(), 300); } }, 'PDF (print / Save as PDF)')),
-        el('div', { class: 'actions' }, el('button', { class: 'btn', type: 'button', onclick: () => close() }, 'Cancel')));
-    });
+    const html = state.editor && state.pageId === p.id ? state.editor.getContent() : htmlOf(p);
+    if (kind === 'md') {
+      const td = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced', bulletListMarker: '-' });
+      td.addRule('todo', { filter: (node) => node.nodeName === 'LI' && node.hasAttribute('data-todo'), replacement: (c, node) => '- [' + (node.getAttribute('data-todo') === 'done' ? 'x' : ' ') + '] ' + c.trim() + '\n' });
+      const md = '# ' + (p.title || '') + '\n\n' + td.turndown(html);
+      await deliver(new Blob([md], { type: 'text/markdown' }), base + '.md');
+    } else {
+      const body = await inlineAssets(html);
+      const doc = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><title>' + esc(p.title || '') + '</title><style>body{font-family:Calibri,Arial,sans-serif;font-size:11pt}h1,h2,h3{font-family:Cambria,Georgia,serif}table{border-collapse:collapse}td,th{border:1px solid #999;padding:4px 8px}li[data-todo]:before{content:"\\2610 "}li[data-todo=done]:before{content:"\\2611 "}</style></head><body><h1>' + esc(p.title || '') + '</h1>' + body + '</body></html>';
+      await deliver(new Blob(['﻿', doc], { type: 'application/msword' }), base + '.doc');
+    }
   }
 
   // ---------- search ----------
@@ -569,18 +570,17 @@
       const terms = q.split(/\s+/).filter(Boolean);
       const scored = [];
       for (const p of all) {
-        const title = (p.title || '').toLowerCase(), body = (p.md || '').toLowerCase(), tgs = (p.tags || []).join(' ');
-        if (tagQ) { if (!(p.tags || []).includes(tagQ)) continue; scored.push({ p, score: p.updated, idx: -1 }); continue; }
+        const title = (p.title || '').toLowerCase(), raw = textOf(p), body = raw.toLowerCase(), tgs = (p.tags || []).join(' ');
+        if (tagQ) { if (!(p.tags || []).includes(tagQ)) continue; scored.push({ p, raw, score: p.updated, idx: -1 }); continue; }
         let score = 0, idx = -1;
         for (const t of terms) {
           if (title.includes(t)) score += 10; if (tgs.includes(t)) score += 5;
           const i = body.indexOf(t); if (i >= 0) { score += 2; if (idx < 0) idx = i; }
         }
-        if (score) scored.push({ p, score: score * 1e13 + (p.updated || 0), idx });
+        if (score) scored.push({ p, raw, score: score * 1e13 + (p.updated || 0), idx });
       }
       scored.sort((a, b) => b.score - a.score);
-      for (const { p, idx } of scored.slice(0, 60)) {
-        const raw = p.md || '';
+      for (const { p, raw, idx } of scored.slice(0, 60)) {
         const start = Math.max(0, idx - 60), snip = (start > 0 ? '…' : '') + raw.slice(start, start + 160) + (start + 160 < raw.length ? '…' : '');
         let shtml = esc(snip);
         if (!tagQ) for (const t of terms) shtml = shtml.replace(new RegExp(t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'ig'), (m) => '<mark>' + m + '</mark>');
@@ -651,12 +651,7 @@
   function go(hash) { if (location.hash === hash) route(); else location.hash = hash; }
   async function route() {
     const h = location.hash || '#inbox';
-    if (h.startsWith('#page/')) {
-      const id = h.slice(6);
-      if (state.nextMode) { state.mode = state.nextMode; state.nextMode = null; }
-      else if (state.pageId !== id) state.mode = 'read';
-      return renderPage(id);
-    }
+    if (h.startsWith('#page/')) return renderPage(h.slice(6));
     destroyEditor(); state.pageId = null;
     if (h === '#notes') return renderNotes();
     if (h === '#search') return renderSearch();
@@ -667,6 +662,8 @@
   const sidebar = $('#sidebar'), scrim = $('#scrim');
   const closeSidebar = () => { sidebar.classList.remove('open'); scrim.classList.remove('open'); };
   $('#btn-menu').addEventListener('click', () => { sidebar.classList.toggle('open'); scrim.classList.toggle('open'); });
+  $('#btn-back').addEventListener('click', () => history.back());
+  $('#btn-fwd').addEventListener('click', () => history.forward());
   scrim.addEventListener('click', closeSidebar);
   $('#btn-today').addEventListener('click', todayNote);
   $('#btn-new-notebook').addEventListener('click', async () => { const n = await ask('New notebook', 'Notebook name'); if (n) { const nb = await notebooks.create(n); await sections.create(nb.id, 'General'); state.expanded.add(nb.id); onChanged(); } });
