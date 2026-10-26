@@ -1,6 +1,6 @@
-// NoteCompanion app: inbox capture, notebook tree, page editor, search, settings.
+// NoteCompanion app: inbox capture, notebook tree, page editor, sections, search, graph, settings.
 (function () {
-  const { notebooks, sections, pages, assets, meta, deviceName } = window.NCDB;
+  const { notebooks, sections, pages, assets, versions, meta, deviceName } = window.NCDB;
   const G = window.NCGraph;
   const S = window.NCSync;
   const C = window.NC_CONFIG;
@@ -17,9 +17,10 @@
     return n;
   };
   const content = $('#content');
-  const state = { view: 'inbox', pageId: null, editor: null, saveTimer: null, expanded: new Set(), query: '', focusNew: false };
+  const state = { view: 'inbox', pageId: null, editor: null, saveTimer: null, expanded: new Set(), query: '', focusNew: false, openedHtml: '', openedPage: null, versionTimer: null, sectionView: {} };
   const isNarrow = () => matchMedia('(max-width: 899px)').matches;
   const isDark = () => matchMedia('(prefers-color-scheme: dark)').matches;
+  const NB_COLOURS = ['#1f3a5f', '#2d7a4f', '#b4620e', '#7a2d5f', '#0e7490', '#8a5a1f', '#4b5563', '#9f1239'];
 
   // ---------- small UI helpers ----------
   let toastTimer = null;
@@ -52,8 +53,9 @@
       el('button', { class: 'btn', type: 'button', onclick: () => close(false) }, 'Cancel'),
       el('button', { class: 'btn danger', type: 'button', onclick: () => close(true) }, okLabel || 'Delete')));
   });
-  const menu = (title, items) => sheet((box, close) => {
-    box.append(el('h2', {}, title), el('div', { class: 'list' }, items.filter(Boolean).map((it) => el('button', { type: 'button', style: it.danger ? 'color: var(--bad)' : (it.accent ? 'color: var(--accent)' : ''), onclick: () => { close(); it.fn(); } }, it.label))),
+  const menu = (title, items, note) => sheet((box, close) => {
+    box.append(el('h2', {}, title), note ? el('p', { class: 'rule' }, note) : null,
+      el('div', { class: 'list' }, items.filter(Boolean).map((it) => el('button', { type: 'button', style: it.danger ? 'color: var(--bad)' : (it.accent ? 'color: var(--accent)' : ''), onclick: () => { close(); it.fn(); } }, it.label))),
       el('div', { class: 'actions' }, el('button', { class: 'btn', type: 'button', onclick: () => close() }, 'Close')));
   });
   const fmtWhen = (ms) => {
@@ -66,12 +68,14 @@
     if (d.toDateString() === y.toDateString()) return 'Yesterday ' + t;
     return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) + (d.getFullYear() !== now.getFullYear() ? ' ' + d.getFullYear() : '') + ' ' + t;
   };
-  const isoDay = (d) => d.toISOString().slice(0, 10);
+  const isoDay = (d) => { const z = new Date(d.getTime() - d.getTimezoneOffset() * 60000); return z.toISOString().slice(0, 10); };
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const textToHtml = (text) => text.split(/\n{2,}/).map((para) => '<p>' + esc(para).replace(/\n/g, '<br>') + '</p>').join('\n');
-  // Pages store HTML; older pages may only have Markdown, converted on first open.
   const htmlOf = (p) => (p.html != null && p.html !== '') ? p.html : (p.md ? (window.marked ? marked.parse(p.md) : textToHtml(p.md)) : '');
-  const textOf = (p) => { const d = document.createElement('div'); d.innerHTML = htmlOf(p); return (d.textContent || '').replace(/\s+/g, ' ').trim(); };
+  const textOf = (p) => { const d = document.createElement('div'); d.innerHTML = htmlOf(p); const props = (p.props || []).map((x) => x.k + ' ' + x.v).join(' '); return ((d.textContent || '') + ' ' + props).replace(/\s+/g, ' ').trim(); };
+  const wordCount = (html) => { const d = document.createElement('div'); d.innerHTML = html || ''; return ((d.textContent || '').match(/\S+/g) || []).length; };
+  const linkIds = (html) => [...new Set([...(html || '').matchAll(/#page\/([0-9a-f-]{36})/g)].map((m) => m[1]))];
+  const pinnedFirst = (a, b) => (b.pinned || 0) - (a.pinned || 0) || (a.title || '').localeCompare(b.title || '');
 
   function onChanged() { S.schedule(); refreshTree(); refreshInboxCount(); }
 
@@ -88,6 +92,23 @@
       return blob && blob.size < file.size ? new File([blob], (file.name || 'image').replace(/\.\w+$/, '') + '.jpg', { type: 'image/jpeg' }) : file;
     } catch (e) { return file; }
   }
+  // Document scan: grey, level-stretched, sharpened; straightening is a later phase.
+  async function scanify(file) {
+    const bmp = await createImageBitmap(file);
+    const max = 2000, scale = Math.min(1, max / Math.max(bmp.width, bmp.height));
+    const c = document.createElement('canvas'); c.width = Math.round(bmp.width * scale); c.height = Math.round(bmp.height * scale);
+    const ctx = c.getContext('2d'); ctx.drawImage(bmp, 0, 0, c.width, c.height);
+    const img = ctx.getImageData(0, 0, c.width, c.height), d = img.data, hist = new Uint32Array(256);
+    for (let i = 0; i < d.length; i += 4) { const g = (d[i] * 299 + d[i + 1] * 587 + d[i + 2] * 114) / 1000 | 0; d[i] = g; hist[g]++; }
+    const total = c.width * c.height; let lo = 0, hi = 255, acc = 0;
+    for (let i = 0; i < 256; i++) { acc += hist[i]; if (acc > total * 0.02) { lo = i; break; } }
+    acc = 0; for (let i = 255; i >= 0; i--) { acc += hist[i]; if (acc > total * 0.08) { hi = i; break; } }
+    const span = Math.max(1, hi - lo);
+    for (let i = 0; i < d.length; i += 4) { let v = (d[i] - lo) / span; v = v < 0 ? 0 : v > 1 ? 1 : v; v = Math.pow(v, 1.15) * 255; d[i] = d[i + 1] = d[i + 2] = v; }
+    ctx.putImageData(img, 0, 0);
+    const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.82));
+    return new File([blob], 'scan-' + isoDay(new Date()) + '.jpg', { type: 'image/jpeg' });
+  }
   async function storeAsset(file, name) {
     const blob = file.type && file.type.startsWith('image/') ? await downscale(file) : file;
     return assets.create(blob, name || file.name || 'file');
@@ -101,9 +122,9 @@
     const p = await pages.create({ inbox: 1, kind: 'text', title: title || text.split('\n')[0].slice(0, 60), html: textToHtml(text) });
     onChanged(); return p;
   }
-  async function captureImage(file) {
+  async function captureImage(file, kind) {
     const a = await storeAsset(file);
-    const p = await pages.create({ inbox: 1, kind: 'image', title: file.name ? file.name.replace(/\.\w+$/, '') : 'Photo', html: '<p><img src="' + assetUrl(a.id) + '" alt="' + esc(file.name || 'photo') + '"></p>', assetId: a.id });
+    const p = await pages.create({ inbox: 1, kind: kind || 'image', title: file.name ? file.name.replace(/\.\w+$/, '') : 'Photo', html: '<p><img src="' + assetUrl(a.id) + '" alt="' + esc(file.name || 'photo') + '"></p>', assetId: a.id });
     onChanged(); return p;
   }
   async function captureFile(file) {
@@ -140,7 +161,7 @@
 
   async function renderInbox() {
     state.view = 'inbox';
-    const list = await pages.inbox();
+    const list = (await pages.inbox()).sort((a, b) => (b.pinned || 0) - (a.pinned || 0) || (b.updated || 0) - (a.updated || 0));
     const view = el('div', { class: 'view' });
     const ta = el('textarea', { id: 'capture-text', placeholder: 'Quick note…', rows: 2 });
     ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, innerHeight * 0.4) + 'px'; });
@@ -154,16 +175,19 @@
     });
     const saveBtn = el('button', { class: 'btn primary', type: 'button', onclick: async () => { if (await captureText(ta.value)) { ta.value = ''; ta.style.height = ''; renderInbox(); } } }, 'Save');
     const photoBtn = el('button', { class: 'btn', type: 'button', onclick: () => $('#file-image').click() }, '📷 Photo');
+    const scanBtn = el('button', { class: 'btn', type: 'button', onclick: () => $('#file-scan').click() }, '▣ Scan');
     const recBtn = el('button', { class: 'btn', type: 'button', onclick: () => toggleRecording(recBtn) }, '● Record');
     const fileBtn = el('button', { class: 'btn', type: 'button', onclick: () => $('#file-any').click() }, '📎 File');
-    const composer = el('div', { class: 'composer' }, ta, el('div', { class: 'bar' }, photoBtn, recBtn, fileBtn, el('span', { class: 'spacer' }), saveBtn));
+    const composer = el('div', { class: 'composer' }, ta, el('div', { class: 'bar' }, photoBtn, scanBtn, recBtn, fileBtn, el('span', { class: 'spacer' }), saveBtn));
     composer.addEventListener('dragover', (e) => { e.preventDefault(); });
     composer.addEventListener('drop', async (e) => {
       e.preventDefault();
       for (const f of [...e.dataTransfer.files]) await (f.type.startsWith('image/') ? captureImage(f) : captureFile(f));
       renderInbox();
     });
+    const cur = (await allNotebooks()).find((n) => n.current);
     view.append(el('div', { class: 'view-head' }, el('h1', {}, 'Inbox'), el('p', { class: 'sub' }, list.length ? list.length + ' to file' : 'Capture now, file later')), composer);
+    if (cur) view.append(el('p', { class: 'rule' }, 'Current rotation: ', el('b', {}, cur.name), ' — filing offers it first.'));
     const cards = el('div', { class: 'cards' });
     for (const p of list) cards.append(inboxCard(p));
     view.append(cards);
@@ -175,15 +199,15 @@
   function inboxCard(p) {
     const card = el('div', { class: 'card' + (p.pinned ? ' pinned' : '') });
     card.append(el('div', { class: 'meta' }, el('span', { class: 'kind' }, p.kind), el('span', {}, fmtWhen(p.updated)), p.tags && p.tags.length ? el('span', {}, p.tags.map((t) => '#' + t).join(' ')) : null));
-    if (p.kind === 'image' && p.assetId) {
-      card.append(el('img', { src: assetUrl(p.assetId), alt: p.title, loading: 'lazy', onclick: () => openPage(p.id) }));
+    if ((p.kind === 'image' || p.kind === 'scan') && p.assetId) {
+      card.append(el('img', { src: assetUrl(p.assetId), alt: p.title, loading: 'lazy', onclick: () => quickLook(p) }));
     } else if (p.kind === 'audio' && p.assetId) {
       card.append(el('div', {}, p.title), el('audio', { controls: '', src: assetUrl(p.assetId), preload: 'none' }));
     } else if (p.kind === 'file' && p.assetId) {
       card.append(el('a', { href: assetUrl(p.assetId), target: '_blank', rel: 'noopener' }, '📎 ' + p.title));
     } else {
       const text = textOf(p);
-      card.append(el('div', { class: 'body' + (text.length < 220 ? ' short' : ''), onclick: () => openPage(p.id) }, text || p.title));
+      card.append(el('div', { class: 'body' + (text.length < 220 ? ' short' : ''), onclick: () => quickLook(p) }, text || p.title));
     }
     const fileBtn = el('button', { class: 'btn small', type: 'button', onclick: async () => { if (await fileInto(p.id)) renderInbox(); } }, 'File to…');
     const openBtn = el('button', { class: 'btn small', type: 'button', onclick: () => openPage(p.id) }, 'Open');
@@ -192,10 +216,21 @@
     card.append(el('div', { class: 'actions' }, openBtn, fileBtn, pinBtn, el('span', { class: 'spacer' }), delBtn));
     return card;
   }
+  function quickLook(p) {
+    sheet((box, close) => {
+      const body = el('div', { class: 'quicklook', html: htmlOf(p) });
+      box.append(el('h2', {}, p.title || 'Untitled'), el('p', { class: 'rule' }, fmtWhen(p.updated) + ' · ' + wordCount(htmlOf(p)) + ' words'), body,
+        el('div', { class: 'actions' }, el('button', { class: 'btn', type: 'button', onclick: () => close() }, 'Close'), el('button', { class: 'btn primary', type: 'button', onclick: () => { close(); openPage(p.id); } }, 'Open')));
+    });
+  }
 
   $('#file-image').addEventListener('change', async (e) => {
     for (const f of [...e.target.files]) await captureImage(f);
     e.target.value = ''; if (state.view === 'inbox') renderInbox(); toast('Photo added to inbox');
+  });
+  $('#file-scan').addEventListener('change', async (e) => {
+    for (const f of [...e.target.files]) { try { await captureImage(await scanify(f), 'scan'); } catch (err) { await captureImage(f, 'scan'); } }
+    e.target.value = ''; if (state.view === 'inbox') renderInbox(); toast('Scan added to inbox');
   });
   $('#file-any').addEventListener('change', async (e) => {
     for (const f of [...e.target.files]) await (f.type.startsWith('image/') ? captureImage(f) : captureFile(f));
@@ -203,13 +238,14 @@
   });
 
   // ---------- section picker / filing ----------
+  const allNotebooks = async () => (await notebooks.all()).sort((a, b) => (b.current || 0) - (a.current || 0) || (a.order || 0) - (b.order || 0));
   async function pickSection(title) {
-    const nbs = await notebooks.all();
+    const nbs = await allNotebooks();
     return sheet(async (box, close) => {
       box.append(el('h2', {}, title || 'File to section'));
       const list = el('div', { class: 'list' });
       for (const nb of nbs) {
-        list.append(el('div', { class: 'group' }, nb.name));
+        list.append(el('div', { class: 'group' }, nb.name + (nb.current ? ' · current' : '')));
         const secs = await sections.forNotebook(nb.id);
         for (const s of secs) list.append(el('button', { type: 'button', onclick: () => close({ notebookId: nb.id, sectionId: s.id }) }, s.name));
         list.append(el('button', { type: 'button', style: 'color: var(--accent)', onclick: async () => {
@@ -232,9 +268,9 @@
   }
 
   // ---------- notebook tree ----------
-  const NB_COLOURS = ['#1f3a5f', '#2d7a4f', '#b4620e', '#7a2d5f', '#0e7490', '#8a5a1f', '#4b5563', '#9f1239'];
   const chevron = (open) => el('span', { class: 'chev' + (open ? ' open' : ''), html: '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>' });
   const toggle = (id) => { state.expanded.has(id) ? state.expanded.delete(id) : state.expanded.add(id); refreshTree(); };
+  const nbColour = (nb, i) => nb.color || NB_COLOURS[(i == null ? 0 : i) % NB_COLOURS.length];
   async function buildTree() {
     const wrap = el('div', { class: 'tree' });
     const nbs = await notebooks.all();
@@ -245,14 +281,14 @@
     for (const p of livePages) if (p.sectionId) pagesBySec.set(p.sectionId, (pagesBySec.get(p.sectionId) || 0) + 1);
     if (nbs.length <= 2) nbs.forEach((nb) => state.expanded.add(nb.id));
     for (const [i, nb] of nbs.entries()) {
-      const colour = nb.color || NB_COLOURS[i % NB_COLOURS.length];
+      const colour = nbColour(nb, i);
       const open = state.expanded.has(nb.id);
       const secs = allSecs.filter((s) => s.notebookId === nb.id).sort((a, b) => (a.order || 0) - (b.order || 0));
       const nPages = secs.reduce((n, s) => n + (pagesBySec.get(s.id) || 0), 0);
       const nbEl = el('div', { class: 'nb' + (open ? ' open' : ''), style: '--nb: ' + colour });
       const head = el('div', { class: 'nb-head', role: 'button', tabindex: '0', onclick: () => toggle(nb.id), onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(nb.id); } } },
         el('span', { class: 'spine' }), chevron(open),
-        el('span', { class: 'nb-name' }, nb.name),
+        el('span', { class: 'nb-name' }, nb.name), nb.current ? el('span', { class: 'badge-current' }, 'current') : null,
         el('span', { class: 'nb-meta' }, secs.length + (secs.length === 1 ? ' section' : ' sections') + ' · ' + nPages + (nPages === 1 ? ' page' : ' pages')),
         el('button', { class: 'more', type: 'button', 'aria-label': 'Notebook options', onclick: (e) => { e.stopPropagation(); notebookMenu(nb); } }, '···'));
       nbEl.append(head);
@@ -262,13 +298,15 @@
           const sopen = state.expanded.has(s.id);
           const count = pagesBySec.get(s.id) || 0;
           const secEl = el('div', { class: 'sec' + (sopen ? ' open' : '') });
-          secEl.append(el('div', { class: 'sec-head', role: 'button', tabindex: '0', onclick: () => toggle(s.id), onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(s.id); } } },
-            chevron(sopen), el('span', { class: 'sec-name' }, s.name), el('span', { class: 'sec-count' }, count ? String(count) : ''),
+          secEl.append(el('div', { class: 'sec-head' },
+            el('button', { class: 'sec-toggle', type: 'button', 'aria-label': 'Expand', onclick: () => toggle(s.id) }, chevron(sopen)),
+            el('button', { class: 'sec-name', type: 'button', title: 'Open section', onclick: () => go('#section/' + s.id) }, s.name, s.view === 'table' ? el('span', { class: 'sec-kind' }, '▦') : null),
+            el('span', { class: 'sec-count' }, count ? String(count) : ''),
             el('button', { class: 'more', type: 'button', 'aria-label': 'Section options', onclick: (e) => { e.stopPropagation(); sectionMenu(nb, s); } }, '···')));
           if (sopen) {
-            const pgs = livePages.filter((p) => p.sectionId === s.id).sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+            const pgs = livePages.filter((p) => p.sectionId === s.id).sort(pinnedFirst);
             const pl = el('div', { class: 'pages' });
-            for (const p of pgs) pl.append(el('button', { class: 'page-row' + (p.id === state.pageId ? ' active' : ''), type: 'button', onclick: () => openPage(p.id) }, el('span', { class: 'page-dot' }), el('span', { class: 'page-title' }, p.title || 'Untitled')));
+            for (const p of pgs) pl.append(el('button', { class: 'page-row' + (p.id === state.pageId ? ' active' : '') + (p.pinned ? ' pinned' : ''), type: 'button', onclick: () => openPage(p.id) }, el('span', { class: 'page-dot' }), el('span', { class: 'page-title' }, p.title || 'Untitled')));
             pl.append(el('button', { class: 'addrow', type: 'button', onclick: () => newPage(nb.id, s.id) }, '+ New page'));
             secEl.append(pl);
           }
@@ -301,22 +339,30 @@
     menu(nb.name, [
       { label: 'Rename', fn: async () => { const n = await ask('Rename notebook', '', nb.name, 'Rename'); if (n && n !== nb.name) { await notebooks.update(nb.id, { name: n }); onChanged(); } } },
       { label: 'Add section', fn: async () => { const n = await ask('New section in ' + nb.name, 'Section name'); if (n) { const s = await sections.create(nb.id, n); state.expanded.add(nb.id); state.expanded.add(s.id); onChanged(); } } },
-      { label: nb.archived ? 'Unarchive' : 'Archive notebook', fn: async () => { await notebooks.update(nb.id, { archived: nb.archived ? 0 : 1 }); state.expanded.delete(nb.id); onChanged(); toast(nb.archived ? 'Restored' : 'Archived'); } },
+      { label: nb.current ? 'Unset as current rotation' : 'Set as current rotation', fn: async () => {
+        for (const o of await notebooks.all()) if (o.current && o.id !== nb.id) await notebooks.update(o.id, { current: 0 });
+        await notebooks.update(nb.id, { current: nb.current ? 0 : 1 }); onChanged(); toast(nb.current ? 'Cleared' : nb.name + ' is the current rotation');
+      } },
+      { label: nb.archived ? 'Unarchive' : 'Archive notebook', fn: async () => { await notebooks.update(nb.id, { archived: nb.archived ? 0 : 1, current: 0 }); state.expanded.delete(nb.id); onChanged(); toast(nb.archived ? 'Restored' : 'Archived'); } },
       { label: 'Delete notebook', danger: true, fn: async () => { if (await confirm('Delete notebook "' + nb.name + '"?', 'All its sections and pages go to the bin too.')) { await notebooks.remove(nb.id); onChanged(); if (state.view === 'page') go('#inbox'); } } }
     ]);
   }
   function sectionMenu(nb, s) {
     menu(nb.name + ' › ' + s.name, [
+      { label: 'Open section', fn: () => go('#section/' + s.id) },
       { label: 'New page', fn: () => newPage(nb.id, s.id) },
+      { label: s.view === 'table' ? 'Show as list' : 'Show as table (database view)', fn: async () => { await sections.update(s.id, { view: s.view === 'table' ? 'list' : 'table' }); onChanged(); if (state.view === 'section') renderSection(s.id); } },
       { label: 'Rename', fn: async () => { const n = await ask('Rename section', '', s.name, 'Rename'); if (n && n !== s.name) { await sections.update(s.id, { name: n }); onChanged(); } } },
-      { label: 'Delete section', danger: true, fn: async () => { if (await confirm('Delete section "' + s.name + '"?', 'Its pages go to the bin too.')) { await sections.remove(s.id); onChanged(); if (state.view === 'page') go('#inbox'); } } }
+      { label: 'Delete section', danger: true, fn: async () => { if (await confirm('Delete section "' + s.name + '"?', 'Its pages go to the bin too.')) { await sections.remove(s.id); onChanged(); if (state.view === 'page' || state.view === 'section') go('#inbox'); } } }
     ]);
   }
   async function renderNotes() {
     state.view = 'notes';
     const view = el('div', { class: 'view' });
     const recent = await pages.recent(8);
-    view.append(el('div', { class: 'view-head' }, el('h1', {}, 'Notebooks'), el('button', { class: 'btn small', type: 'button', onclick: async () => { const n = await ask('New notebook', 'Notebook name'); if (n) { const nb = await notebooks.create(n); await sections.create(nb.id, 'General'); state.expanded.add(nb.id); onChanged(); renderNotes(); } } }, '+ Notebook')));
+    view.append(el('div', { class: 'view-head' }, el('h1', {}, 'Notebooks'), el('div', { class: 'toolrow' },
+      el('a', { class: 'btn small', href: '#graph' }, 'Graph'),
+      el('button', { class: 'btn small', type: 'button', onclick: async () => { const n = await ask('New notebook', 'Notebook name'); if (n) { const nb = await notebooks.create(n); await sections.create(nb.id, 'General'); state.expanded.add(nb.id); onChanged(); renderNotes(); } } }, '+ Notebook'))));
     const tv = el('div', { class: 'tree-view panel' }); tv.append(await buildTree());
     view.append(tv);
     if (recent.length) {
@@ -325,6 +371,58 @@
       for (const p of recent) pl.append(el('a', { href: '#page/' + p.id }, el('span', {}, p.title || 'Untitled'), el('span', { class: 'when' }, fmtWhen(p.updated))));
       view.append(pl);
     }
+    content.replaceChildren(view); syncNav();
+  }
+
+  // ---------- section view (list or database table) ----------
+  async function renderSection(id) {
+    const s = await sections.get(id);
+    if (!s || s.deleted) { content.replaceChildren(el('div', { class: 'view' }, el('h1', {}, 'Section not found'))); return; }
+    state.view = 'section';
+    const nb = await notebooks.get(s.notebookId);
+    const sv = state.sectionView[id] || (state.sectionView[id] = { sort: 'updated', dir: -1, q: '' });
+    const pgs = (await pages.forSection(id));
+    const view = el('div', { class: 'view' });
+    view.append(el('div', { class: 'crumbs' }, el('a', { href: '#notes' }, nb ? nb.name : '—'), '›', s.name, el('span', { class: 'spacer' }), el('button', { class: 'more-page', type: 'button', 'aria-label': 'Section options', onclick: () => sectionMenu(nb, s) }, '···')));
+    const head = el('div', { class: 'view-head' }, el('h1', {}, s.name), el('div', { class: 'toolrow' },
+      el('div', { class: 'seg' }, el('button', { type: 'button', class: s.view !== 'table' ? 'on' : '', onclick: async () => { await sections.update(id, { view: 'list' }); onChanged(); renderSection(id); } }, 'List'), el('button', { type: 'button', class: s.view === 'table' ? 'on' : '', onclick: async () => { await sections.update(id, { view: 'table' }); onChanged(); renderSection(id); } }, 'Table')),
+      el('button', { class: 'btn small primary', type: 'button', onclick: () => newPage(nb.id, id) }, '+ Page')));
+    view.append(head);
+    const filter = el('input', { class: 'searchbox', type: 'search', placeholder: 'Filter this section…', value: sv.q, id: 'section-filter' });
+    filter.addEventListener('input', () => { sv.q = filter.value; draw(); });
+    view.append(filter);
+    const holder = el('div', {});
+    view.append(holder);
+    const propVal = (p, k) => { const f = (p.props || []).find((x) => x.k === k); return f ? f.v : ''; };
+    const draw = () => {
+      const q = sv.q.trim().toLowerCase();
+      let rows = pgs.filter((p) => !q || (p.title || '').toLowerCase().includes(q) || textOf(p).toLowerCase().includes(q) || (p.tags || []).join(' ').includes(q));
+      const keys = [...new Set(rows.flatMap((p) => (p.props || []).map((x) => x.k)))];
+      const val = (p, k) => k === 'title' ? (p.title || '') : k === 'updated' ? (p.updated || 0) : k === 'tags' ? (p.tags || []).join(', ') : propVal(p, k);
+      rows.sort((a, b) => { const pa = (b.pinned || 0) - (a.pinned || 0); if (pa) return pa; const va = val(a, sv.sort), vb = val(b, sv.sort); return (typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb), undefined, { numeric: true })) * sv.dir; });
+      holder.innerHTML = '';
+      if (!rows.length) { holder.append(el('p', { class: 'sub' }, q ? 'Nothing matched.' : 'No pages yet.')); return; }
+      if (s.view === 'table') {
+        const cols = [['title', 'Title'], ...keys.map((k) => [k, k]), ['tags', 'Tags'], ['updated', 'Updated']];
+        const table = el('table', { class: 'dbtable' });
+        const tr = el('tr', {});
+        for (const [k, label] of cols) tr.append(el('th', { onclick: () => { if (sv.sort === k) sv.dir = -sv.dir; else { sv.sort = k; sv.dir = k === 'updated' ? -1 : 1; } draw(); } }, label, sv.sort === k ? (sv.dir > 0 ? ' ▲' : ' ▼') : ''));
+        table.append(el('thead', {}, tr));
+        const tb = el('tbody', {});
+        for (const p of rows) {
+          const r = el('tr', { onclick: () => openPage(p.id) });
+          for (const [k] of cols) r.append(el('td', { class: k === 'title' ? 'tcell' : '' }, k === 'updated' ? fmtWhen(p.updated) : (k === 'title' ? (p.pinned ? '📌 ' : '') + (p.title || 'Untitled') : String(val(p, k)))));
+          tb.append(r);
+        }
+        table.append(tb);
+        holder.append(el('div', { class: 'dbwrap' }, table));
+      } else {
+        const pl = el('div', { class: 'pagelist' });
+        for (const p of rows) pl.append(el('a', { href: '#page/' + p.id }, el('span', {}, (p.pinned ? '📌 ' : '') + (p.title || 'Untitled'), (p.props || []).length ? el('span', { class: 'proptxt' }, ' · ' + p.props.map((x) => x.k + ': ' + x.v).join(' · ')) : null), el('span', { class: 'when' }, fmtWhen(p.updated))));
+        holder.append(pl);
+      }
+    };
+    draw();
     content.replaceChildren(view); syncNav();
   }
 
@@ -348,37 +446,44 @@
     state.expanded.add(notebookId); state.expanded.add(sectionId);
     onChanged(); state.focusNew = true; go('#page/' + p.id);
   }
-  async function todayNote() {
-    let nb = (await notebooks.all()).find((n) => n.name === 'Journal');
+  async function dailyNote(date) {
+    const cur = (await notebooks.all()).find((n) => n.current);
+    let nb = cur || (await notebooks.all()).find((n) => n.name === 'Journal');
     if (!nb) nb = await notebooks.create('Journal');
     let sec = (await sections.forNotebook(nb.id)).find((s) => s.name === 'Daily');
     if (!sec) sec = await sections.create(nb.id, 'Daily');
-    const title = isoDay(new Date());
+    const title = isoDay(date);
     let p = await pages.byTitle(title);
-    if (!p) {
-      const d = new Date();
-      p = await pages.create({ notebookId: nb.id, sectionId: sec.id, title, html: '<h2>' + d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) + '</h2><p></p>' });
-    }
+    if (!p) p = await pages.create({ notebookId: nb.id, sectionId: sec.id, title, html: '<h2>' + date.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) + '</h2><p></p>' });
     state.expanded.add(nb.id); state.expanded.add(sec.id);
     onChanged(); go('#page/' + p.id);
   }
+  const todayNote = () => dailyNote(new Date());
 
   // ---------- page view ----------
+  async function snapshotIfChanged() {
+    const p = state.openedPage; if (!p || !state.editor) return;
+    let html; try { html = state.editor.getContent(); } catch (e) { return; }
+    if (html === state.openedHtml) return;
+    await versions.add({ id: p.id, title: p.title, html: state.openedHtml, props: p.props });
+    state.openedHtml = html;
+  }
   function destroyEditor() {
-    clearTimeout(state.saveTimer);
-    if (state.editor) { try { state.editor.remove(); } catch (e) { /* ignore */ } state.editor = null; }
+    clearTimeout(state.saveTimer); clearInterval(state.versionTimer);
+    if (state.editor) { snapshotIfChanged().catch(() => {}); try { state.editor.remove(); } catch (e) { /* ignore */ } state.editor = null; }
+    state.openedPage = null;
   }
   // A 24px baseline grid: every line of body text, list item and heading sits on it, so ruled and squared paper line up.
   const EDITOR_CSS = `
-    :root { --pitch: 24px; --rule: rgba(31,58,95,.16); --grid: rgba(31,58,95,.12); }
-    @media (prefers-color-scheme: dark) { :root { --rule: rgba(255,255,255,.13); --grid: rgba(255,255,255,.09); } }
+    :root { --pitch: 24px; --rule: rgba(31,58,95,.16); --grid: rgba(31,58,95,.12); --ink: #1c1e24; }
+    @media (prefers-color-scheme: dark) { :root { --rule: rgba(255,255,255,.13); --grid: rgba(255,255,255,.09); --ink: #ecebe6; } }
     html { background: transparent; }
     body { font-family: -apple-system, "Segoe UI Variable Text", "Segoe UI", system-ui, Roboto, sans-serif; font-size: 16px; line-height: var(--pitch); padding: var(--pitch) 24px var(--pitch); max-width: 50rem; margin: 0 auto; box-sizing: border-box; min-height: 100%; }
     body.paper-ruled { background-image: repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--pitch) - 1px), var(--rule) calc(var(--pitch) - 1px), var(--rule) var(--pitch)); background-origin: border-box; }
     body.paper-grid { background-image: repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--pitch) - 1px), var(--grid) calc(var(--pitch) - 1px), var(--grid) var(--pitch)), repeating-linear-gradient(to right, transparent 0, transparent calc(var(--pitch) - 1px), var(--grid) calc(var(--pitch) - 1px), var(--grid) var(--pitch)); background-origin: border-box; }
     body.paper-dots { background-image: radial-gradient(circle, var(--rule) 1.2px, transparent 1.6px); background-size: var(--pitch) var(--pitch); background-position: calc(var(--pitch) / 2) calc(var(--pitch) / 2); background-origin: border-box; }
     body.paper-ruled, body.paper-grid, body.paper-dots { background-attachment: local; }
-    p, ul, ol, blockquote, pre, table { margin: 0 0 var(--pitch); }
+    p, ul, ol, blockquote, pre, table, details, .callout { margin: 0 0 var(--pitch); }
     li { line-height: var(--pitch); }
     h1, h2, h3 { font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif; letter-spacing: -0.01em; margin: 0 0 var(--pitch); }
     h1 { font-size: 28px; line-height: calc(var(--pitch) * 2); }
@@ -395,6 +500,15 @@
     mark { background: #fde68a; color: inherit; padding: 0 2px; }
     blockquote { border-left: 3px solid #b9b4a8; margin-left: 0; padding-left: 12px; color: #6a6e78; }
     pre { background: rgba(127,127,127,.12); padding: 0 12px; line-height: var(--pitch); border-radius: 8px; overflow-x: auto; }
+    .callout { border-radius: 10px; padding: calc(var(--pitch) / 2 - 1px) 14px calc(var(--pitch) / 2 - 1px) 44px; border: 1px solid transparent; position: relative; }
+    .callout > :last-child { margin-bottom: 0; }
+    .callout::before { position: absolute; left: 14px; top: calc(var(--pitch) / 2 - 1px); font-size: 18px; line-height: var(--pitch); }
+    .callout-info { background: rgba(31,58,95,.1); border-color: rgba(31,58,95,.25); } .callout-info::before { content: "ⓘ"; }
+    .callout-tip { background: rgba(45,122,79,.12); border-color: rgba(45,122,79,.3); } .callout-tip::before { content: "✓"; }
+    .callout-warning { background: rgba(180,98,14,.12); border-color: rgba(180,98,14,.3); } .callout-warning::before { content: "⚠"; }
+    .callout-danger { background: rgba(179,38,30,.1); border-color: rgba(179,38,30,.3); } .callout-danger::before { content: "✕"; }
+    details { border-left: 3px solid #b9b4a8; padding-left: 12px; }
+    details > summary { font-weight: 600; line-height: var(--pitch); cursor: pointer; }
     @media (prefers-color-scheme: dark) { a.wikilink { color: #8fb4e8; } }
   `;
   const PAPERS = { plain: 'Plain', ruled: 'Ruled lines', grid: 'Squared', dots: 'Dotted' };
@@ -403,7 +517,13 @@
     b.className = b.className.replace(/\bpaper-\w+/g, '').trim();
     if (paper && paper !== 'plain') ed.dom.addClass(b, 'paper-' + paper);
   }
-
+  const CALLOUTS = { info: 'Info', tip: 'Tip', warning: 'Warning', danger: 'Important' };
+  function insertCallout(ed, kind) {
+    const cur = ed.dom.getParent(ed.selection.getNode(), '.callout');
+    if (cur) { cur.className = 'callout callout-' + kind; ed.undoManager.add(); return; }
+    const sel = ed.selection.getContent({ format: 'html' });
+    ed.insertContent('<div class="callout callout-' + kind + '"><p>' + (sel || '&nbsp;') + '</p></div><p>&nbsp;</p>');
+  }
 
   async function renderPage(id) {
     destroyEditor();
@@ -417,8 +537,18 @@
 
     const crumbs = el('div', { class: 'crumbs' });
     if (p.inbox) crumbs.append('Inbox', el('button', { type: 'button', onclick: async () => { if (await fileInto(p.id)) renderPage(id); } }, 'File to…'));
-    else crumbs.append(nb ? nb.name : '—', '›', sec ? sec.name : '—');
+    else crumbs.append(el('a', { href: '#notes' }, nb ? nb.name : '—'), '›', el('a', { href: sec ? '#section/' + sec.id : '#notes' }, sec ? sec.name : '—'));
+    const dayMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(p.title || '');
+    if (dayMatch) {
+      const d = new Date(+dayMatch[1], +dayMatch[2] - 1, +dayMatch[3]);
+      const shift = (n) => { const x = new Date(d); x.setDate(d.getDate() + n); return x; };
+      crumbs.append(el('span', { class: 'daynav' },
+        el('button', { type: 'button', title: 'Previous day', onclick: () => dailyNote(shift(-1)) }, '◀'),
+        el('button', { type: 'button', title: 'Today', onclick: () => dailyNote(new Date()) }, 'Today'),
+        el('button', { type: 'button', title: 'Next day', onclick: () => dailyNote(shift(1)) }, '▶')));
+    }
     crumbs.append(el('span', { class: 'spacer' }));
+    if (p.pinned) crumbs.append(el('span', { class: 'pinmark', title: 'Pinned' }, '📌'));
     crumbs.append(el('button', { class: 'more-page', type: 'button', 'aria-label': 'Page options', onclick: () => pageMenu(p) }, '···'));
     view.append(crumbs);
 
@@ -426,6 +556,29 @@
     title.addEventListener('input', () => queueSave({ title: title.value }));
     title.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); if (state.editor) state.editor.focus(); } });
     view.append(title);
+
+    // Properties: small key-value chips under the title.
+    const props = el('div', { class: 'props' });
+    const renderProps = () => {
+      props.innerHTML = '';
+      for (const [i, pr] of (p.props || []).entries()) {
+        props.append(el('button', { class: 'prop', type: 'button', title: 'Edit property', onclick: async () => {
+          const choice = await menu(pr.k, [
+            { label: 'Change value', fn: async () => { const v = await ask(pr.k, 'Value', pr.v, 'Save'); if (v !== undefined) { p.props[i].v = v; await pages.update(p.id, { props: p.props }); S.schedule(); renderProps(); } } },
+            { label: 'Rename property', fn: async () => { const k = await ask('Rename property', 'Name', pr.k, 'Rename'); if (k) { p.props[i].k = k; await pages.update(p.id, { props: p.props }); S.schedule(); renderProps(); } } },
+            { label: 'Remove', danger: true, fn: async () => { p.props.splice(i, 1); await pages.update(p.id, { props: p.props }); S.schedule(); renderProps(); } }
+          ]);
+          return choice;
+        } }, el('span', { class: 'pk' }, pr.k), el('span', { class: 'pv' }, pr.v || '—')));
+      }
+      props.append(el('button', { class: 'prop add', type: 'button', onclick: async () => {
+        const known = [...new Set((await pages.live()).flatMap((q) => (q.props || []).map((x) => x.k)))].filter((k) => !(p.props || []).some((x) => x.k === k));
+        const pick = (k) => ask(k, 'Value', '', 'Add').then(async (v) => { if (v === undefined) return; p.props = [...(p.props || []), { k, v }]; await pages.update(p.id, { props: p.props }); S.schedule(); renderProps(); });
+        if (known.length) menu('Add property', [...known.map((k) => ({ label: k, fn: () => pick(k) })), { label: 'New property…', accent: true, fn: async () => { const k = await ask('Property name', 'e.g. Date, Rotation, Status'); if (k) pick(k); } }]);
+        else { const k = await ask('Property name', 'e.g. Date, Rotation, Status'); if (k) pick(k); }
+      } }, '+ property'));
+    };
+    renderProps(); view.append(props);
 
     const host = el('div', { class: 'editor-host' });
     const ta = el('textarea', { id: 'page-editor' });
@@ -457,9 +610,9 @@
     const editors = await tinymce.init({
       target: ta, base_url: new URL('vendor/tinymce', C.redirectUri).href, suffix: '.min', license_key: 'gpl', promotion: false, branding: false,
       skin: dark ? 'oxide-dark' : 'oxide', content_css: dark ? 'dark' : 'default', content_style: EDITOR_CSS,
-      plugins: 'lists advlist table link image autolink autoresize searchreplace codesample quickbars',
+      plugins: 'lists advlist table link image autolink autoresize searchreplace codesample quickbars accordion',
       menubar: false, statusbar: false, toolbar_mode: 'sliding', toolbar_sticky: true, toolbar_sticky_offset: 52,
-      toolbar: 'undo redo | blocks | bold italic underline strikethrough | forecolor backcolor | bullist numlist todo | outdent indent | alignleft aligncenter alignright | table image link pagelink | fontsize fontfamily | codesample removeformat searchreplace',
+      toolbar: 'undo redo | blocks | bold italic underline strikethrough | forecolor backcolor | bullist numlist todo | outdent indent | alignleft aligncenter alignright | callout accordion table image link pagelink | fontsize fontfamily | codesample removeformat searchreplace',
       quickbars_selection_toolbar: 'bold italic underline | forecolor backcolor | quicklink',
       quickbars_insert_toolbar: false, quickbars_image_toolbar: 'alignleft aligncenter alignright | imageoptions',
       autoresize_bottom_margin: 24, min_height: isNarrow() ? 360 : 460,
@@ -470,20 +623,17 @@
       font_family_formats: 'System=-apple-system,Segoe UI,system-ui,sans-serif; Serif=Iowan Old Style,Palatino Linotype,Georgia,serif; Mono=ui-monospace,Menlo,Consolas,monospace; Arial=arial,helvetica,sans-serif; Calibri=calibri,sans-serif',
       block_formats: 'Paragraph=p; Heading 1=h1; Heading 2=h2; Heading 3=h3; Quote=blockquote; Code=pre',
       table_toolbar: 'tableprops tabledelete | tableinsertrowbefore tableinsertrowafter tabledeleterow | tableinsertcolbefore tableinsertcolafter tabledeletecol',
-      placeholder: 'Start writing…', extended_valid_elements: 'li[data-todo|style|class],a[href|class|target|rel|title],audio[src|controls]',
+      placeholder: 'Start writing… (type / for commands)', extended_valid_elements: 'li[data-todo|style|class],a[href|class|target|rel|title],audio[src|controls],div[class|style]',
       setup: (ed) => {
-        ed.ui.registry.addButton('todo', { icon: 'checklist', tooltip: 'To-do item', onAction: () => {
-          let li = ed.dom.getParent(ed.selection.getNode(), 'li');
-          if (!li) { ed.execCommand('InsertUnorderedList'); li = ed.dom.getParent(ed.selection.getNode(), 'li'); }
-          if (!li) return;
-          if (li.hasAttribute('data-todo')) ed.dom.setAttrib(li, 'data-todo', null); else ed.dom.setAttrib(li, 'data-todo', '');
-          ed.undoManager.add(); scheduleSave();
-        } });
-        ed.ui.registry.addButton('pagelink', { text: '[[', tooltip: 'Link to a page', onAction: async () => {
-          const t = await pickPage('Link to page'); if (!t) return;
-          const sel = ed.selection.getContent({ format: 'text' });
-          ed.insertContent('<a class="wikilink" href="#page/' + t.id + '">' + esc(sel || t.title) + '</a>&nbsp;');
-        } });
+        ed.ui.registry.addButton('todo', { icon: 'checklist', tooltip: 'To-do item', onAction: () => toggleTodo(ed) });
+        ed.ui.registry.addMenuButton('callout', { icon: 'info', tooltip: 'Callout', fetch: (cb) => cb(Object.entries(CALLOUTS).map(([k, v]) => ({ type: 'menuitem', text: v, onAction: () => { insertCallout(ed, k); scheduleSave(); } })).concat([{ type: 'menuitem', text: 'Remove callout', onAction: () => { const c = ed.dom.getParent(ed.selection.getNode(), '.callout'); if (c) { ed.dom.remove(c, true); ed.undoManager.add(); scheduleSave(); } } }])) });
+        ed.ui.registry.addButton('pagelink', { text: '[[', tooltip: 'Link to a page', onAction: () => insertPageLink(ed) });
+        // Slash commands
+        ed.ui.registry.addAutocompleter('slash', {
+          trigger: '/', minChars: 0, columns: 1,
+          fetch: (pattern) => Promise.resolve(SLASH.filter((c) => c.text.toLowerCase().includes(pattern.toLowerCase())).map((c) => ({ type: 'autocompleteitem', value: c.value, text: c.text, icon: c.icon }))),
+          onAction: (api, rng, value) => { ed.selection.setRng(rng); ed.selection.setContent(''); api.hide(); runSlash(ed, value); }
+        });
         ed.on('click', (e) => {
           const a = e.target.closest && e.target.closest('a.wikilink');
           if (a) { e.preventDefault(); go(a.getAttribute('href')); return; }
@@ -496,9 +646,47 @@
     });
     state.editor = editors && editors[0];
     if (!state.editor) return;
+    state.openedPage = p; state.openedHtml = initial;
+    state.versionTimer = setInterval(() => snapshotIfChanged().catch(() => {}), 10 * 60 * 1000);
+    function toggleTodo(ed) {
+      let li = ed.dom.getParent(ed.selection.getNode(), 'li');
+      if (!li) { ed.execCommand('InsertUnorderedList'); li = ed.dom.getParent(ed.selection.getNode(), 'li'); }
+      if (!li) return;
+      if (li.hasAttribute('data-todo')) ed.dom.setAttrib(li, 'data-todo', null); else ed.dom.setAttrib(li, 'data-todo', '');
+      ed.undoManager.add(); scheduleSave();
+    }
+    async function insertPageLink(ed) {
+      const t = await pickPage('Link to page'); if (!t) return;
+      const sel = ed.selection.getContent({ format: 'text' });
+      ed.insertContent('<a class="wikilink" href="#page/' + t.id + '">' + esc(sel || t.title) + '</a>&nbsp;');
+    }
+    const SLASH = [
+      { value: 'h1', text: 'Heading 1', icon: 'h1' }, { value: 'h2', text: 'Heading 2', icon: 'h2' }, { value: 'h3', text: 'Heading 3', icon: 'h3' },
+      { value: 'p', text: 'Paragraph', icon: 'paragraph' }, { value: 'ul', text: 'Bullet list', icon: 'unordered-list' }, { value: 'ol', text: 'Numbered list', icon: 'ordered-list' },
+      { value: 'todo', text: 'To-do', icon: 'checklist' }, { value: 'table', text: 'Table', icon: 'table' }, { value: 'toggle', text: 'Toggle (collapsible)', icon: 'accordion' },
+      { value: 'callout-info', text: 'Callout: info', icon: 'info' }, { value: 'callout-tip', text: 'Callout: tip', icon: 'checkmark' }, { value: 'callout-warning', text: 'Callout: warning', icon: 'warning' }, { value: 'callout-danger', text: 'Callout: important', icon: 'close' },
+      { value: 'quote', text: 'Quote', icon: 'quote' }, { value: 'code', text: 'Code block', icon: 'sourcecode' }, { value: 'hr', text: 'Divider', icon: 'horizontal-rule' },
+      { value: 'date', text: 'Today\'s date', icon: 'insert-time' }, { value: 'link', text: 'Link to page', icon: 'link' }, { value: 'image', text: 'Image', icon: 'image' }
+    ];
+    function runSlash(ed, v) {
+      if (v === 'h1' || v === 'h2' || v === 'h3' || v === 'p') ed.execCommand('FormatBlock', false, v);
+      else if (v === 'ul') ed.execCommand('InsertUnorderedList');
+      else if (v === 'ol') ed.execCommand('InsertOrderedList');
+      else if (v === 'todo') toggleTodo(ed);
+      else if (v === 'table') ed.execCommand('mceInsertTable', false, { rows: 3, columns: 3 });
+      else if (v === 'toggle') ed.execCommand('InsertAccordion');
+      else if (v.startsWith('callout-')) insertCallout(ed, v.slice(8));
+      else if (v === 'quote') ed.execCommand('FormatBlock', false, 'blockquote');
+      else if (v === 'code') ed.execCommand('FormatBlock', false, 'pre');
+      else if (v === 'hr') ed.execCommand('InsertHorizontalRule');
+      else if (v === 'date') ed.insertContent(new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) + ' ');
+      else if (v === 'link') insertPageLink(ed);
+      else if (v === 'image') ed.execCommand('mceImage');
+      scheduleSave();
+    }
     function scheduleSave() {
       if (state.pageId !== id || !state.editor) return;
-      const html = state.editor.getContent();
+      let html; try { html = state.editor.getContent(); } catch (e) { return; }
       if (html === htmlOf(p)) return;
       queueSave({ html, md: '' });
     }
@@ -509,22 +697,56 @@
     }
   }
   function pageMenu(p) {
+    const html = state.editor && state.pageId === p.id ? state.editor.getContent() : htmlOf(p);
+    const words = wordCount(html);
     menu(p.title || 'Untitled', [
       p.inbox ? { label: 'File to section…', fn: async () => { if (await fileInto(p.id)) renderPage(p.id); } } : { label: 'Move to…', fn: async () => { const t = await pickSection('Move page to'); if (t) { await pages.update(p.id, { inbox: 0, notebookId: t.notebookId, sectionId: t.sectionId }); onChanged(); renderPage(p.id); } } },
+      { label: p.pinned ? 'Unpin' : 'Pin to top of section', fn: async () => { await pages.update(p.id, { pinned: p.pinned ? 0 : 1 }); onChanged(); renderPage(p.id); } },
       { label: 'Paper: ' + (PAPERS[p.paper] || 'Plain') + '…', fn: () => menu('Paper', Object.entries(PAPERS).map(([k, v]) => ({ label: v + (k === (p.paper || 'plain') ? '  ✓' : ''), fn: async () => { p.paper = k; await pages.update(p.id, { paper: k }); S.schedule(); if (state.editor && state.pageId === p.id) applyPaper(state.editor, k); } }))) },
+      { label: 'History…', fn: () => historySheet(p) },
       { label: 'Export as Markdown (.md)', fn: () => exportPage(p, 'md') },
       { label: 'Export as Word (.doc)', fn: () => exportPage(p, 'doc') },
       { label: 'Print / Save as PDF', fn: () => setTimeout(() => window.print(), 200) },
       { label: 'Delete page', danger: true, fn: async () => { if (await confirm('Delete "' + (p.title || 'Untitled') + '"?')) { destroyEditor(); await pages.remove(p.id); onChanged(); go(p.inbox ? '#inbox' : '#notes'); } } }
-    ]);
+    ], words + (words === 1 ? ' word' : ' words') + ' · about ' + Math.max(1, Math.round(words / 220)) + ' min read · edited ' + fmtWhen(p.updated));
+  }
+  async function historySheet(p) {
+    await snapshotIfChanged().catch(() => {});
+    const list = await versions.forPage(p.id);
+    sheet((box, close) => {
+      box.append(el('h2', {}, 'History: ' + (p.title || 'Untitled')), el('p', { class: 'rule' }, list.length ? 'Snapshots are taken when you leave a page after editing, and every 10 minutes while you type. The newest 20 are kept.' : 'No snapshots yet. One is taken when you leave the page after editing.'));
+      const ul = el('div', { class: 'list' });
+      for (const v of list) ul.append(el('button', { type: 'button', onclick: () => { close(); previewVersion(p, v); } }, fmtWhen(v.created || v.updated) + ' · ' + wordCount(v.html) + ' words' + (v.title && v.title !== p.title ? ' · "' + v.title + '"' : '')));
+      box.append(ul, el('div', { class: 'actions' }, el('button', { class: 'btn', type: 'button', onclick: () => close() }, 'Close')));
+    });
+  }
+  function previewVersion(p, v) {
+    sheet((box, close) => {
+      box.append(el('h2', {}, 'Version from ' + fmtWhen(v.created || v.updated)), el('div', { class: 'quicklook', html: v.html || '<p><em>(empty)</em></p>' }),
+        el('div', { class: 'actions' }, el('button', { class: 'btn', type: 'button', onclick: () => { close(); historySheet(p); } }, 'Back'),
+          el('button', { class: 'btn primary', type: 'button', onclick: async () => {
+            close();
+            if (state.editor && state.pageId === p.id) { await versions.add({ id: p.id, title: p.title, html: state.editor.getContent(), props: p.props }); state.editor.setContent(v.html || ''); state.openedHtml = v.html || ''; }
+            await pages.update(p.id, { html: v.html || '', md: '' }); p.html = v.html || ''; S.schedule(); toast('Restored');
+          } }, 'Restore this version')));
+    });
   }
   async function renderBacklinks(p, back) {
     back.innerHTML = '';
     const needle = '#page/' + p.id;
-    const all = (await pages.live()).filter((q) => q.id !== p.id && (q.html || '').includes(needle));
-    if (!all.length) return;
-    back.append(el('h3', {}, 'Linked from'));
-    for (const q of all) back.append(el('a', { href: '#page/' + q.id }, q.title || 'Untitled'));
+    const all = await pages.live();
+    const linked = all.filter((q) => q.id !== p.id && (q.html || '').includes(needle));
+    const t = (p.title || '').trim().toLowerCase();
+    const mentions = t.length >= 4 ? all.filter((q) => q.id !== p.id && !linked.includes(q) && textOf(q).toLowerCase().includes(t)) : [];
+    if (linked.length) { back.append(el('h3', {}, 'Linked from')); for (const q of linked) back.append(el('a', { href: '#page/' + q.id }, q.title || 'Untitled')); }
+    if (mentions.length) {
+      back.append(el('h3', {}, 'Mentioned in (not linked)'));
+      for (const q of mentions.slice(0, 15)) back.append(el('div', { class: 'mention' }, el('a', { href: '#page/' + q.id }, q.title || 'Untitled'), el('button', { class: 'btn small', type: 'button', onclick: async () => {
+        const re = new RegExp('(' + (p.title || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')(?![^<]*>)', 'i');
+        const html = htmlOf(q).replace(re, '<a class="wikilink" href="#page/' + p.id + '">$1</a>');
+        await pages.update(q.id, { html, md: '' }); S.schedule(); renderBacklinks(p, back); toast('Linked');
+      } }, 'Link it')));
+    }
   }
   async function pickPage(title) {
     const all = (await pages.live()).sort((a, b) => (b.updated || 0) - (a.updated || 0));
@@ -545,6 +767,69 @@
       inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { const b = list.querySelector('button'); if (b) b.click(); } });
       box.append(el('h2', {}, title), inp, list, el('div', { class: 'actions' }, el('button', { class: 'btn', type: 'button', onclick: () => close(undefined) }, 'Cancel')));
     });
+  }
+
+  // ---------- graph view ----------
+  async function renderGraph() {
+    state.view = 'graph';
+    const all = (await pages.live()).filter((p) => p.title);
+    const nbs = await notebooks.all();
+    const colourOf = new Map(nbs.map((nb, i) => [nb.id, nbColour(nb, i)]));
+    const byId = new Map(all.map((p) => [p.id, p]));
+    const edges = [];
+    for (const p of all) for (const t of linkIds(p.html)) if (byId.has(t) && t !== p.id) edges.push([p.id, t]);
+    const degree = new Map();
+    for (const [a, b] of edges) { degree.set(a, (degree.get(a) || 0) + 1); degree.set(b, (degree.get(b) || 0) + 1); }
+    const view = el('div', { class: 'view' });
+    const onlyLinked = { v: all.length > 60 };
+    const headRow = el('div', { class: 'view-head' }, el('h1', {}, 'Graph'), el('p', { class: 'sub' }, all.length + ' pages · ' + edges.length + ' links'));
+    const canvas = el('canvas', { class: 'graph', width: 800, height: 600 });
+    const chk = el('label', { class: 'rule' }, el('input', { type: 'checkbox', id: 'graph-linked' }), ' Only pages with links');
+    chk.querySelector('input').checked = onlyLinked.v;
+    chk.querySelector('input').addEventListener('change', (e) => { onlyLinked.v = e.target.checked; start(); });
+    view.append(headRow, chk, el('div', { class: 'graphwrap' }, canvas));
+    content.replaceChildren(view); syncNav();
+    let nodes = [], sim = null, drag = null, tf = { x: 0, y: 0, k: 1 };
+    const ctx = canvas.getContext('2d');
+    function start() {
+      cancelAnimationFrame(sim);
+      const W = canvas.parentElement.clientWidth || 800, H = Math.min(640, Math.max(380, innerHeight * 0.6));
+      canvas.width = W * devicePixelRatio; canvas.height = H * devicePixelRatio; canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+      const list = all.filter((p) => !onlyLinked.v || degree.get(p.id));
+      nodes = list.map((p, i) => ({ p, x: W / 2 + Math.cos(i) * (80 + i % 7 * 30), y: H / 2 + Math.sin(i) * (80 + i % 5 * 30), vx: 0, vy: 0, r: 5 + Math.min(10, (degree.get(p.id) || 0) * 1.5) }));
+      const idx = new Map(nodes.map((n, i) => [n.p.id, i]));
+      const es = edges.filter(([a, b]) => idx.has(a) && idx.has(b)).map(([a, b]) => [idx.get(a), idx.get(b)]);
+      let iter = 0;
+      const step = () => {
+        const n = nodes.length;
+        for (let i = 0; i < n; i++) { const a = nodes[i]; a.vx += (W / 2 - a.x) * 0.002; a.vy += (H / 2 - a.y) * 0.002; }
+        for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+          const a = nodes[i], b = nodes[j]; let dx = b.x - a.x, dy = b.y - a.y; let d2 = dx * dx + dy * dy || 0.01; const d = Math.sqrt(d2);
+          const f = Math.min(8, 1400 / d2); dx /= d; dy /= d; a.vx -= dx * f; a.vy -= dy * f; b.vx += dx * f; b.vy += dy * f;
+        }
+        for (const [i, j] of es) { const a = nodes[i], b = nodes[j]; const dx = b.x - a.x, dy = b.y - a.y; const d = Math.sqrt(dx * dx + dy * dy) || 1; const f = (d - 90) * 0.01; a.vx += dx / d * f; a.vy += dy / d * f; b.vx -= dx / d * f; b.vy -= dy / d * f; }
+        for (const a of nodes) { if (a === drag) continue; a.vx *= 0.85; a.vy *= 0.85; a.x += a.vx; a.y += a.vy; a.x = Math.max(a.r, Math.min(W - a.r, a.x)); a.y = Math.max(a.r, Math.min(H - a.r, a.y)); }
+        draw(es, W, H);
+        if (iter++ < 400 || drag) sim = requestAnimationFrame(step);
+      };
+      sim = requestAnimationFrame(step);
+      canvas.onpointerdown = (e) => { const { x, y } = pt(e); drag = nodes.find((a) => Math.hypot(a.x - x, a.y - y) < a.r + 6) || null; if (drag) { drag.down = { x, y }; canvas.setPointerCapture(e.pointerId); cancelAnimationFrame(sim); sim = requestAnimationFrame(step); } };
+      canvas.onpointermove = (e) => { if (!drag) return; const { x, y } = pt(e); drag.x = x; drag.y = y; };
+      canvas.onpointerup = (e) => { if (!drag) return; const { x, y } = pt(e); const moved = Math.hypot(x - drag.down.x, y - drag.down.y); const d = drag; drag = null; if (moved < 4) go('#page/' + d.p.id); };
+    }
+    const pt = (e) => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+    function draw(es, W, H) {
+      ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0); ctx.clearRect(0, 0, W, H);
+      const dark = isDark(); ctx.strokeStyle = dark ? 'rgba(255,255,255,.18)' : 'rgba(31,58,95,.22)'; ctx.lineWidth = 1;
+      for (const [i, j] of es) { ctx.beginPath(); ctx.moveTo(nodes[i].x, nodes[i].y); ctx.lineTo(nodes[j].x, nodes[j].y); ctx.stroke(); }
+      ctx.font = '12px -apple-system, Segoe UI, system-ui, sans-serif'; ctx.textAlign = 'center';
+      for (const a of nodes) {
+        ctx.beginPath(); ctx.arc(a.x, a.y, a.r, 0, Math.PI * 2); ctx.fillStyle = colourOf.get(a.p.notebookId) || (a.p.inbox ? '#b4620e' : '#6a6e78'); ctx.fill();
+        ctx.fillStyle = dark ? '#ecebe6' : '#1c1e24'; ctx.fillText((a.p.title || '').slice(0, 24), a.x, a.y + a.r + 13);
+      }
+    }
+    start();
+    addEventListener('resize', () => { if (state.view === 'graph') start(); }, { once: true });
   }
 
   // ---------- export ----------
@@ -570,14 +855,16 @@
   async function exportPage(p, kind) {
     const base = (p.title || 'Untitled').replace(/[\\/:*?"<>|]/g, '_');
     const html = state.editor && state.pageId === p.id ? state.editor.getContent() : htmlOf(p);
+    const propsHtml = (p.props || []).length ? '<p>' + p.props.map((x) => '<strong>' + esc(x.k) + ':</strong> ' + esc(x.v)).join('<br>') + '</p>' : '';
     if (kind === 'md') {
       const td = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced', bulletListMarker: '-' });
       td.addRule('todo', { filter: (node) => node.nodeName === 'LI' && node.hasAttribute('data-todo'), replacement: (c, node) => '- [' + (node.getAttribute('data-todo') === 'done' ? 'x' : ' ') + '] ' + c.trim() + '\n' });
-      const md = '# ' + (p.title || '') + '\n\n' + td.turndown(html);
+      td.addRule('callout', { filter: (node) => node.nodeName === 'DIV' && node.classList.contains('callout'), replacement: (c) => '\n> ' + c.trim().replace(/\n/g, '\n> ') + '\n\n' });
+      const md = '# ' + (p.title || '') + '\n\n' + td.turndown(propsHtml + html);
       await deliver(new Blob([md], { type: 'text/markdown' }), base + '.md');
     } else {
-      const body = await inlineAssets(html);
-      const doc = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><title>' + esc(p.title || '') + '</title><style>body{font-family:Calibri,Arial,sans-serif;font-size:11pt}h1,h2,h3{font-family:Cambria,Georgia,serif}table{border-collapse:collapse}td,th{border:1px solid #999;padding:4px 8px}li[data-todo]:before{content:"\\2610 "}li[data-todo=done]:before{content:"\\2611 "}</style></head><body><h1>' + esc(p.title || '') + '</h1>' + body + '</body></html>';
+      const body = await inlineAssets(propsHtml + html);
+      const doc = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><title>' + esc(p.title || '') + '</title><style>body{font-family:Calibri,Arial,sans-serif;font-size:11pt}h1,h2,h3{font-family:Cambria,Georgia,serif}table{border-collapse:collapse}td,th{border:1px solid #999;padding:4px 8px}li[data-todo]:before{content:"\\2610 "}li[data-todo=done]:before{content:"\\2611 "}.callout{border:1px solid #999;padding:6px 10px;margin:8px 0}</style></head><body><h1>' + esc(p.title || '') + '</h1>' + body + '</body></html>';
       await deliver(new Blob(['﻿', doc], { type: 'application/msword' }), base + '.doc');
     }
   }
@@ -586,7 +873,7 @@
   async function renderSearch() {
     state.view = 'search';
     const view = el('div', { class: 'view' });
-    const inp = el('input', { class: 'searchbox', type: 'search', placeholder: 'Search notes, captures, tags…', value: state.query, id: 'search-input', autocomplete: 'off' });
+    const inp = el('input', { class: 'searchbox', type: 'search', placeholder: 'Search notes, captures, tags, properties…', value: state.query, id: 'search-input', autocomplete: 'off' });
     const results = el('div', { class: 'results' });
     const tagbar = el('div', { class: 'tagchips' });
     const tags = await pages.tags();
@@ -664,6 +951,11 @@
     view.append(el('div', { class: 'panel' }, el('h2', {}, 'Backup'),
       el('p', { class: 'rule' }, 'Everything is in your OneDrive folder as plain JSON and files. This also downloads a single JSON file of all notes from this device.'),
       el('div', {}, el('button', { class: 'btn', type: 'button', onclick: async () => { const data = await window.NCDB.exportAll(); await deliver(new Blob([JSON.stringify(data)], { type: 'application/json' }), 'notecompanion-backup-' + isoDay(new Date()) + '.json'); } }, 'Download backup'))));
+    view.append(el('div', { class: 'panel help' }, el('h2', {}, 'Tips'),
+      el('ul', {}, el('li', {}, 'Type / in a page for headings, lists, to-dos, tables, callouts, toggles and more.'),
+        el('li', {}, 'Tap a section name to open it; the chevron expands it in place. Any section can be shown as a table of its pages and their properties.'),
+        el('li', {}, 'Set a notebook as the current rotation and Today\'s note and filing go there first.'),
+        el('li', {}, 'Scan in the Inbox cleans up a photo of a document; straightening comes with the PDF phase.'))));
     view.append(el('div', { class: 'panel help' }, el('h2', {}, 'Capture from the iPhone Share Sheet'),
       el('p', {}, 'In the Shortcuts app, make a shortcut with "Receive Text and URLs from Share Sheet", then an "Open URLs" action set to:'),
       el('p', {}, el('code', {}, C.redirectUri + '?capture=1&text=[Shortcut Input]')),
@@ -675,16 +967,19 @@
 
   // ---------- navigation ----------
   function syncNav() {
-    document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === state.view || (state.view === 'page' && a.dataset.nav === 'notes')));
+    document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === state.view || ((state.view === 'page' || state.view === 'section' || state.view === 'graph') && a.dataset.nav === 'notes' && a.closest('.tabbar')) || (state.view === 'graph' && a.dataset.nav === 'graph' && !a.closest('.tabbar'))));
     closeSidebar();
   }
   function go(hash) { if (location.hash === hash) route(); else location.hash = hash; }
+  const openPage = (id) => go('#page/' + id);
   async function route() {
     const h = location.hash || '#inbox';
     if (h.startsWith('#page/')) return renderPage(h.slice(6));
     destroyEditor(); state.pageId = null;
+    if (h.startsWith('#section/')) return renderSection(h.slice(9));
     if (h === '#notes') return renderNotes();
     if (h === '#search') return renderSearch();
+    if (h === '#graph') return renderGraph();
     if (h === '#settings') return renderSettings();
     return renderInbox();
   }
@@ -701,6 +996,7 @@
     if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); go('#search'); }
     if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'n') { e.preventDefault(); go('#inbox'); setTimeout(() => { const t = $('#capture-text'); if (t) t.focus(); }, 50); }
   });
+  addEventListener('pagehide', () => { snapshotIfChanged().catch(() => {}); });
 
   // ---------- sync status pill ----------
   const pill = $('#syncpill');

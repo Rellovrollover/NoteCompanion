@@ -4,7 +4,7 @@
   const { db, meta, deviceName, notebooks, sections, pages, assets } = window.NCDB;
   const G = window.NCGraph;
   const C = window.NC_CONFIG;
-  const KINDS = [['notebooks', db.notebooks], ['sections', db.sections], ['pages', db.pages]];
+  const KINDS = [['notebooks', db.notebooks], ['sections', db.sections], ['pages', db.pages], ['versions', db.versions]];
   const listeners = new Set();
   let running = false, queued = false, timer = null;
   const status = { state: 'idle', message: '', lastSync: null, pending: 0, error: null };
@@ -116,9 +116,9 @@
     running = true;
     try {
       await setState('syncing', 'Syncing with OneDrive');
-      if (!(await meta.get('foldersReady'))) {
-        await G.ensureFolders(['notebooks', 'sections', 'pages', 'assets']);
-        await meta.set('foldersReady', true);
+      if ((await meta.get('foldersReady')) !== 'v2') {
+        await G.ensureFolders(['notebooks', 'sections', 'pages', 'assets', 'versions']);
+        await meta.set('foldersReady', 'v2');
       }
       for (const [sub, table] of KINDS) await syncKind(sub, table);
       await syncAssets();

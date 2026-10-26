@@ -10,6 +10,14 @@
     assets: 'id, updated, deleted, dirty',
     meta: 'key'
   });
+  db.version(2).stores({
+    notebooks: 'id, updated, deleted, dirty, order',
+    sections: 'id, notebookId, updated, deleted, dirty, order',
+    pages: 'id, sectionId, notebookId, inbox, updated, deleted, dirty, title, *tags',
+    assets: 'id, updated, deleted, dirty',
+    versions: 'id, pageId, updated, deleted, dirty',
+    meta: 'key'
+  });
 
   const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
     const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
@@ -104,9 +112,21 @@
     async remove(id) { await db.assets.update(id, stamp({ deleted: 1, blob: null })); }
   };
 
+  const versions = {
+    forPage: (pageId) => db.versions.where('pageId').equals(pageId).and((v) => !v.deleted).reverse().sortBy('updated'),
+    async add(page) {
+      const rec = { id: uuid(), pageId: page.id, title: page.title || '', html: page.html || '', props: page.props || [], created: now(), deleted: 0, etag: null };
+      await db.versions.put(stamp(rec));
+      // keep the newest 20 per page
+      const all = await versions.forPage(page.id);
+      for (const old of all.slice(20)) await db.versions.update(old.id, stamp({ deleted: 1, html: '' }));
+      return rec;
+    }
+  };
+
   async function pendingCount() {
-    const [a, b, c, d] = await Promise.all([db.notebooks.where('dirty').equals(1).count(), db.sections.where('dirty').equals(1).count(), db.pages.where('dirty').equals(1).count(), db.assets.where('dirty').equals(1).count()]);
-    return a + b + c + d;
+    const [a, b, c, d, e] = await Promise.all([db.notebooks.where('dirty').equals(1).count(), db.sections.where('dirty').equals(1).count(), db.pages.where('dirty').equals(1).count(), db.assets.where('dirty').equals(1).count(), db.versions.where('dirty').equals(1).count()]);
+    return a + b + c + d + e;
   }
 
   async function exportAll() {
@@ -114,5 +134,5 @@
     return { exported: new Date().toISOString(), notebooks: nb, sections: sc, pages: pg };
   }
 
-  window.NCDB = { db, uuid, now, meta, deviceName, notebooks, sections, pages, assets, pendingCount, exportAll };
+  window.NCDB = { db, uuid, now, meta, deviceName, notebooks, sections, pages, assets, versions, pendingCount, exportAll };
 })();

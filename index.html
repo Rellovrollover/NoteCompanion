@@ -35,6 +35,7 @@
     <div class="side-top">
       <a class="side-link" href="#inbox" data-nav="inbox"><span>Inbox</span><span class="count" id="inbox-count"></span></a>
       <a class="side-link" href="#search" data-nav="search"><span>Search</span></a>
+      <a class="side-link" href="#graph" data-nav="graph"><span>Graph</span></a>
       <button class="side-link" id="btn-today" type="button"><span>Today's note</span></button>
     </div>
     <div class="tree" id="tree" aria-label="Notebook tree"></div>
@@ -58,6 +59,7 @@
 <div class="sheet-host" id="sheet-host" hidden></div>
 <input type="file" id="file-image" accept="image/*" hidden>
 <input type="file" id="file-any" hidden>
+<input type="file" id="file-scan" accept="image/*" capture="environment" hidden>
 
 <script src="./vendor/dexie.min.js"></script>
 <script src="./vendor/msal-browser.min.js"></script>

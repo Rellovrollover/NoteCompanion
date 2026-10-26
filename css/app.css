@@ -84,10 +84,13 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; letter-spacing: -0.01e
 .tree .more { width: 30px; height: 28px; border: 0; background: transparent; color: var(--faint); border-radius: 7px; cursor: pointer; flex: none; letter-spacing: -1px; font-size: .9rem; }
 .tree .more:hover { background: var(--line); color: var(--fg); }
 .tree .nb-body { border-top: 1px solid color-mix(in srgb, var(--nb) 25%, var(--line)); background: var(--paper); }
-.tree .sec-head { display: flex; align-items: center; gap: 8px; padding: 9px 8px 9px 12px; cursor: pointer; user-select: none; -webkit-user-select: none; border-top: 1px solid var(--line); }
+.tree .sec-head { display: flex; align-items: center; gap: 4px; padding: 5px 8px 5px 8px; user-select: none; -webkit-user-select: none; border-top: 1px solid var(--line); }
 .tree .sec:first-child .sec-head { border-top: 0; }
-.tree .sec-head:hover { background: var(--raised); }
-.tree .sec-name { flex: 1; min-width: 0; font-weight: 500; font-size: .95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tree .sec-toggle { width: 28px; height: 28px; border: 0; background: transparent; padding: 0; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; border-radius: 6px; flex: none; }
+.tree .sec-toggle:hover { background: var(--line); }
+.tree .sec-name { flex: 1; min-width: 0; font-weight: 500; font-size: .95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border: 0; background: transparent; text-align: left; padding: 4px 6px; border-radius: 6px; cursor: pointer; color: var(--fg); }
+.tree .sec-name:hover { background: var(--line); }
+.tree .sec-kind { margin-left: 6px; font-size: .75rem; color: var(--faint); }
 .tree .sec.open .sec-name { color: var(--nb); }
 .tree .sec-count { font-size: .72rem; color: var(--muted); background: var(--raised); border-radius: 999px; padding: 1px 8px; min-width: 1.6em; text-align: center; }
 .tree .sec-count:empty { display: none; }
@@ -95,6 +98,8 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; letter-spacing: -0.01e
 .tree .page-row { display: flex; align-items: center; gap: 9px; text-align: left; border: 0; background: transparent; padding: 7px 10px; border-radius: 8px; cursor: pointer; color: var(--fg); font-size: .92rem; min-width: 0; }
 .tree .page-row:hover { background: var(--raised); }
 .tree .page-row.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.tree .page-row.pinned .page-dot { background: var(--warn); width: 7px; height: 7px; }
+.badge-current { font-size: .65rem; text-transform: uppercase; letter-spacing: .06em; color: var(--nb); border: 1px solid var(--nb); border-radius: 999px; padding: 1px 7px; margin-left: 2px; flex: none; }
 .tree .page-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--line-strong); flex: none; }
 .tree .page-row.active .page-dot { background: var(--accent); }
 .tree .page-title { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -232,3 +237,32 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; letter-spacing: -0.01e
   .editor-host { border: 0; min-height: 0; }
   body { background: #fff; color: #000; }
 }
+
+/* Page properties, day navigation, pins */
+.props { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.prop { display: inline-flex; gap: 6px; align-items: baseline; border: 1px solid var(--line); background: var(--paper); border-radius: 8px; padding: 4px 10px; font-size: .85rem; cursor: pointer; color: var(--fg); }
+.prop:hover { background: var(--raised); }
+.prop .pk { color: var(--muted); text-transform: uppercase; letter-spacing: .05em; font-size: .7rem; }
+.prop .pv { font-weight: 500; }
+.prop.add { border-style: dashed; color: var(--muted); }
+.daynav { display: inline-flex; gap: 2px; margin-left: 6px; }
+.daynav button { border: 1px solid var(--line); background: var(--paper); border-radius: 6px; padding: 1px 8px; font-size: .8rem; }
+.pinmark { font-size: .9rem; }
+.mention { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.quicklook { max-height: 50vh; overflow-y: auto; font-size: .95rem; line-height: 1.5; }
+.quicklook img { max-width: 100%; border-radius: 8px; }
+.quicklook table { border-collapse: collapse; } .quicklook td, .quicklook th { border: 1px solid var(--line-strong); padding: 2px 6px; }
+.quicklook .callout { border: 1px solid var(--line-strong); border-radius: 8px; padding: 6px 10px; }
+.proptxt { color: var(--muted); font-size: .82rem; }
+
+/* Section table (database view) */
+.dbwrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
+.dbtable { border-collapse: collapse; width: 100%; font-size: .92rem; min-width: 480px; }
+.dbtable th { text-align: left; padding: 9px 12px; background: var(--raised); color: var(--muted); font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; cursor: pointer; white-space: nowrap; user-select: none; }
+.dbtable td { padding: 9px 12px; border-top: 1px solid var(--line); vertical-align: top; }
+.dbtable tr:hover td { background: var(--raised); cursor: pointer; }
+.dbtable .tcell { font-weight: 600; }
+
+/* Graph */
+.graphwrap { background: var(--paper); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.graph { display: block; touch-action: none; }
