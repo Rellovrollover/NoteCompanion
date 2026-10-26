@@ -959,9 +959,8 @@
         el('li', {}, 'Set a notebook as the current rotation and filing offers it first.'),
         el('li', {}, 'Scan in the Inbox cleans up a photo of a document; straightening comes with the PDF phase.'))));
     view.append(el('div', { class: 'panel help' }, el('h2', {}, 'Capture from the iPhone Share Sheet'),
-      el('p', {}, 'In the Shortcuts app, make a shortcut with "Receive Text and URLs from Share Sheet", then an "Open URLs" action set to:'),
-      el('p', {}, el('code', {}, C.redirectUri + '?capture=1&text=[Shortcut Input]')),
-      el('p', {}, 'Tick "Show in Share Sheet". Sharing text or a link from any app then lands in the Inbox. Photos and files: use the File button in the Inbox, or paste on desktop.')));
+      el('p', {}, el('b', {}, 'Best way (no browser):'), ' in Shortcuts, make a shortcut that receives anything from the Share Sheet, then a ', el('b', {}, 'Save File'), ' action with "Ask Where to Save" off and the destination set to the OneDrive folder ', el('code', {}, 'NoteCompanion/inbox'), '. Text, links, photos and PDFs saved there appear in the Inbox the next time any device syncs, and the dropped file is cleared from OneDrive.'),
+      el('p', {}, el('b', {}, 'Instant way (opens Safari):'), ' an "Open URLs" action set to ', el('code', {}, C.redirectUri + '?capture=1&text=[Shortcut Input]'), '. iOS always opens a URL in Safari rather than the home-screen app, so the note lands in the same shared inbox but the app itself does not come to the front.')));
     content.replaceChildren(view); syncNav();
   }
 

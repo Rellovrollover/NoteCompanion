@@ -109,6 +109,35 @@
     }
   }
 
+  // Anything dropped into NoteCompanion/inbox on OneDrive (e.g. by an iOS Shortcut) becomes a capture.
+  const escapeHtml = (t) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  async function syncDropbox() {
+    let items = [];
+    try { items = await G.list('inbox'); } catch (e) { return; }
+    let n = 0;
+    for (const it of items) {
+      try {
+        const res = await G.download('inbox', it.name);
+        const mime = (it.file && it.file.mimeType) || '';
+        const isText = /^text\//.test(mime) || /\.(txt|md|markdown)$/i.test(it.name) || mime === 'application/json';
+        if (isText) {
+          const text = (await res.text()).trim();
+          if (text) await pages.create({ inbox: 1, kind: 'text', title: text.split('\n')[0].slice(0, 60), html: text.split(/\n{2,}/).map((para) => '<p>' + escapeHtml(para).replace(/\n/g, '<br>') + '</p>').join('') });
+        } else {
+          const blob = await res.blob();
+          const a = await assets.create(new File([blob], it.name, { type: blob.type || mime || 'application/octet-stream' }), it.name);
+          const isPdf = /pdf/.test(mime) || /\.pdf$/i.test(it.name);
+          const isImg = /^image\//.test(mime) || /\.(jpe?g|png|heic|webp|gif)$/i.test(it.name);
+          const p = await pages.create({ inbox: 1, kind: isPdf ? 'pdf' : isImg ? 'image' : 'file', title: it.name.replace(/\.\w+$/, ''), assetId: a.id, annots: isPdf ? {} : undefined,
+            html: isPdf ? '' : isImg ? '<p><img src="asset/' + a.id + '" alt="' + escapeHtml(it.name) + '"></p>' : '<p><a href="asset/' + a.id + '">📎 ' + escapeHtml(it.name) + '</a></p>' });
+          if (isPdf && window.NCPDF) window.NCPDF.enrich(p.id, a.id);
+        }
+        await G.remove('inbox', it.name); n++;
+      } catch (e) { console.warn('inbox drop failed', it.name, e); }
+    }
+    if (n) listeners.forEach((fn) => fn(Object.assign({ dropped: n }, status)));
+  }
+
   async function run() {
     if (running) { queued = true; return; }
     if (!navigator.onLine) { await setState('offline', 'Offline; changes are saved on this device'); return; }
@@ -116,10 +145,11 @@
     running = true;
     try {
       await setState('syncing', 'Syncing with OneDrive');
-      if ((await meta.get('foldersReady')) !== 'v2') {
-        await G.ensureFolders(['notebooks', 'sections', 'pages', 'assets', 'versions']);
-        await meta.set('foldersReady', 'v2');
+      if ((await meta.get('foldersReady')) !== 'v3') {
+        await G.ensureFolders(['notebooks', 'sections', 'pages', 'assets', 'versions', 'inbox']);
+        await meta.set('foldersReady', 'v3');
       }
+      await syncDropbox();
       for (const [sub, table] of KINDS) await syncKind(sub, table);
       await syncAssets();
       status.lastSync = Date.now();
