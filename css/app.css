@@ -3,9 +3,9 @@
    a single column with a bottom tab bar on phones. Paper-and-ink palette: warm off-white,
    deep ink blue accent, a serif for titles and a system sans for everything else. */
 :root {
-  --bg: #f5f3ee; --paper: #ffffff; --raised: #ece9e1; --fg: #1c1e24; --muted: #6a6e78; --faint: #a3a7b0;
-  --line: #ddd9cf; --line-strong: #c9c4b7; --accent: #1f3a5f; --accent-ink: #ffffff; --accent-soft: #e4ebf4;
-  --good: #2d7a4f; --warn: #b4620e; --bad: #b3261e; --warn-soft: #fbefdf; --good-soft: #e4f3ea;
+  --bg: #ffffff; --paper: #ffffff; --raised: #f3f5f8; --fg: #1a1d23; --muted: #646b78; --faint: #9aa1ad;
+  --line: #e2e6ec; --line-strong: #c8cfd9; --accent: #2f5d8a; --accent-ink: #ffffff; --accent-soft: #e6eef7;
+  --good: #2e7d5b; --warn: #b8651b; --bad: #b03a3a; --warn-soft: #fbf0e4; --good-soft: #e3f3ea;
   --serif: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
   --sans: -apple-system, "Segoe UI Variable Text", "Segoe UI", system-ui, Roboto, sans-serif;
   --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
@@ -14,8 +14,8 @@
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #16181d; --paper: #1f2228; --raised: #272b33; --fg: #ecebe6; --muted: #a0a5af; --faint: #6e737d;
-    --line: #30343c; --line-strong: #41464f; --accent: #8fb4e8; --accent-ink: #0f1a2a; --accent-soft: #233447;
+    --bg: #121417; --paper: #1b1e24; --raised: #242830; --fg: #eceef1; --muted: #a3a9b4; --faint: #6f7682;
+    --line: #2d323b; --line-strong: #3d434e; --accent: #7fb0e6; --accent-ink: #0d1a2a; --accent-soft: #223449;
     --good: #6fcf97; --warn: #f0a94a; --bad: #ff7b72; --warn-soft: #3a2d1a; --good-soft: #1d3327;
     color-scheme: dark;
   }
@@ -71,7 +71,7 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; letter-spacing: -0.01e
 
 /* Tree: one card per notebook with a coloured spine; sections as rows; pages as a list */
 .tree { padding: 6px 8px 12px; display: grid; gap: 10px; align-content: start; }
-.tree .nb { background: var(--paper); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; --nb: var(--accent); }
+.tree .nb { background: var(--paper); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; --nb: var(--accent); box-shadow: 0 1px 2px rgba(20,30,45,.05); }
 .tree .nb-head { display: flex; align-items: center; gap: 8px; padding: 11px 8px 11px 0; cursor: pointer; user-select: none; -webkit-user-select: none; background: color-mix(in srgb, var(--nb) 13%, var(--paper)); }
 .tree .nb-head:hover { background: color-mix(in srgb, var(--nb) 20%, var(--paper)); }
 .tree .nb-head .nb-name { color: color-mix(in srgb, var(--nb) 55%, var(--fg)); }
@@ -117,8 +117,8 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; letter-spacing: -0.01e
 .tree-view .tree { padding: 0; }
 
 /* Inbox */
-.composer { background: var(--paper); border: 1px solid var(--line); border-radius: 14px; padding: 12px; display: grid; gap: 10px; }
-.composer textarea { width: 100%; min-height: 3.2rem; max-height: 40vh; resize: none; border: 0; background: transparent; font: inherit; color: var(--fg); padding: 4px 2px; }
+.composer { background: var(--raised); border: 1px solid var(--line); border-radius: 14px; padding: 12px; display: grid; gap: 10px; }
+.composer textarea { width: 100%; min-height: 3.2rem; max-height: 40vh; resize: none; border: 0; background: var(--paper); border-radius: 9px; font: inherit; color: var(--fg); padding: 10px 12px; box-sizing: border-box; }
 .composer textarea:focus { outline: none; }
 .composer .bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .btn { border: 1px solid var(--line-strong); background: var(--paper); color: var(--fg); border-radius: 9px; padding: 8px 13px; cursor: pointer; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; line-height: 1.2; }
@@ -130,7 +130,7 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; letter-spacing: -0.01e
 .btn.recording { background: var(--bad); color: #fff; border-color: var(--bad); animation: pulse .8s infinite alternate; }
 .spacer { flex: 1; }
 .cards { display: grid; gap: 10px; }
-.card { background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: grid; gap: 8px; }
+.card { background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: grid; gap: 8px; box-shadow: 0 1px 2px rgba(20,30,45,.05); }
 .card.pinned { border-color: var(--accent); }
 .card .meta { display: flex; gap: 10px; align-items: center; font-size: .78rem; color: var(--muted); flex-wrap: wrap; }
 .card .meta .kind { text-transform: uppercase; letter-spacing: .06em; font-size: .7rem; }
@@ -214,10 +214,15 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; letter-spacing: -0.01e
   .scrim { display: block; position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 35; opacity: 0; pointer-events: none; transition: opacity .2s; }
   .scrim.open { opacity: 1; pointer-events: auto; }
   .content { padding-bottom: calc(var(--tabbar) + 24px + env(safe-area-inset-bottom, 0px)); }
-  .tabbar { display: flex; position: fixed; inset: auto 0 0 0; height: calc(var(--tabbar) + env(safe-area-inset-bottom, 0px)); padding-bottom: env(safe-area-inset-bottom, 0px); background: var(--bg); border-top: 1px solid var(--line); z-index: 30; }
-  .tabbar a { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: .72rem; text-decoration: none; color: var(--muted); }
-  .tabbar a.active { color: var(--accent); font-weight: 600; }
-  .tabbar .t-ico { font-size: 1.25rem; line-height: 1; }
+  /* Bottom bar: a row of notebook divider tabs. Inactive tabs sit lower and tuck behind their neighbour; the current tab stands up, in paper. */
+  .tabbar { --tabh: 54px; display: flex; align-items: flex-end; position: fixed; inset: auto 0 0 0; height: calc(var(--tabbar) + 8px + env(safe-area-inset-bottom, 0px)); padding: 0 8px env(safe-area-inset-bottom, 0px); background: var(--raised); border-top: 1px solid var(--line); z-index: 30; gap: 0; }
+  .tabbar a { position: relative; flex: 1; height: var(--tabh); margin-left: -6px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; text-decoration: none; color: var(--muted); font-size: .8rem; font-weight: 500; letter-spacing: .01em; background: var(--raised); border: 1px solid var(--line); border-bottom: 0; border-radius: 14px 14px 0 0; transition: height .15s ease, background .15s ease; }
+  .tabbar a:first-child { margin-left: 0; }
+  .tabbar a:nth-child(1) { z-index: 4; } .tabbar a:nth-child(2) { z-index: 3; } .tabbar a:nth-child(3) { z-index: 2; } .tabbar a:nth-child(4) { z-index: 1; }
+  .tabbar a svg { width: 22px; height: 22px; }
+  .tabbar a.active { height: calc(var(--tabh) + 8px); z-index: 5; background: var(--paper); color: var(--accent); font-weight: 600; border-color: var(--line-strong); box-shadow: 0 -2px 6px rgba(20,30,45,.08); }
+  .tabbar a.active::after { content: ""; position: absolute; left: 14px; right: 14px; top: 0; height: 3px; border-radius: 0 0 3px 3px; background: var(--accent); }
+  .content { padding-bottom: calc(var(--tabbar) + 36px + env(safe-area-inset-bottom, 0px)); }
   .editor-host { min-height: 50vh; }
   .view-head h1 { font-size: 1.35rem; }
   .title-input { font-size: 1.45rem; }

@@ -20,7 +20,7 @@
   const state = { view: 'inbox', pageId: null, editor: null, saveTimer: null, expanded: new Set(), query: '', focusNew: false, openedHtml: '', openedPage: null, versionTimer: null, sectionView: {} };
   const isNarrow = () => matchMedia('(max-width: 899px)').matches;
   const isDark = () => matchMedia('(prefers-color-scheme: dark)').matches;
-  const NB_COLOURS = ['#1f3a5f', '#2d7a4f', '#b4620e', '#7a2d5f', '#0e7490', '#8a5a1f', '#4b5563', '#9f1239'];
+  const NB_COLOURS = ['#2f5d8a', '#2e7d5b', '#b8651b', '#7b3f8c', '#1d7f8c', '#8d5a2b', '#5b6472', '#b03a5b'];
 
   // ---------- small UI helpers ----------
   let toastTimer = null;
@@ -361,7 +361,6 @@
     const view = el('div', { class: 'view' });
     const recent = await pages.recent(8);
     view.append(el('div', { class: 'view-head' }, el('h1', {}, 'Notebooks'), el('div', { class: 'toolrow' },
-      el('a', { class: 'btn small', href: '#graph' }, 'Graph'),
       el('button', { class: 'btn small', type: 'button', onclick: async () => { const n = await ask('New notebook', 'Notebook name'); if (n) { const nb = await notebooks.create(n); await sections.create(nb.id, 'General'); state.expanded.add(nb.id); onChanged(); renderNotes(); } } }, '+ Notebook'))));
     const tv = el('div', { class: 'tree-view panel' }); tv.append(await buildTree());
     view.append(tv);
@@ -446,20 +445,6 @@
     state.expanded.add(notebookId); state.expanded.add(sectionId);
     onChanged(); state.focusNew = true; go('#page/' + p.id);
   }
-  async function dailyNote(date) {
-    const cur = (await notebooks.all()).find((n) => n.current);
-    let nb = cur || (await notebooks.all()).find((n) => n.name === 'Journal');
-    if (!nb) nb = await notebooks.create('Journal');
-    let sec = (await sections.forNotebook(nb.id)).find((s) => s.name === 'Daily');
-    if (!sec) sec = await sections.create(nb.id, 'Daily');
-    const title = isoDay(date);
-    let p = await pages.byTitle(title);
-    if (!p) p = await pages.create({ notebookId: nb.id, sectionId: sec.id, title, html: '<h2>' + date.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) + '</h2><p></p>' });
-    state.expanded.add(nb.id); state.expanded.add(sec.id);
-    onChanged(); go('#page/' + p.id);
-  }
-  const todayNote = () => dailyNote(new Date());
-
   // ---------- page view ----------
   async function snapshotIfChanged() {
     const p = state.openedPage; if (!p || !state.editor) return;
@@ -538,15 +523,6 @@
     const crumbs = el('div', { class: 'crumbs' });
     if (p.inbox) crumbs.append('Inbox', el('button', { type: 'button', onclick: async () => { if (await fileInto(p.id)) renderPage(id); } }, 'File to…'));
     else crumbs.append(el('a', { href: '#notes' }, nb ? nb.name : '—'), '›', el('a', { href: sec ? '#section/' + sec.id : '#notes' }, sec ? sec.name : '—'));
-    const dayMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(p.title || '');
-    if (dayMatch) {
-      const d = new Date(+dayMatch[1], +dayMatch[2] - 1, +dayMatch[3]);
-      const shift = (n) => { const x = new Date(d); x.setDate(d.getDate() + n); return x; };
-      crumbs.append(el('span', { class: 'daynav' },
-        el('button', { type: 'button', title: 'Previous day', onclick: () => dailyNote(shift(-1)) }, '◀'),
-        el('button', { type: 'button', title: 'Today', onclick: () => dailyNote(new Date()) }, 'Today'),
-        el('button', { type: 'button', title: 'Next day', onclick: () => dailyNote(shift(1)) }, '▶')));
-    }
     crumbs.append(el('span', { class: 'spacer' }));
     if (p.pinned) crumbs.append(el('span', { class: 'pinmark', title: 'Pinned' }, '📌'));
     crumbs.append(el('button', { class: 'more-page', type: 'button', 'aria-label': 'Page options', onclick: () => pageMenu(p) }, '···'));
@@ -769,69 +745,6 @@
     });
   }
 
-  // ---------- graph view ----------
-  async function renderGraph() {
-    state.view = 'graph';
-    const all = (await pages.live()).filter((p) => p.title);
-    const nbs = await notebooks.all();
-    const colourOf = new Map(nbs.map((nb, i) => [nb.id, nbColour(nb, i)]));
-    const byId = new Map(all.map((p) => [p.id, p]));
-    const edges = [];
-    for (const p of all) for (const t of linkIds(p.html)) if (byId.has(t) && t !== p.id) edges.push([p.id, t]);
-    const degree = new Map();
-    for (const [a, b] of edges) { degree.set(a, (degree.get(a) || 0) + 1); degree.set(b, (degree.get(b) || 0) + 1); }
-    const view = el('div', { class: 'view' });
-    const onlyLinked = { v: all.length > 60 };
-    const headRow = el('div', { class: 'view-head' }, el('h1', {}, 'Graph'), el('p', { class: 'sub' }, all.length + ' pages · ' + edges.length + ' links'));
-    const canvas = el('canvas', { class: 'graph', width: 800, height: 600 });
-    const chk = el('label', { class: 'rule' }, el('input', { type: 'checkbox', id: 'graph-linked' }), ' Only pages with links');
-    chk.querySelector('input').checked = onlyLinked.v;
-    chk.querySelector('input').addEventListener('change', (e) => { onlyLinked.v = e.target.checked; start(); });
-    view.append(headRow, chk, el('div', { class: 'graphwrap' }, canvas));
-    content.replaceChildren(view); syncNav();
-    let nodes = [], sim = null, drag = null, tf = { x: 0, y: 0, k: 1 };
-    const ctx = canvas.getContext('2d');
-    function start() {
-      cancelAnimationFrame(sim);
-      const W = canvas.parentElement.clientWidth || 800, H = Math.min(640, Math.max(380, innerHeight * 0.6));
-      canvas.width = W * devicePixelRatio; canvas.height = H * devicePixelRatio; canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
-      const list = all.filter((p) => !onlyLinked.v || degree.get(p.id));
-      nodes = list.map((p, i) => ({ p, x: W / 2 + Math.cos(i) * (80 + i % 7 * 30), y: H / 2 + Math.sin(i) * (80 + i % 5 * 30), vx: 0, vy: 0, r: 5 + Math.min(10, (degree.get(p.id) || 0) * 1.5) }));
-      const idx = new Map(nodes.map((n, i) => [n.p.id, i]));
-      const es = edges.filter(([a, b]) => idx.has(a) && idx.has(b)).map(([a, b]) => [idx.get(a), idx.get(b)]);
-      let iter = 0;
-      const step = () => {
-        const n = nodes.length;
-        for (let i = 0; i < n; i++) { const a = nodes[i]; a.vx += (W / 2 - a.x) * 0.002; a.vy += (H / 2 - a.y) * 0.002; }
-        for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
-          const a = nodes[i], b = nodes[j]; let dx = b.x - a.x, dy = b.y - a.y; let d2 = dx * dx + dy * dy || 0.01; const d = Math.sqrt(d2);
-          const f = Math.min(8, 1400 / d2); dx /= d; dy /= d; a.vx -= dx * f; a.vy -= dy * f; b.vx += dx * f; b.vy += dy * f;
-        }
-        for (const [i, j] of es) { const a = nodes[i], b = nodes[j]; const dx = b.x - a.x, dy = b.y - a.y; const d = Math.sqrt(dx * dx + dy * dy) || 1; const f = (d - 90) * 0.01; a.vx += dx / d * f; a.vy += dy / d * f; b.vx -= dx / d * f; b.vy -= dy / d * f; }
-        for (const a of nodes) { if (a === drag) continue; a.vx *= 0.85; a.vy *= 0.85; a.x += a.vx; a.y += a.vy; a.x = Math.max(a.r, Math.min(W - a.r, a.x)); a.y = Math.max(a.r, Math.min(H - a.r, a.y)); }
-        draw(es, W, H);
-        if (iter++ < 400 || drag) sim = requestAnimationFrame(step);
-      };
-      sim = requestAnimationFrame(step);
-      canvas.onpointerdown = (e) => { const { x, y } = pt(e); drag = nodes.find((a) => Math.hypot(a.x - x, a.y - y) < a.r + 6) || null; if (drag) { drag.down = { x, y }; canvas.setPointerCapture(e.pointerId); cancelAnimationFrame(sim); sim = requestAnimationFrame(step); } };
-      canvas.onpointermove = (e) => { if (!drag) return; const { x, y } = pt(e); drag.x = x; drag.y = y; };
-      canvas.onpointerup = (e) => { if (!drag) return; const { x, y } = pt(e); const moved = Math.hypot(x - drag.down.x, y - drag.down.y); const d = drag; drag = null; if (moved < 4) go('#page/' + d.p.id); };
-    }
-    const pt = (e) => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
-    function draw(es, W, H) {
-      ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0); ctx.clearRect(0, 0, W, H);
-      const dark = isDark(); ctx.strokeStyle = dark ? 'rgba(255,255,255,.18)' : 'rgba(31,58,95,.22)'; ctx.lineWidth = 1;
-      for (const [i, j] of es) { ctx.beginPath(); ctx.moveTo(nodes[i].x, nodes[i].y); ctx.lineTo(nodes[j].x, nodes[j].y); ctx.stroke(); }
-      ctx.font = '12px -apple-system, Segoe UI, system-ui, sans-serif'; ctx.textAlign = 'center';
-      for (const a of nodes) {
-        ctx.beginPath(); ctx.arc(a.x, a.y, a.r, 0, Math.PI * 2); ctx.fillStyle = colourOf.get(a.p.notebookId) || (a.p.inbox ? '#b4620e' : '#6a6e78'); ctx.fill();
-        ctx.fillStyle = dark ? '#ecebe6' : '#1c1e24'; ctx.fillText((a.p.title || '').slice(0, 24), a.x, a.y + a.r + 13);
-      }
-    }
-    start();
-    addEventListener('resize', () => { if (state.view === 'graph') start(); }, { once: true });
-  }
-
   // ---------- export ----------
   async function inlineAssets(html) {
     const ids = [...html.matchAll(/asset\/([0-9a-f-]{36})/g)].map((m) => m[1]);
@@ -954,7 +867,7 @@
     view.append(el('div', { class: 'panel help' }, el('h2', {}, 'Tips'),
       el('ul', {}, el('li', {}, 'Type / in a page for headings, lists, to-dos, tables, callouts, toggles and more.'),
         el('li', {}, 'Tap a section name to open it; the chevron expands it in place. Any section can be shown as a table of its pages and their properties.'),
-        el('li', {}, 'Set a notebook as the current rotation and Today\'s note and filing go there first.'),
+        el('li', {}, 'Set a notebook as the current rotation and filing offers it first.'),
         el('li', {}, 'Scan in the Inbox cleans up a photo of a document; straightening comes with the PDF phase.'))));
     view.append(el('div', { class: 'panel help' }, el('h2', {}, 'Capture from the iPhone Share Sheet'),
       el('p', {}, 'In the Shortcuts app, make a shortcut with "Receive Text and URLs from Share Sheet", then an "Open URLs" action set to:'),
@@ -967,7 +880,7 @@
 
   // ---------- navigation ----------
   function syncNav() {
-    document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === state.view || ((state.view === 'page' || state.view === 'section' || state.view === 'graph') && a.dataset.nav === 'notes' && a.closest('.tabbar')) || (state.view === 'graph' && a.dataset.nav === 'graph' && !a.closest('.tabbar'))));
+    document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === state.view || ((state.view === 'page' || state.view === 'section') && a.dataset.nav === 'notes')));
     closeSidebar();
   }
   function go(hash) { if (location.hash === hash) route(); else location.hash = hash; }
@@ -979,7 +892,6 @@
     if (h.startsWith('#section/')) return renderSection(h.slice(9));
     if (h === '#notes') return renderNotes();
     if (h === '#search') return renderSearch();
-    if (h === '#graph') return renderGraph();
     if (h === '#settings') return renderSettings();
     return renderInbox();
   }
@@ -990,7 +902,6 @@
   $('#btn-back').addEventListener('click', () => history.back());
   $('#btn-fwd').addEventListener('click', () => history.forward());
   scrim.addEventListener('click', closeSidebar);
-  $('#btn-today').addEventListener('click', todayNote);
   $('#btn-new-notebook').addEventListener('click', async () => { const n = await ask('New notebook', 'Notebook name'); if (n) { const nb = await notebooks.create(n); await sections.create(nb.id, 'General'); state.expanded.add(nb.id); onChanged(); } });
   document.addEventListener('keydown', (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); go('#search'); }
