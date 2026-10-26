@@ -446,9 +446,9 @@
   async function renderNotes() {
     state.view = 'notes';
     const view = el('div', { class: 'view' });
-    const recent = await pages.recent(8);
+    const recent = (await pages.recent(12)).filter((q) => q.kind !== 'app').slice(0, 8);
     view.append(el('div', { class: 'view-head' }, el('h1', {}, 'Notebooks'), el('div', { class: 'toolrow' },
-      el('a', { class: 'btn small', href: '#pdfs' }, 'PDFs'),
+      el('a', { class: 'btn small', href: '#pdfs' }, 'PDFs'), el('a', { class: 'btn small', href: '#apps' }, 'Apps'),
       el('button', { class: 'btn small', type: 'button', onclick: async () => { const n = await ask('New notebook', 'Notebook name'); if (n) { const nb = await notebooks.create(n); await sections.create(nb.id, 'General'); state.expanded.add(nb.id); onChanged(); renderNotes(); } } }, '+ Notebook'))));
     const tv = el('div', { class: 'tree-view panel' }); tv.append(await buildTree());
     view.append(tv);
@@ -511,6 +511,52 @@
       }
     };
     draw();
+    content.replaceChildren(view); syncNav();
+  }
+
+  // ---------- App hub ----------
+  const SEED_APPS = [
+    { title: 'Trials & Pearls', url: 'https://claude.ai/artifact/JZ6mj3tFturHFWoMjxghQ7', desc: 'Landmark trials table and medical pearls' },
+    { title: 'Shopping List Manager', url: 'https://claude.ai/artifact/18W6PdBdb3tftdqSi75fVC', desc: 'Shared Lidl list, with an Elsewhere list' },
+    { title: 'Brick Viewer', url: 'https://rellovrollover.github.io/brick-viewer/', desc: 'Stud.io and LDraw file viewer' },
+    { title: 'Brick Locator', url: '', desc: 'Which drawer a LEGO part lives in (local file on the PC)' },
+    { title: 'Portfolio Log', url: '', desc: 'Portfolio evidence and teaching hours (moving into NoteCompanion)' }
+  ];
+  async function appPages() {
+    let apps = (await pages.live()).filter((q) => q.kind === 'app');
+    if (!apps.length && !(await meta.get('appsSeeded'))) {
+      for (const a of SEED_APPS) await pages.create({ kind: 'app', inbox: 0, title: a.title, url: a.url, html: '<p>' + esc(a.desc) + '</p>' });
+      await meta.set('appsSeeded', true); S.schedule();
+      apps = (await pages.live()).filter((q) => q.kind === 'app');
+    }
+    return apps.sort((a, b) => (b.pinned || 0) - (a.pinned || 0) || (a.title || '').localeCompare(b.title || ''));
+  }
+  const appIcon = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/></svg>';
+  async function renderApps() {
+    state.view = 'apps';
+    const apps = await appPages();
+    const view = el('div', { class: 'view' });
+    view.append(el('div', { class: 'view-head' }, el('h1', {}, 'Apps'), el('button', { class: 'btn small primary', type: 'button', onclick: async () => {
+      const name = await ask('App name', 'e.g. Portfolio Log'); if (!name) return;
+      const url = await ask('Link (optional)', 'https://…'); if (url === undefined) return;
+      const np = await pages.create({ kind: 'app', inbox: 0, title: name, url: url || '', html: '' }); S.schedule(); go('#page/' + np.id);
+    } }, '+ Add app')));
+    const grid = el('div', { class: 'appgrid' });
+    for (const a of apps) {
+      const tile = el('div', { class: 'apptile' + (a.pinned ? ' pinned' : '') },
+        el('div', { class: 'apphead' }, el('span', { class: 'appico', html: appIcon }), el('b', {}, a.title)),
+        el('div', { class: 'appdesc' }, textOf(a).slice(0, 120)),
+        el('div', { class: 'actions' },
+          a.url ? el('a', { class: 'btn small primary', href: a.url, target: '_blank', rel: 'noopener' }, 'Open') : el('span', { class: 'sub' }, 'No link yet'),
+          el('button', { class: 'btn small', type: 'button', onclick: () => openPage(a.id) }, 'Notes')));
+      grid.append(gestures(tile, { onDelete: async () => { if (await confirm('Remove "' + a.title + '" from the hub?', null, 'Remove')) { await pages.remove(a.id); S.schedule(); renderApps(); } }, onLongPress: () => menu(a.title, [
+        { label: 'Open notes', fn: () => openPage(a.id) },
+        { label: 'Change link', fn: async () => { const u = await ask('Link', 'https://…', a.url || '', 'Save'); if (u !== undefined) { await pages.update(a.id, { url: u }); S.schedule(); renderApps(); } } },
+        { label: a.pinned ? 'Unpin' : 'Pin', fn: async () => { await pages.update(a.id, { pinned: a.pinned ? 0 : 1 }); S.schedule(); renderApps(); } },
+        { label: 'Remove from hub', danger: true, fn: async () => { if (await confirm('Remove "' + a.title + '"?', null, 'Remove')) { await pages.remove(a.id); S.schedule(); renderApps(); } } }
+      ]) }));
+    }
+    view.append(grid, el('p', { class: 'rule' }, 'Open launches the app in its own tab; Notes is a page for how it works and how to update it. Press and hold a tile for more.'));
     content.replaceChildren(view); syncNav();
   }
 
@@ -635,12 +681,13 @@
     const view = el('div', { class: 'view page-view' });
 
     const crumbs = el('div', { class: 'crumbs' });
-    if (p.inbox) crumbs.append('Inbox', el('button', { type: 'button', onclick: async () => { if (await fileInto(p.id)) renderPage(id); } }, 'File to…'));
+    if (p.kind === 'app') crumbs.append(el('a', { href: '#apps' }, 'Apps'), '›', p.url ? el('a', { href: p.url, target: '_blank', rel: 'noopener' }, 'Open app') : el('button', { type: 'button', onclick: async () => { const u = await ask('Link', 'https://…', '', 'Save'); if (u) { await pages.update(p.id, { url: u }); S.schedule(); renderPage(id); } } }, 'Add link'));
+    else if (p.inbox) crumbs.append('Inbox', el('button', { type: 'button', onclick: async () => { if (await fileInto(p.id)) renderPage(id); } }, 'File to…'));
     else crumbs.append(el('a', { href: '#notes' }, nb ? nb.name : '—'), '›', el('a', { href: sec ? '#section/' + sec.id : '#notes' }, sec ? sec.name : '—'));
     crumbs.append(el('span', { class: 'spacer' }));
     if (p.pinned) crumbs.append(el('span', { class: 'pinmark', title: 'Pinned' }, '📌'));
     crumbs.append(el('button', { class: 'more-page', type: 'button', 'aria-label': 'Page options', onclick: () => pageMenu(p) }, '···'));
-    crumbs.append(el('button', { class: 'done-page', type: 'button', 'aria-label': 'Done', title: 'Save and close', html: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>', onclick: () => { destroyEditor(); go(p.inbox ? '#inbox' : (p.sectionId ? '#section/' + p.sectionId : '#notes')); } }));
+    crumbs.append(el('button', { class: 'done-page', type: 'button', 'aria-label': 'Done', title: 'Save and close', html: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>', onclick: () => { destroyEditor(); go(p.kind === 'app' ? '#apps' : p.inbox ? '#inbox' : (p.sectionId ? '#section/' + p.sectionId : '#notes')); } }));
     view.append(crumbs);
 
     const title = el('input', { class: 'title-input', id: 'page-title', type: 'text', placeholder: 'Untitled', value: p.title || '' });
@@ -799,14 +846,14 @@
     const words = wordCount(html);
     const note = p.kind === 'pdf' ? ((p.pdfPages || '?') + ' pages · ' + Object.values(p.annots || {}).reduce((n, l) => n + l.length, 0) + ' marks · edited ' + fmtWhen(p.updated)) : (words + (words === 1 ? ' word' : ' words') + ' · about ' + Math.max(1, Math.round(words / 220)) + ' min read · edited ' + fmtWhen(p.updated));
     menu(p.title || 'Untitled', [
-      p.inbox ? { label: 'File to section…', fn: async () => { if (await fileInto(p.id)) renderPage(p.id); } } : { label: 'Move to…', fn: async () => { const t = await pickSection('Move page to'); if (t) { await pages.update(p.id, { inbox: 0, notebookId: t.notebookId, sectionId: t.sectionId }); onChanged(); renderPage(p.id); } } },
+      p.kind === 'app' ? { label: 'Change link', fn: async () => { const u = await ask('Link', 'https://…', p.url || '', 'Save'); if (u !== undefined) { await pages.update(p.id, { url: u }); S.schedule(); renderPage(p.id); } } } : p.inbox ? { label: 'File to section…', fn: async () => { if (await fileInto(p.id)) renderPage(p.id); } } : { label: 'Move to…', fn: async () => { const t = await pickSection('Move page to'); if (t) { await pages.update(p.id, { inbox: 0, notebookId: t.notebookId, sectionId: t.sectionId }); onChanged(); renderPage(p.id); } } },
       { label: p.pinned ? 'Unpin' : 'Pin to top of section', fn: async () => { await pages.update(p.id, { pinned: p.pinned ? 0 : 1 }); onChanged(); renderPage(p.id); } },
       p.kind === 'pdf' ? null : { label: 'Paper: ' + (PAPERS[p.paper] || 'Plain') + '…', fn: () => menu('Paper', Object.entries(PAPERS).map(([k, v]) => ({ label: v + (k === (p.paper || 'plain') ? '  ✓' : ''), fn: async () => { p.paper = k; await pages.update(p.id, { paper: k }); S.schedule(); if (state.editor && state.pageId === p.id) applyPaper(state.editor, k); } }))) },
       p.kind === 'pdf' ? null : { label: 'History…', fn: () => historySheet(p) },
       p.kind === 'pdf' ? { label: 'Export annotated PDF', fn: async () => { try { toast('Preparing PDF…'); const blob = await window.NCPDF.exportAnnotated(p); await deliver(blob, (p.title || 'document') + ' (annotated).pdf'); } catch (e) { toast(e.message); } } } : { label: 'Export as Markdown (.md)', fn: () => exportPage(p, 'md') },
       p.kind === 'pdf' ? { label: 'Export original PDF', fn: async () => { const a = await assets.get(p.assetId); if (a && a.blob) await deliver(a.blob, (p.title || 'document') + '.pdf'); else toast('PDF not on this device'); } } : { label: 'Export as Word (.doc)', fn: () => exportPage(p, 'doc') },
       p.kind === 'pdf' ? { label: 'Clear all marks', danger: true, fn: async () => { if (await confirm('Remove every pen and highlighter mark from this PDF?', null, 'Clear')) { await pages.update(p.id, { annots: {} }); S.schedule(); renderPage(p.id); } } } : { label: 'Print / Save as PDF', fn: () => setTimeout(() => window.print(), 200) },
-      { label: 'Delete page', danger: true, fn: async () => { if (await confirm('Delete "' + (p.title || 'Untitled') + '"?')) { destroyEditor(); await pages.remove(p.id); onChanged(); go(p.inbox ? '#inbox' : '#notes'); } } }
+      { label: 'Delete page', danger: true, fn: async () => { if (await confirm('Delete "' + (p.title || 'Untitled') + '"?')) { destroyEditor(); await pages.remove(p.id); onChanged(); go(p.kind === 'app' ? '#apps' : p.inbox ? '#inbox' : '#notes'); } } }
     ], note);
   }
   async function historySheet(p) {
@@ -1003,7 +1050,7 @@
 
   // ---------- navigation ----------
   function syncNav() {
-    document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === state.view || ((state.view === 'page' || state.view === 'section' || (state.view === 'pdfs' && a.closest('.tabbar'))) && a.dataset.nav === 'notes')));
+    document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === state.view || ((state.view === 'page' || state.view === 'section' || ((state.view === 'pdfs' || state.view === 'apps') && a.closest('.tabbar'))) && a.dataset.nav === 'notes')));
     closeSidebar();
   }
   function go(hash) { if (location.hash === hash) route(); else location.hash = hash; }
@@ -1015,6 +1062,7 @@
     if (h.startsWith('#section/')) return renderSection(h.slice(9));
     if (h === '#notes') return renderNotes();
     if (h === '#pdfs') return renderLibrary();
+    if (h === '#apps') return renderApps();
     if (h === '#search') return renderSearch();
     if (h === '#settings') return renderSettings();
     return renderInbox();
