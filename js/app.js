@@ -228,36 +228,50 @@
   }
 
   // ---------- notebook tree ----------
+  const NB_COLOURS = ['#1f3a5f', '#2d7a4f', '#b4620e', '#7a2d5f', '#0e7490', '#8a5a1f', '#4b5563', '#9f1239'];
+  const chevron = (open) => el('span', { class: 'chev' + (open ? ' open' : ''), html: '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>' });
+  const toggle = (id) => { state.expanded.has(id) ? state.expanded.delete(id) : state.expanded.add(id); refreshTree(); };
   async function buildTree() {
     const wrap = el('div', { class: 'tree' });
     const nbs = await notebooks.all();
     if (!nbs.length) wrap.append(el('div', { class: 'empty' }, 'No notebooks yet. Create one below, or file a capture.'));
-    for (const nb of nbs) {
-      const nbEl = el('div', { class: 'nb' });
-      const open = state.expanded.has(nb.id) || nbs.length <= 2;
-      const tw = el('button', { class: 'twisty', type: 'button', 'aria-label': 'Toggle', onclick: () => { state.expanded.has(nb.id) ? state.expanded.delete(nb.id) : state.expanded.add(nb.id); if (nbs.length <= 2 && !open) state.expanded.add(nb.id); refreshTree(); } }, open ? '▾' : '▸');
-      const name = el('button', { class: 'row-name nb-name', type: 'button', onclick: () => tw.click() }, nb.name);
-      const more = el('button', { class: 'more', type: 'button', 'aria-label': 'Notebook options', onclick: () => notebookMenu(nb) }, '…');
-      nbEl.append(el('div', { class: 'nb-head' }, tw, name, more));
+    const allSecs = await window.NCDB.db.sections.where('deleted').equals(0).toArray();
+    const livePages = await pages.live();
+    const pagesBySec = new Map();
+    for (const p of livePages) if (p.sectionId) pagesBySec.set(p.sectionId, (pagesBySec.get(p.sectionId) || 0) + 1);
+    nbs.forEach((nb, i) => { if (nbs.length <= 2) state.expanded.add(nb.id); });
+    for (const [i, nb] of nbs.entries()) {
+      const colour = nb.color || NB_COLOURS[i % NB_COLOURS.length];
+      const open = state.expanded.has(nb.id);
+      const secs = allSecs.filter((s) => s.notebookId === nb.id).sort((a, b) => (a.order || 0) - (b.order || 0));
+      const nPages = secs.reduce((n, s) => n + (pagesBySec.get(s.id) || 0), 0);
+      const nbEl = el('div', { class: 'nb' + (open ? ' open' : ''), style: '--nb: ' + colour });
+      const head = el('div', { class: 'nb-head', role: 'button', tabindex: '0', onclick: () => toggle(nb.id), onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(nb.id); } } },
+        el('span', { class: 'spine' }), chevron(open),
+        el('span', { class: 'nb-name' }, nb.name),
+        el('span', { class: 'nb-meta' }, secs.length + (secs.length === 1 ? ' section' : ' sections') + ' · ' + nPages + (nPages === 1 ? ' page' : ' pages')),
+        el('button', { class: 'more', type: 'button', 'aria-label': 'Notebook options', onclick: (e) => { e.stopPropagation(); notebookMenu(nb); } }, '···'));
+      nbEl.append(head);
       if (open) {
-        const secs = await sections.forNotebook(nb.id);
+        const body = el('div', { class: 'nb-body' });
         for (const s of secs) {
-          const secEl = el('div', { class: 'sec' });
           const sopen = state.expanded.has(s.id);
-          const stw = el('button', { class: 'twisty', type: 'button', 'aria-label': 'Toggle', onclick: () => { state.expanded.has(s.id) ? state.expanded.delete(s.id) : state.expanded.add(s.id); refreshTree(); } }, sopen ? '▾' : '▸');
-          const sname = el('button', { class: 'row-name sec-name', type: 'button', onclick: () => stw.click() }, s.name);
-          const smore = el('button', { class: 'more', type: 'button', 'aria-label': 'Section options', onclick: () => sectionMenu(nb, s) }, '…');
-          secEl.append(el('div', { class: 'sec-head' }, stw, sname, smore));
+          const count = pagesBySec.get(s.id) || 0;
+          const secEl = el('div', { class: 'sec' + (sopen ? ' open' : '') });
+          secEl.append(el('div', { class: 'sec-head', role: 'button', tabindex: '0', onclick: () => toggle(s.id), onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(s.id); } } },
+            chevron(sopen), el('span', { class: 'sec-name' }, s.name), el('span', { class: 'sec-count' }, count ? String(count) : ''),
+            el('button', { class: 'more', type: 'button', 'aria-label': 'Section options', onclick: (e) => { e.stopPropagation(); sectionMenu(nb, s); } }, '···')));
           if (sopen) {
-            const pgs = await pages.forSection(s.id);
+            const pgs = livePages.filter((p) => p.sectionId === s.id).sort((a, b) => (a.title || '').localeCompare(b.title || ''));
             const pl = el('div', { class: 'pages' });
-            for (const p of pgs) pl.append(el('button', { class: 'row-name page-row' + (p.id === state.pageId ? ' active' : ''), type: 'button', onclick: () => openPage(p.id) }, p.title || 'Untitled'));
-            pl.append(el('button', { class: 'addrow', type: 'button', onclick: () => newPage(nb.id, s.id) }, '+ Page'));
+            for (const p of pgs) pl.append(el('button', { class: 'page-row' + (p.id === state.pageId ? ' active' : ''), type: 'button', onclick: () => openPage(p.id) }, el('span', { class: 'page-dot' }), el('span', { class: 'page-title' }, p.title || 'Untitled')));
+            pl.append(el('button', { class: 'addrow', type: 'button', onclick: () => newPage(nb.id, s.id) }, '+ New page'));
             secEl.append(pl);
           }
-          nbEl.append(secEl);
+          body.append(secEl);
         }
-        nbEl.append(el('div', { class: 'sec' }, el('button', { class: 'addrow', type: 'button', onclick: async () => { const n = await ask('New section in ' + nb.name, 'Section name'); if (n) { const s = await sections.create(nb.id, n); state.expanded.add(nb.id); state.expanded.add(s.id); onChanged(); } } }, '+ Section')));
+        body.append(el('button', { class: 'addrow addsec', type: 'button', onclick: async () => { const n = await ask('New section in ' + nb.name, 'Section name'); if (n) { const sc = await sections.create(nb.id, n); state.expanded.add(nb.id); state.expanded.add(sc.id); onChanged(); } } }, '+ New section'));
+        nbEl.append(body);
       }
       wrap.append(nbEl);
     }

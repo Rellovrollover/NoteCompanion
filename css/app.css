@@ -66,25 +66,40 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; letter-spacing: -0.01e
 .view-head h1 { font-size: 1.55rem; }
 .sub { color: var(--muted); font-size: .92rem; margin: 0; }
 
-/* Tree */
-.tree { padding: 4px 8px 12px; display: grid; gap: 2px; align-content: start; }
-.tree .nb { display: grid; gap: 2px; }
-.tree .nb-head, .tree .sec-head { display: flex; align-items: center; gap: 4px; }
-.tree .nb-head { margin-top: 8px; }
-.tree .nb-name { font-weight: 600; font-size: .95rem; }
-.tree .twisty { width: 24px; height: 28px; border: 0; background: transparent; color: var(--muted); cursor: pointer; border-radius: 6px; font-size: .75rem; flex: none; }
-.tree .row-name { flex: 1; min-width: 0; text-align: left; border: 0; background: transparent; padding: 5px 6px; border-radius: 6px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--fg); }
-.tree .row-name:hover { background: var(--raised); }
-.tree .row-name.active { background: var(--accent-soft); color: var(--accent); }
-.tree .more { width: 26px; height: 26px; border: 0; background: transparent; color: var(--faint); border-radius: 6px; cursor: pointer; flex: none; }
-.tree .more:hover { background: var(--raised); color: var(--fg); }
-.tree .sec { padding-left: 18px; display: grid; gap: 1px; }
-.tree .sec-name { font-size: .92rem; }
-.tree .pages { padding-left: 24px; display: grid; gap: 1px; }
-.tree .page-row { font-size: .9rem; }
-.tree .empty { color: var(--faint); font-size: .85rem; padding: 2px 8px; }
-.tree .addrow { font-size: .82rem; color: var(--muted); padding: 2px 8px; border: 0; background: transparent; text-align: left; cursor: pointer; border-radius: 6px; }
+/* Tree: one card per notebook with a coloured spine; sections as rows; pages as a list */
+.tree { padding: 6px 8px 12px; display: grid; gap: 10px; align-content: start; }
+.tree .nb { background: var(--paper); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; --nb: var(--accent); }
+.tree .nb-head { display: flex; align-items: center; gap: 8px; padding: 11px 8px 11px 0; cursor: pointer; user-select: none; -webkit-user-select: none; }
+.tree .nb-head:hover { background: var(--raised); }
+.tree .spine { width: 5px; align-self: stretch; margin: -11px 2px -11px 0; background: var(--nb); border-radius: 0; flex: none; }
+.tree .chev { width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; color: var(--faint); flex: none; transition: transform .18s ease; }
+.tree .chev.open { transform: rotate(90deg); color: var(--muted); }
+.tree .nb-name { font-family: var(--serif); font-weight: 600; font-size: 1.05rem; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tree .nb-meta { font-size: .72rem; color: var(--faint); white-space: nowrap; }
+.tree .more { width: 30px; height: 28px; border: 0; background: transparent; color: var(--faint); border-radius: 7px; cursor: pointer; flex: none; letter-spacing: -1px; font-size: .9rem; }
+.tree .more:hover { background: var(--line); color: var(--fg); }
+.tree .nb-body { border-top: 1px solid var(--line); background: color-mix(in srgb, var(--paper) 70%, var(--bg)); }
+.tree .sec-head { display: flex; align-items: center; gap: 8px; padding: 9px 8px 9px 12px; cursor: pointer; user-select: none; -webkit-user-select: none; border-top: 1px solid var(--line); }
+.tree .sec:first-child .sec-head { border-top: 0; }
+.tree .sec-head:hover { background: var(--raised); }
+.tree .sec-name { flex: 1; min-width: 0; font-weight: 500; font-size: .95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tree .sec.open .sec-name { color: var(--nb); }
+.tree .sec-count { font-size: .72rem; color: var(--muted); background: var(--raised); border-radius: 999px; padding: 1px 8px; min-width: 1.6em; text-align: center; }
+.tree .sec-count:empty { display: none; }
+.tree .pages { display: grid; padding: 2px 8px 8px 40px; gap: 1px; }
+.tree .page-row { display: flex; align-items: center; gap: 9px; text-align: left; border: 0; background: transparent; padding: 7px 10px; border-radius: 8px; cursor: pointer; color: var(--fg); font-size: .92rem; min-width: 0; }
+.tree .page-row:hover { background: var(--raised); }
+.tree .page-row.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.tree .page-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--line-strong); flex: none; }
+.tree .page-row.active .page-dot { background: var(--accent); }
+.tree .page-title { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tree .addrow { font-size: .85rem; color: var(--muted); padding: 7px 10px; border: 0; background: transparent; text-align: left; cursor: pointer; border-radius: 8px; }
 .tree .addrow:hover { color: var(--accent); background: var(--raised); }
+.tree .addsec { margin: 4px 8px 8px 12px; border: 1px dashed var(--line-strong); }
+.tree .empty { color: var(--faint); font-size: .85rem; padding: 2px 8px; }
+.sidebar .tree .nb-meta { display: none; }
+.tree-view.panel { padding: 0; border: 0; background: transparent; }
+.tree-view .tree { padding: 0; }
 
 /* Inbox */
 .composer { background: var(--paper); border: 1px solid var(--line); border-radius: 14px; padding: 12px; display: grid; gap: 10px; }
