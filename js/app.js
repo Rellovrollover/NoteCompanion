@@ -279,6 +279,14 @@
       }
       wrap.append(nbEl);
     }
+    const archived = await notebooks.archived();
+    if (archived.length) {
+      const open = state.expanded.has('__archived');
+      const box = el('div', { class: 'archived' + (open ? ' open' : '') });
+      box.append(el('button', { class: 'archived-head', type: 'button', onclick: () => toggle('__archived') }, chevron(open), el('span', {}, 'Archived'), el('span', { class: 'sec-count' }, String(archived.length))));
+      if (open) for (const nb of archived) box.append(el('div', { class: 'archived-row' }, el('span', { class: 'page-title' }, nb.name), el('button', { class: 'more', type: 'button', 'aria-label': 'Notebook options', onclick: () => notebookMenu(nb) }, '···')));
+      wrap.append(box);
+    }
     return wrap;
   }
   async function refreshTree() {
@@ -293,6 +301,7 @@
     menu(nb.name, [
       { label: 'Rename', fn: async () => { const n = await ask('Rename notebook', '', nb.name, 'Rename'); if (n && n !== nb.name) { await notebooks.update(nb.id, { name: n }); onChanged(); } } },
       { label: 'Add section', fn: async () => { const n = await ask('New section in ' + nb.name, 'Section name'); if (n) { const s = await sections.create(nb.id, n); state.expanded.add(nb.id); state.expanded.add(s.id); onChanged(); } } },
+      { label: nb.archived ? 'Unarchive' : 'Archive notebook', fn: async () => { await notebooks.update(nb.id, { archived: nb.archived ? 0 : 1 }); state.expanded.delete(nb.id); onChanged(); toast(nb.archived ? 'Restored' : 'Archived'); } },
       { label: 'Delete notebook', danger: true, fn: async () => { if (await confirm('Delete notebook "' + nb.name + '"?', 'All its sections and pages go to the bin too.')) { await notebooks.remove(nb.id); onChanged(); if (state.view === 'page') go('#inbox'); } } }
     ]);
   }
@@ -359,12 +368,25 @@
     clearTimeout(state.saveTimer);
     if (state.editor) { try { state.editor.remove(); } catch (e) { /* ignore */ } state.editor = null; }
   }
+  // A 24px baseline grid: every line of body text, list item and heading sits on it, so ruled and squared paper line up.
   const EDITOR_CSS = `
-    body { font-family: -apple-system, "Segoe UI Variable Text", "Segoe UI", system-ui, Roboto, sans-serif; font-size: 16px; line-height: 1.55; padding: 14px 16px 24px; max-width: 48rem; margin: 0 auto; }
-    h1, h2, h3 { font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif; letter-spacing: -0.01em; }
-    h2 { font-size: 1.45rem; } h3 { font-size: 1.15rem; }
-    img { max-width: 100%; height: auto; border-radius: 8px; }
-    table { border-collapse: collapse; width: 100%; } td, th { border: 1px solid #b9b4a8; padding: 6px 8px; vertical-align: top; } th { background: rgba(127,127,127,.12); }
+    :root { --pitch: 24px; --rule: rgba(31,58,95,.16); --grid: rgba(31,58,95,.12); }
+    @media (prefers-color-scheme: dark) { :root { --rule: rgba(255,255,255,.13); --grid: rgba(255,255,255,.09); } }
+    html { background: transparent; }
+    body { font-family: -apple-system, "Segoe UI Variable Text", "Segoe UI", system-ui, Roboto, sans-serif; font-size: 16px; line-height: var(--pitch); padding: var(--pitch) 24px var(--pitch); max-width: 50rem; margin: 0 auto; box-sizing: border-box; min-height: 100%; }
+    body.paper-ruled { background-image: repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--pitch) - 1px), var(--rule) calc(var(--pitch) - 1px), var(--rule) var(--pitch)); background-origin: border-box; }
+    body.paper-grid { background-image: repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--pitch) - 1px), var(--grid) calc(var(--pitch) - 1px), var(--grid) var(--pitch)), repeating-linear-gradient(to right, transparent 0, transparent calc(var(--pitch) - 1px), var(--grid) calc(var(--pitch) - 1px), var(--grid) var(--pitch)); background-origin: border-box; }
+    body.paper-dots { background-image: radial-gradient(circle, var(--rule) 1.2px, transparent 1.6px); background-size: var(--pitch) var(--pitch); background-position: calc(var(--pitch) / 2) calc(var(--pitch) / 2); background-origin: border-box; }
+    body.paper-ruled, body.paper-grid, body.paper-dots { background-attachment: local; }
+    p, ul, ol, blockquote, pre, table { margin: 0 0 var(--pitch); }
+    li { line-height: var(--pitch); }
+    h1, h2, h3 { font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif; letter-spacing: -0.01em; margin: 0 0 var(--pitch); }
+    h1 { font-size: 28px; line-height: calc(var(--pitch) * 2); }
+    h2 { font-size: 22px; line-height: var(--pitch); margin-top: var(--pitch); }
+    h3 { font-size: 18px; line-height: var(--pitch); }
+    h2:first-child, h3:first-child { margin-top: 0; }
+    img { max-width: 100%; height: auto; border-radius: 8px; vertical-align: top; }
+    table { border-collapse: collapse; width: 100%; } td, th { border: 1px solid #b9b4a8; padding: 0 8px; line-height: var(--pitch); vertical-align: top; } th { background: rgba(127,127,127,.12); }
     a.wikilink { color: #1f3a5f; text-decoration: none; border-bottom: 1px dashed currentColor; }
     li[data-todo] { list-style: none; position: relative; padding-left: 1.7em; margin-left: -1.4em; }
     li[data-todo]::before { content: ""; position: absolute; left: 0; top: .28em; width: 1em; height: 1em; border: 1.6px solid #7a7f88; border-radius: 4px; box-sizing: border-box; background: transparent; }
@@ -372,9 +394,16 @@
     li[data-todo="done"] { text-decoration: line-through; opacity: .65; }
     mark { background: #fde68a; color: inherit; padding: 0 2px; }
     blockquote { border-left: 3px solid #b9b4a8; margin-left: 0; padding-left: 12px; color: #6a6e78; }
-    pre { background: rgba(127,127,127,.12); padding: 10px 12px; border-radius: 8px; overflow-x: auto; }
-    .dark-mode a.wikilink { color: #8fb4e8; }
+    pre { background: rgba(127,127,127,.12); padding: 0 12px; line-height: var(--pitch); border-radius: 8px; overflow-x: auto; }
+    @media (prefers-color-scheme: dark) { a.wikilink { color: #8fb4e8; } }
   `;
+  const PAPERS = { plain: 'Plain', ruled: 'Ruled lines', grid: 'Squared', dots: 'Dotted' };
+  function applyPaper(ed, paper) {
+    const b = ed.getBody(); if (!b) return;
+    b.className = b.className.replace(/\bpaper-\w+/g, '').trim();
+    if (paper && paper !== 'plain') ed.dom.addClass(b, 'paper-' + paper);
+  }
+
 
   async function renderPage(id) {
     destroyEditor();
@@ -462,7 +491,7 @@
           if (li && e.target === li && e.offsetX < 24) { ed.dom.setAttrib(li, 'data-todo', li.getAttribute('data-todo') === 'done' ? '' : 'done'); ed.undoManager.add(); scheduleSave(); }
         });
         ed.on('input change undo redo SetContent ExecCommand', () => { if (ed.initialized) scheduleSave(); });
-        ed.on('init', () => { ed.setContent(initial); ed.undoManager.clear(); ed.setDirty(false); if (focusNew && !p.title) setTimeout(() => title.focus(), 60); });
+        ed.on('init', () => { ed.setContent(initial); applyPaper(ed, p.paper); ed.undoManager.clear(); ed.setDirty(false); if (focusNew && !p.title) setTimeout(() => title.focus(), 60); });
       }
     });
     state.editor = editors && editors[0];
@@ -482,6 +511,7 @@
   function pageMenu(p) {
     menu(p.title || 'Untitled', [
       p.inbox ? { label: 'File to section…', fn: async () => { if (await fileInto(p.id)) renderPage(p.id); } } : { label: 'Move to…', fn: async () => { const t = await pickSection('Move page to'); if (t) { await pages.update(p.id, { inbox: 0, notebookId: t.notebookId, sectionId: t.sectionId }); onChanged(); renderPage(p.id); } } },
+      { label: 'Paper: ' + (PAPERS[p.paper] || 'Plain') + '…', fn: () => menu('Paper', Object.entries(PAPERS).map(([k, v]) => ({ label: v + (k === (p.paper || 'plain') ? '  ✓' : ''), fn: async () => { p.paper = k; await pages.update(p.id, { paper: k }); S.schedule(); if (state.editor && state.pageId === p.id) applyPaper(state.editor, k); } }))) },
       { label: 'Export as Markdown (.md)', fn: () => exportPage(p, 'md') },
       { label: 'Export as Word (.doc)', fn: () => exportPage(p, 'doc') },
       { label: 'Print / Save as PDF', fn: () => setTimeout(() => window.print(), 200) },

@@ -36,7 +36,8 @@
   const stamp = (rec) => Object.assign(rec, { updated: now(), dirty: 1 });
 
   const notebooks = {
-    all: () => db.notebooks.where('deleted').equals(0).sortBy('order'),
+    all: () => db.notebooks.where('deleted').equals(0).and((n) => !n.archived).sortBy('order'),
+    archived: () => db.notebooks.where('deleted').equals(0).and((n) => !!n.archived).sortBy('order'),
     get: (id) => db.notebooks.get(id),
     async create(name) {
       const order = (await db.notebooks.count()) + 1;

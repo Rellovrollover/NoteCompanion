@@ -102,6 +102,11 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; letter-spacing: -0.01e
 .tree .addrow:hover { color: var(--accent); background: var(--raised); }
 .tree .addsec { margin: 4px 8px 8px 12px; border: 1px dashed var(--line-strong); }
 .tree .empty { color: var(--faint); font-size: .85rem; padding: 2px 8px; }
+.tree .archived { border: 1px dashed var(--line-strong); border-radius: 12px; overflow: hidden; }
+.tree .archived-head { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 12px 9px 8px; border: 0; background: transparent; color: var(--muted); cursor: pointer; text-align: left; font-size: .9rem; }
+.tree .archived-head:hover { background: var(--raised); }
+.tree .archived-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 36px; color: var(--muted); font-size: .9rem; border-top: 1px solid var(--line); }
+.tree .archived-row .page-title { flex: 1; }
 .sidebar .tree .nb-meta { display: none; }
 .tree-view.panel { padding: 0; border: 0; background: transparent; }
 .tree-view .tree { padding: 0; }
