@@ -47,7 +47,7 @@
   }
   async function extractText(doc, limit) {
     let out = '';
-    for (let i = 1; i <= doc.numPages && out.length < limit; i++) {
+    for (let i = 1; i <= Math.min(doc.numPages, 400) && out.length < limit; i++) {
       try { const tc = await (await doc.getPage(i)).getTextContent(); out += tc.items.map((it) => it.str).join(' ') + '\n'; } catch (e) { /* skip */ }
     }
     return out.slice(0, limit);
@@ -109,11 +109,12 @@
     catch (e) { pagesEl.append(el('p', { class: 'sub', style: 'padding:16px' }, e.message)); return () => {}; }
     const annots = p.annots || {};
     const undo = [], redo = [];
-    const pageEls = new Map(); // pageNo -> { div, canvas, overlay, vp, rendered }
-    const sizes = [];
-    for (let i = 1; i <= doc.numPages; i++) { const pg = await doc.getPage(i); const vp = pg.getViewport({ scale: 1 }); sizes.push({ w: vp.width, h: vp.height, rot: vp.rotation }); }
+    const pageEls = new Map(); // pageNo -> { div, canvas, overlay, measured, rendered }
+    // Measure only the first page up front; the rest take its size until they come near the screen.
+    const first = await doc.getPage(1); const fvp = first.getViewport({ scale: 1 });
+    const sizes = Array.from({ length: doc.numPages }, () => ({ w: fvp.width, h: fvp.height }));
     let fitScale = 1, scale = 1;
-    const dpr = Math.min(2, devicePixelRatio || 1);
+    const dpr = Math.min(doc.numPages > 150 ? 1.5 : 2, devicePixelRatio || 1);
     const save = () => { p.annots = annots; ui.queueSave({ annots }); };
 
     // Toolbar
@@ -151,25 +152,34 @@
       el('div', { class: 'pgroup' }, el('button', { class: 'ptool text', type: 'button', onclick: () => setZoom(prefs.zoom / 1.25) }, '−'), el('button', { class: 'ptool text', type: 'button', title: 'Fit width', onclick: () => setZoom(1) }, 'Fit'), el('button', { class: 'ptool text', type: 'button', onclick: () => setZoom(prefs.zoom * 1.25) }, '+')),
       pageLabel);
     function setTool(t) { prefs.tool = t; savePrefs(); for (const [k, b] of Object.entries(toolBtns)) b.classList.toggle('on', k === t); redrawColours(); applyTouchAction(); }
-    function applyTouchAction() { const draw = prefs.tool !== 'pan'; for (const pe of pageEls.values()) pe.overlay.style.touchAction = draw && prefs.fingerDraws ? 'none' : 'pan-x pan-y'; wrap.classList.toggle('drawing', draw); }
+    function applyTouchAction() { const draw = prefs.tool !== 'pan'; for (const pe of pageEls.values()) if (pe.overlay) pe.overlay.style.touchAction = draw && prefs.fingerDraws ? 'none' : 'pan-x pan-y'; wrap.classList.toggle('drawing', draw); }
 
-    // Pages
+    // Pages: canvases exist only for pages near the viewport; everything else is an empty box of the right size.
+    const sizePage = (i) => { const sz = sizes[i - 1]; const pe = pageEls.get(i); pe.div.style.width = Math.round(sz.w * scale) + 'px'; pe.div.style.height = Math.round(sz.h * scale) + 'px'; };
     const layout = () => {
       const avail = Math.max(300, pagesEl.clientWidth - 16);
-      fitScale = avail / Math.max(...sizes.map((s) => s.w));
+      fitScale = avail / fvp.width;
       scale = fitScale * prefs.zoom;
-      for (let i = 1; i <= doc.numPages; i++) {
-        const s = sizes[i - 1]; const pe = pageEls.get(i);
-        const w = Math.round(s.w * scale), h = Math.round(s.h * scale);
-        pe.div.style.width = w + 'px'; pe.div.style.height = h + 'px';
-        pe.rendered = false; pe.canvas.width = 0; pe.canvas.height = 0;
-        pe.overlay.width = Math.round(w * dpr); pe.overlay.height = Math.round(h * dpr); pe.overlay.style.width = w + 'px'; pe.overlay.style.height = h + 'px';
-        paintOverlay(i);
-      }
+      for (let i = 1; i <= doc.numPages; i++) { const pe = pageEls.get(i); sizePage(i); pe.rendered = false; releasePage(i); }
       io.disconnect(); for (const pe of pageEls.values()) io.observe(pe.div);
     };
+    const releasePage = (i) => {
+      const pe = pageEls.get(i);
+      if (pe.canvas) { pe.canvas.width = 0; pe.canvas.height = 0; pe.canvas.remove(); pe.canvas = null; }
+      if (pe.overlay) { pe.overlay.width = 0; pe.overlay.height = 0; pe.overlay.remove(); pe.overlay = null; }
+      pe.rendered = false; pe.active = false;
+    };
+    const ensureCanvases = (i) => {
+      const pe = pageEls.get(i); if (pe.active) return;
+      const w = Math.round(sizes[i - 1].w * scale), h = Math.round(sizes[i - 1].h * scale);
+      pe.canvas = el('canvas', { class: 'pdfcanvas' }); pe.overlay = el('canvas', { class: 'pdfink' });
+      pe.overlay.width = Math.round(w * dpr); pe.overlay.height = Math.round(h * dpr); pe.overlay.style.width = w + 'px'; pe.overlay.style.height = h + 'px';
+      pe.div.append(pe.canvas, pe.overlay); attachPointer(i, pe.overlay); pe.active = true;
+      applyTouchAction(); paintOverlay(i);
+    };
     const paintOverlay = (i) => {
-      const pe = pageEls.get(i); const ctx = pe.overlay.getContext('2d');
+      const pe = pageEls.get(i); if (!pe.overlay) return;
+      const ctx = pe.overlay.getContext('2d');
       ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, pe.overlay.width, pe.overlay.height); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       const W = pe.overlay.width / dpr, H = pe.overlay.height / dpr;
       drawStrokes(ctx, annots[i] || [], W, H);
@@ -178,7 +188,12 @@
     const renderPageCanvas = async (i) => {
       const pe = pageEls.get(i); if (pe.rendered || pe.rendering) return; pe.rendering = true;
       try {
-        const pg = await doc.getPage(i); const vp = pg.getViewport({ scale: scale * dpr });
+        const pg = await doc.getPage(i);
+        const vp1 = pg.getViewport({ scale: 1 });
+        if (Math.abs(vp1.width - sizes[i - 1].w) > 0.5 || Math.abs(vp1.height - sizes[i - 1].h) > 0.5) { sizes[i - 1] = { w: vp1.width, h: vp1.height }; sizePage(i); releasePage(i); }
+        ensureCanvases(i);
+        if (!pe.canvas) return;
+        const vp = pg.getViewport({ scale: scale * dpr });
         pe.canvas.width = Math.round(vp.width); pe.canvas.height = Math.round(vp.height);
         pe.canvas.style.width = Math.round(vp.width / dpr) + 'px'; pe.canvas.style.height = Math.round(vp.height / dpr) + 'px';
         await pg.render({ canvasContext: pe.canvas.getContext('2d'), viewport: vp }).promise;
@@ -189,16 +204,14 @@
       for (const en of entries) {
         const i = +en.target.dataset.page;
         if (en.isIntersecting) renderPageCanvas(i);
-        else { const pe = pageEls.get(i); if (pe && pe.rendered) { pe.rendered = false; pe.canvas.width = 0; pe.canvas.height = 0; } }
+        else releasePage(i);
       }
-    }, { root: null, rootMargin: '900px 0px' });
+    }, { root: null, rootMargin: '700px 0px' });
     const visIo = new IntersectionObserver((entries) => { for (const en of entries) if (en.isIntersecting && en.intersectionRatio > 0.4) pageLabel.textContent = en.target.dataset.page + ' / ' + doc.numPages; }, { threshold: [0.4, 0.6] });
     for (let i = 1; i <= doc.numPages; i++) {
-      const canvas = el('canvas', { class: 'pdfcanvas' }), overlay = el('canvas', { class: 'pdfink' });
-      const div = el('div', { class: 'pdfpage', 'data-page': String(i) }, canvas, overlay);
-      pageEls.set(i, { div, canvas, overlay, rendered: false });
+      const div = el('div', { class: 'pdfpage', 'data-page': String(i) });
+      pageEls.set(i, { div, canvas: null, overlay: null, rendered: false, active: false });
       pagesEl.append(div); visIo.observe(div);
-      attachPointer(i, overlay);
     }
     layout(); setTool(prefs.tool); redrawColours();
     const onResize = () => layout();
@@ -240,7 +253,7 @@
       overlay.addEventListener('pointerup', finish); overlay.addEventListener('pointercancel', finish);
       function eraseAt(pageNo, pt) {
         const list = annots[pageNo]; if (!list || !list.length) return;
-        const pe = pageEls.get(pageNo); const W = pe.overlay.width / dpr;
+        const pe = pageEls.get(pageNo); if (!pe.overlay) return; const W = pe.overlay.width / dpr;
         const tol = 10 / W;
         for (let k = list.length - 1; k >= 0; k--) {
           if (distToStroke(list[k], pt[0], pt[1]) < tol * (list[k].t === 'hl' ? 2 : 1)) { const [s] = list.splice(k, 1); undo.push({ page: pageNo, op: 'remove', stroke: s, index: k }); redo.length = 0; active.erased = true; paintOverlay(pageNo); }
