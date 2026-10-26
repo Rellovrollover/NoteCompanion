@@ -574,7 +574,7 @@
   const EDITOR_CSS = `
     :root { --pitch: 24px; --rule: rgba(47,93,138,.18); --grid: rgba(47,93,138,.13); --ink: #1a1d23; color-scheme: light; }
     html { background: #ffffff; }
-    body { background: #ffffff; color: var(--ink); font-family: -apple-system, "Segoe UI Variable Text", "Segoe UI", system-ui, Roboto, sans-serif; font-size: 16px; line-height: var(--pitch); padding: var(--pitch) 24px var(--pitch); max-width: 50rem; margin: 0 auto; box-sizing: border-box; min-height: 100%; }
+    body { background: #ffffff; color: var(--ink); font-family: Calibri, "Segoe UI", -apple-system, system-ui, Roboto, sans-serif; font-size: 17px; line-height: var(--pitch); padding: var(--pitch) 24px var(--pitch); max-width: 50rem; margin: 0 auto; box-sizing: border-box; min-height: 100%; }
     body.paper-ruled { background-image: repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--pitch) - 1px), var(--rule) calc(var(--pitch) - 1px), var(--rule) var(--pitch)); background-origin: border-box; }
     body.paper-grid { background-image: repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--pitch) - 1px), var(--grid) calc(var(--pitch) - 1px), var(--grid) var(--pitch)), repeating-linear-gradient(to right, transparent 0, transparent calc(var(--pitch) - 1px), var(--grid) calc(var(--pitch) - 1px), var(--grid) var(--pitch)); background-origin: border-box; }
     body.paper-dots { background-image: radial-gradient(circle, var(--rule) 1.2px, transparent 1.6px); background-size: var(--pitch) var(--pitch); background-position: calc(var(--pitch) / 2) calc(var(--pitch) / 2); background-origin: border-box; }
@@ -713,7 +713,7 @@
       images_upload_handler: (blobInfo) => storeAsset(blobInfo.blob(), blobInfo.filename()).then((a) => { onChanged(); return assetUrl(a.id); }),
       link_default_target: '_blank', link_assume_external_targets: 'https',
       font_size_formats: '12px 14px 16px 18px 20px 24px 28px',
-      font_family_formats: 'System=-apple-system,Segoe UI,system-ui,sans-serif; Serif=Iowan Old Style,Palatino Linotype,Georgia,serif; Mono=ui-monospace,Menlo,Consolas,monospace; Arial=arial,helvetica,sans-serif; Calibri=calibri,sans-serif',
+      font_family_formats: 'Calibri=Calibri,Segoe UI,-apple-system,system-ui,sans-serif; System=-apple-system,Segoe UI,system-ui,sans-serif; Serif=Iowan Old Style,Palatino Linotype,Georgia,serif; Arial=arial,helvetica,sans-serif; Mono=ui-monospace,Menlo,Consolas,monospace',
       block_formats: 'Paragraph=p; Heading 1=h1; Heading 2=h2; Heading 3=h3; Quote=blockquote; Code=pre',
       table_toolbar: 'tableprops tabledelete | tableinsertrowbefore tableinsertrowafter tabledeleterow | tableinsertcolbefore tableinsertcolafter tabledeletecol',
       placeholder: 'Start writing… (type / for commands)', extended_valid_elements: 'li[data-todo|style|class],a[href|class|target|rel|title],audio[src|controls],div[class|style]',
