@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<title>NoteCompanion</title>
+<meta name="description" content="Notes, captures and PDFs across all your devices, offline first, synced through your own OneDrive.">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="NoteCompanion">
+<meta name="theme-color" content="#f5f3ee" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#16181d" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icons/icon-192.png">
+<link rel="apple-touch-icon" href="./icons/icon-180.png">
+<link rel="stylesheet" href="./vendor/toastui-editor.css">
+<link rel="stylesheet" href="./vendor/toastui-editor-dark.css">
+<link rel="stylesheet" href="./css/app.css">
+</head>
+<body>
+<header class="topbar">
+  <button class="iconbtn" id="btn-menu" type="button" aria-label="Notebooks" title="Notebooks">☰</button>
+  <a class="brand" href="#inbox">NoteCompanion</a>
+  <div class="topbar-spacer"></div>
+  <button class="syncpill" id="syncpill" type="button" title="Sync status">
+    <span class="dot"></span><span class="label">Starting</span>
+  </button>
+</header>
+
+<div class="shell">
+  <nav class="sidebar" id="sidebar" aria-label="Notebooks">
+    <div class="side-top">
+      <a class="side-link" href="#inbox" data-nav="inbox"><span>Inbox</span><span class="count" id="inbox-count"></span></a>
+      <a class="side-link" href="#search" data-nav="search"><span>Search</span></a>
+      <button class="side-link" id="btn-today" type="button"><span>Today's note</span></button>
+    </div>
+    <div class="tree" id="tree" aria-label="Notebook tree"></div>
+    <div class="side-foot">
+      <button class="textbtn" id="btn-new-notebook" type="button">+ Notebook</button>
+      <a class="textbtn" href="#settings" data-nav="settings">Settings</a>
+    </div>
+  </nav>
+  <div class="scrim" id="scrim"></div>
+  <main class="content" id="content" tabindex="-1"></main>
+</div>
+
+<nav class="tabbar" aria-label="Main">
+  <a href="#inbox" data-nav="inbox"><span class="t-ico">⌁</span>Inbox</a>
+  <a href="#notes" data-nav="notes"><span class="t-ico">▤</span>Notes</a>
+  <a href="#search" data-nav="search"><span class="t-ico">⌕</span>Search</a>
+  <a href="#settings" data-nav="settings"><span class="t-ico">⚙</span>More</a>
+</nav>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<div class="sheet-host" id="sheet-host" hidden></div>
+<input type="file" id="file-image" accept="image/*" hidden>
+<input type="file" id="file-any" hidden>
+
+<script src="./vendor/dexie.min.js"></script>
+<script src="./vendor/msal-browser.min.js"></script>
+<script src="./vendor/toastui-editor.js"></script>
+<script src="./js/config.js"></script>
+<script src="./js/db.js"></script>
+<script src="./js/graph.js"></script>
+<script src="./js/sync.js"></script>
+<script src="./js/app.js"></script>
+</body>
+</html>
