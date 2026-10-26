@@ -2,7 +2,7 @@
 
 A notes app that replaces OneNote for one person: quick captures, notebooks of rich-text or Markdown pages, and (later) a PDF library with pen markup. It runs as a home-screen web app on iPhone, iPad and Windows, works fully offline, and syncs through a `NoteCompanion` folder in the owner's own OneDrive.
 
-Live at https://rellovrollover.github.io/notecompanion/
+Live at https://rellovrollover.github.io/NoteCompanion/
 
 ## How it works
 

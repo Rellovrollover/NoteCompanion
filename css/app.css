@@ -72,8 +72,10 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; letter-spacing: -0.01e
 /* Tree: one card per notebook with a coloured spine; sections as rows; pages as a list */
 .tree { padding: 6px 8px 12px; display: grid; gap: 10px; align-content: start; }
 .tree .nb { background: var(--paper); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; --nb: var(--accent); }
-.tree .nb-head { display: flex; align-items: center; gap: 8px; padding: 11px 8px 11px 0; cursor: pointer; user-select: none; -webkit-user-select: none; }
-.tree .nb-head:hover { background: var(--raised); }
+.tree .nb-head { display: flex; align-items: center; gap: 8px; padding: 11px 8px 11px 0; cursor: pointer; user-select: none; -webkit-user-select: none; background: color-mix(in srgb, var(--nb) 13%, var(--paper)); }
+.tree .nb-head:hover { background: color-mix(in srgb, var(--nb) 20%, var(--paper)); }
+.tree .nb-head .nb-name { color: color-mix(in srgb, var(--nb) 55%, var(--fg)); }
+.tree .nb-head .chev { color: color-mix(in srgb, var(--nb) 60%, var(--muted)); }
 .tree .spine { width: 5px; align-self: stretch; margin: -11px 2px -11px 0; background: var(--nb); border-radius: 0; flex: none; }
 .tree .chev { width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; color: var(--faint); flex: none; transition: transform .18s ease; }
 .tree .chev.open { transform: rotate(90deg); color: var(--muted); }
@@ -81,7 +83,7 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; letter-spacing: -0.01e
 .tree .nb-meta { font-size: .72rem; color: var(--faint); white-space: nowrap; }
 .tree .more { width: 30px; height: 28px; border: 0; background: transparent; color: var(--faint); border-radius: 7px; cursor: pointer; flex: none; letter-spacing: -1px; font-size: .9rem; }
 .tree .more:hover { background: var(--line); color: var(--fg); }
-.tree .nb-body { border-top: 1px solid var(--line); background: color-mix(in srgb, var(--paper) 70%, var(--bg)); }
+.tree .nb-body { border-top: 1px solid color-mix(in srgb, var(--nb) 25%, var(--line)); background: var(--paper); }
 .tree .sec-head { display: flex; align-items: center; gap: 8px; padding: 9px 8px 9px 12px; cursor: pointer; user-select: none; -webkit-user-select: none; border-top: 1px solid var(--line); }
 .tree .sec:first-child .sec-head { border-top: 0; }
 .tree .sec-head:hover { background: var(--raised); }
