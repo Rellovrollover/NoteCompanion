@@ -172,6 +172,9 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; letter-spacing: -0.01e
 .editor-host .tox .tox-edit-area::before { display: none; }
 .crumbs .more-page { margin-left: auto; width: 34px; height: 30px; border: 1px solid var(--line-strong); background: var(--paper); color: var(--muted); border-radius: 8px; cursor: pointer; letter-spacing: -1px; font-size: .95rem; }
 .crumbs .more-page:hover { background: var(--raised); color: var(--fg); }
+.crumbs .done-page { width: 38px; height: 30px; margin-left: 6px; border: 0; border-radius: 8px; background: var(--good); color: #fff; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.crumbs .done-page svg { width: 20px; height: 20px; }
+.crumbs .done-page:hover { filter: brightness(1.08); }
 .tagrow { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .tagrow input { border: 1px dashed var(--line-strong); background: transparent; border-radius: 999px; padding: 3px 10px; font-size: .82rem; color: var(--fg); min-width: 9rem; }
 .chip .x { margin-left: 4px; opacity: .6; }
@@ -261,6 +264,7 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; letter-spacing: -0.01e
 .prop .pk { color: var(--muted); text-transform: uppercase; letter-spacing: .05em; font-size: .7rem; }
 .prop .pv { font-weight: 500; }
 .prop.add { border-style: dashed; color: var(--muted); }
+.prop.tag { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
 .daynav { display: inline-flex; gap: 2px; margin-left: 6px; }
 .daynav button { border: 1px solid var(--line); background: var(--paper); border-radius: 6px; padding: 1px 8px; font-size: .8rem; }
 .pinmark { font-size: .9rem; }

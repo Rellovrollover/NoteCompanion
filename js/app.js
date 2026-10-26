@@ -571,10 +571,15 @@
     state.openedPage = null;
   }
   // A 24px baseline grid: every line of body text, list item and heading sits on it, so ruled and squared paper line up.
+  const FONT_BASE = new URL('vendor/fonts/', C.redirectUri).href;
   const EDITOR_CSS = `
+    @font-face { font-family: Carlito; font-style: normal; font-weight: 400; src: local('Carlito'), url('${FONT_BASE}carlito-latin-400-normal.woff2') format('woff2'); }
+    @font-face { font-family: Carlito; font-style: italic; font-weight: 400; src: url('${FONT_BASE}carlito-latin-400-italic.woff2') format('woff2'); }
+    @font-face { font-family: Carlito; font-style: normal; font-weight: 700; src: url('${FONT_BASE}carlito-latin-700-normal.woff2') format('woff2'); }
+    @font-face { font-family: Carlito; font-style: italic; font-weight: 700; src: url('${FONT_BASE}carlito-latin-700-italic.woff2') format('woff2'); }
     :root { --pitch: 24px; --rule: rgba(47,93,138,.18); --grid: rgba(47,93,138,.13); --ink: #1a1d23; color-scheme: light; }
     html { background: #ffffff; }
-    body { background: #ffffff; color: var(--ink); font-family: Calibri, "Segoe UI", -apple-system, system-ui, Roboto, sans-serif; font-size: 17px; line-height: var(--pitch); padding: var(--pitch) 24px var(--pitch); max-width: 50rem; margin: 0 auto; box-sizing: border-box; min-height: 100%; }
+    body { background: #ffffff; color: var(--ink); font-family: Calibri, Carlito, "Segoe UI", -apple-system, system-ui, sans-serif; font-size: 17px; line-height: var(--pitch); padding: var(--pitch) 24px var(--pitch); max-width: 50rem; margin: 0 auto; box-sizing: border-box; min-height: 100%; }
     body.paper-ruled { background-image: repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--pitch) - 1px), var(--rule) calc(var(--pitch) - 1px), var(--rule) var(--pitch)); background-origin: border-box; }
     body.paper-grid { background-image: repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--pitch) - 1px), var(--grid) calc(var(--pitch) - 1px), var(--grid) var(--pitch)), repeating-linear-gradient(to right, transparent 0, transparent calc(var(--pitch) - 1px), var(--grid) calc(var(--pitch) - 1px), var(--grid) var(--pitch)); background-origin: border-box; }
     body.paper-dots { background-image: radial-gradient(circle, var(--rule) 1.2px, transparent 1.6px); background-size: var(--pitch) var(--pitch); background-position: calc(var(--pitch) / 2) calc(var(--pitch) / 2); background-origin: border-box; }
@@ -635,6 +640,7 @@
     crumbs.append(el('span', { class: 'spacer' }));
     if (p.pinned) crumbs.append(el('span', { class: 'pinmark', title: 'Pinned' }, '📌'));
     crumbs.append(el('button', { class: 'more-page', type: 'button', 'aria-label': 'Page options', onclick: () => pageMenu(p) }, '···'));
+    crumbs.append(el('button', { class: 'done-page', type: 'button', 'aria-label': 'Done', title: 'Save and close', html: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>', onclick: () => { destroyEditor(); go(p.inbox ? '#inbox' : (p.sectionId ? '#section/' + p.sectionId : '#notes')); } }));
     view.append(crumbs);
 
     const title = el('input', { class: 'title-input', id: 'page-title', type: 'text', placeholder: 'Untitled', value: p.title || '' });
@@ -664,12 +670,25 @@
           return choice;
         } }, el('span', { class: 'pk' }, pr.k), el('span', { class: 'pv' }, pr.v || '—')));
       }
+      for (const t of p.tags || []) props.append(el('button', { class: 'prop tag', type: 'button', title: 'Remove tag', onclick: async () => { if (await confirm('Remove tag #' + t + '?', null, 'Remove')) { p.tags = p.tags.filter((x) => x !== t); await pages.update(p.id, { tags: p.tags }); onChanged(); renderProps(); } } }, '#' + t));
       props.append(el('button', { class: 'prop add', type: 'button', onclick: async () => {
         const known = [...new Set((await pages.live()).flatMap((q) => (q.props || []).map((x) => x.k)))].filter((k) => !(p.props || []).some((x) => x.k === k));
         const pick = (k) => ask(k, 'Value', '', 'Add').then(async (v) => { if (v === undefined) return; p.props = [...(p.props || []), { k, v }]; await pages.update(p.id, { props: p.props }); S.schedule(); renderProps(); });
-        if (known.length) menu('Add property', [...known.map((k) => ({ label: k, fn: () => pick(k) })), { label: 'New property…', accent: true, fn: async () => { const k = await ask('Property name', 'e.g. Date, Rotation, Status'); if (k) pick(k); } }]);
-        else { const k = await ask('Property name', 'e.g. Date, Rotation, Status'); if (k) pick(k); }
-      } }, '+ property'));
+        const addTag = async () => {
+          const all = await pages.tags();
+          const t = await sheet((box, close) => {
+            const inp = el('input', { type: 'text', placeholder: 'Tag name', id: 'tag-pick' });
+            const list = el('div', { class: 'list' });
+            const fill = () => { const q = inp.value.trim().toLowerCase().replace(/^#/, ''); list.innerHTML = ''; for (const x of all.filter((x) => !(p.tags || []).includes(x.tag) && (!q || x.tag.includes(q))).slice(0, 12)) list.append(el('button', { type: 'button', onclick: () => close(x.tag) }, '#' + x.tag + '  ·  ' + x.n)); };
+            inp.addEventListener('input', fill); fill();
+            inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); close(inp.value.trim()); } });
+            box.append(el('h2', {}, 'Add tag'), inp, list, el('div', { class: 'actions' }, el('button', { class: 'btn', type: 'button', onclick: () => close(undefined) }, 'Cancel'), el('button', { class: 'btn primary', type: 'button', onclick: () => close(inp.value.trim()) }, 'Add')));
+          });
+          const tag = (t || '').replace(/^#/, '').replace(/\s+/g, '-').toLowerCase();
+          if (tag && !(p.tags || []).includes(tag)) { p.tags = [...(p.tags || []), tag]; await pages.update(p.id, { tags: p.tags }); onChanged(); renderProps(); }
+        };
+        menu('Add to this page', [{ label: '# Tag', fn: addTag }, ...known.map((k) => ({ label: k, fn: () => pick(k) })), { label: 'New property…', accent: true, fn: async () => { const k = await ask('Property name', 'e.g. Date, Rotation, Status'); if (k) pick(k); } }]);
+      } }, '+ add'));
     };
     renderProps(); view.append(props);
 
@@ -677,21 +696,6 @@
     const ta = el('textarea', { id: 'page-editor' });
     host.append(ta); view.append(host);
 
-    const tagrow = el('div', { class: 'tagrow' });
-    const renderTags = () => {
-      tagrow.innerHTML = '';
-      for (const t of p.tags || []) tagrow.append(el('button', { class: 'chip on', type: 'button', title: 'Remove tag', onclick: async () => { p.tags = p.tags.filter((x) => x !== t); await pages.update(p.id, { tags: p.tags }); onChanged(); renderTags(); } }, '#' + t, el('span', { class: 'x' }, '×')));
-      const inp = el('input', { type: 'text', placeholder: '+ tag', id: 'tag-input' });
-      inp.addEventListener('keydown', async (e) => {
-        if (e.key === 'Enter' || e.key === ',') {
-          e.preventDefault(); const t = inp.value.trim().replace(/^#/, '').replace(/\s+/g, '-').toLowerCase();
-          if (t && !(p.tags || []).includes(t)) { p.tags = [...(p.tags || []), t]; await pages.update(p.id, { tags: p.tags }); onChanged(); renderTags(); }
-          inp.value = '';
-        }
-      });
-      tagrow.append(inp);
-    };
-    renderTags(); view.append(tagrow);
     const back = el('div', { class: 'backlinks' });
     view.append(back);
     content.replaceChildren(view); syncNav();
@@ -713,7 +717,7 @@
       images_upload_handler: (blobInfo) => storeAsset(blobInfo.blob(), blobInfo.filename()).then((a) => { onChanged(); return assetUrl(a.id); }),
       link_default_target: '_blank', link_assume_external_targets: 'https',
       font_size_formats: '12px 14px 16px 18px 20px 24px 28px',
-      font_family_formats: 'Calibri=Calibri,Segoe UI,-apple-system,system-ui,sans-serif; System=-apple-system,Segoe UI,system-ui,sans-serif; Serif=Iowan Old Style,Palatino Linotype,Georgia,serif; Arial=arial,helvetica,sans-serif; Mono=ui-monospace,Menlo,Consolas,monospace',
+      font_family_formats: 'Calibri=Calibri,Carlito,Segoe UI,-apple-system,system-ui,sans-serif; System=-apple-system,Segoe UI,system-ui,sans-serif; Serif=Iowan Old Style,Palatino Linotype,Georgia,serif; Arial=arial,helvetica,sans-serif; Mono=ui-monospace,Menlo,Consolas,monospace',
       block_formats: 'Paragraph=p; Heading 1=h1; Heading 2=h2; Heading 3=h3; Quote=blockquote; Code=pre',
       table_toolbar: 'tableprops tabledelete | tableinsertrowbefore tableinsertrowafter tabledeleterow | tableinsertcolbefore tableinsertcolafter tabledeletecol',
       placeholder: 'Start writing… (type / for commands)', extended_valid_elements: 'li[data-todo|style|class],a[href|class|target|rel|title],audio[src|controls],div[class|style]',

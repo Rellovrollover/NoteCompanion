@@ -2,12 +2,13 @@
 // 1. Caches the app shell so it opens with no connection.
 // 2. Serves local assets (images, audio, files) from IndexedDB at ./asset/<id>,
 //    so markdown can reference them with a plain relative URL on every device.
-const VERSION = 'nc-2026-10-26t';
+const VERSION = 'nc-2026-10-26v';
 const SHELL = [
   './', './index.html', './manifest.webmanifest',
   './css/app.css',
   './js/config.js', './js/db.js', './js/graph.js', './js/sync.js', './js/pdf.js', './js/app.js',
   './vendor/pdf-lib.min.js', './vendor/pdfjs/pdf.min.mjs', './vendor/pdfjs/pdf.worker.min.mjs',
+  ...['400-normal', '400-italic', '700-normal', '700-italic'].map((v) => './vendor/fonts/carlito-latin-' + v + '.woff2'),
   './vendor/dexie.min.js', './vendor/msal-browser.min.js', './vendor/marked.js', './vendor/turndown.js',
   './vendor/tinymce/tinymce.min.js', './vendor/tinymce/themes/silver/theme.min.js', './vendor/tinymce/models/dom/model.min.js', './vendor/tinymce/icons/default/icons.min.js',
   './vendor/tinymce/skins/ui/oxide/skin.min.css', './vendor/tinymce/skins/ui/oxide/content.min.css', './vendor/tinymce/skins/ui/oxide-dark/skin.min.css', './vendor/tinymce/skins/ui/oxide-dark/content.min.css',
