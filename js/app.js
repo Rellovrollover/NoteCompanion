@@ -885,6 +885,9 @@
       await meta.set('appsSeeded', true); S.schedule();
       apps = (await pages.live()).filter((q) => q.kind === 'app');
     }
+    // Tiles that have become built-in views take over their old link tiles by name.
+    const builtin = [[/shopping list/i, 'shop'], [/trials/i, 'tp']];
+    for (const a of apps) for (const [re, key] of builtin) if (!a.app && re.test(a.title || '')) { await pages.update(a.id, { app: key, url: '', assetId: null, embed: 0 }); a.app = key; a.url = ''; a.assetId = null; }
     return apps.sort((a, b) => (b.pinned || 0) - (a.pinned || 0) || (a.title || '').localeCompare(b.title || ''));
   }
   // Import a seed file (a notebook of pages) into NoteCompanion; idempotent by page id.
