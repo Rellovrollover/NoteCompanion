@@ -137,6 +137,16 @@
     return { notebook: target, count, skipped, failed, sections: secs.length };
   }
 
+  // A file called "Group » Section" lands in a section group of that name.
+  async function sectionNamed(notebookId, label) {
+    const m = /^(.*?)\s*»\s*(.+)$/.exec(label);
+    const group = m ? m[1].trim() : '', name = m ? m[2].trim() : label.trim();
+    const existing = await sections.forNotebook(notebookId);
+    let sec = existing.find((x) => x.name === name && (x.group || '') === group);
+    if (!sec) { sec = await sections.create(notebookId, name); if (group) { await sections.update(sec.id, { group }); sec.group = group; } }
+    return sec;
+  }
+
   // ---- Offline route: OneNote's File → Export → Section → Word (.docx) ----
   // One .docx per section; pages are separated by page breaks, each starting with its title.
   async function importDocxSection(file, notebookId, sectionName, onProgress) {
@@ -151,9 +161,7 @@
       })
     });
     const chunks = r.value.split(/<hr class="pb"\s*\/?>/i).map((c) => c.trim()).filter((c) => c && c.replace(/<[^>]+>/g, '').trim());
-    const existing = await sections.forNotebook(notebookId);
-    let sec = existing.find((x) => x.name === sectionName);
-    if (!sec) sec = await sections.create(notebookId, sectionName);
+    const sec = await sectionNamed(notebookId, sectionName);
     let n = 0;
     for (const chunk of chunks) {
       const doc = new DOMParser().parseFromString('<div>' + chunk + '</div>', 'text/html');
@@ -270,9 +278,7 @@
     // Each page is a top-level box: <div style='direction:ltr;border-width:100%'>.
     const pageDivs = [...doc.body.children].filter((el) => el.tagName === 'DIV');
     if (!pageDivs.length) throw new Error('No pages found in ' + file.name);
-    const existing = await sections.forNotebook(notebookId);
-    let sec = existing.find((x) => x.name === sectionName);
-    if (!sec) sec = await sections.create(notebookId, sectionName);
+    const sec = await sectionNamed(notebookId, sectionName);
     const already = new Set((await window.NCDB.db.pages.toArray()).filter((q) => q.onenoteId && q.onenoteId.startsWith('mht:') && !q.deleted).map((q) => q.onenoteId));
     let n = 0, skipped = 0;
     for (const pd of pageDivs) {
