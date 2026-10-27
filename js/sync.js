@@ -18,9 +18,23 @@
 
   const strip = (rec) => { const r = Object.assign({}, rec); delete r.dirty; delete r.etag; delete r.blob; delete r.downloaded; return r; };
 
-  async function pullJSON(sub, item, table, local) {
+  // A record's JSON: straight from the pre-authorised download link the delta handed us when it did
+  // (no Graph round-trip, no throttling), otherwise through Graph.
+  async function fetchRecord(sub, item) {
+    const direct = item['@microsoft.graph.downloadUrl'];
+    if (direct) { try { const r = await fetch(direct); if (r.ok) return r.json(); } catch (e) { /* fall through */ } }
     const res = await G.download(sub, item.name);
-    const rec = await res.json();
+    return res.json();
+  }
+  // Run fn over items with up to `limit` in flight at once.
+  async function pool(items, limit, fn) {
+    let i = 0; const workers = [];
+    for (let w = 0; w < Math.min(limit, items.length); w++) workers.push((async () => { while (i < items.length) await fn(items[i++]); })());
+    await Promise.all(workers);
+  }
+
+  async function pullJSON(sub, item, table, local) {
+    const rec = await fetchRecord(sub, item);
     if (!rec || !rec.id) return;
     if (!local) {
       await table.put(Object.assign(rec, { etag: item.eTag, dirty: 0 }));
@@ -48,16 +62,24 @@
   const TABLE = { notebooks: db.notebooks, sections: db.sections, pages: db.pages, versions: db.versions };
 
   // ---- Pull: one delta call tells us every file that changed since last time ----
+  const DELTA_SELECT = 'id,name,eTag,size,file,folder,deleted,parentReference,lastModifiedDateTime';
+  // Ask for each file's download link too, so records can be fetched without a Graph call each; if this
+  // tenant's Graph rejects that in a delta $select, remember and ask without.
+  const deltaUrl = (noLinks) => '/me/drive/root:/' + encodeURIComponent(C.driveFolder) + ':/delta?$select=' + DELTA_SELECT + (noLinks ? '' : ',@microsoft.graph.downloadUrl') + '&$top=500';
   async function pullChanges(progress) {
     let url = await meta.get('deltaLink', null);
     const first = !url;
-    if (!url) url = '/me/drive/root:/' + encodeURIComponent(C.driveFolder) + ':/delta?$select=id,name,eTag,size,file,folder,deleted,parentReference,lastModifiedDateTime&$top=500';
+    if (!url) url = deltaUrl(await meta.get('deltaNoLinks', false));
     const changed = { notebooks: [], sections: [], pages: [], versions: [], assets: [], inbox: [] };
     let deltaLink = null, seen = 0;
     while (url) {
       let page;
       try { page = await G.json(url); }
-      catch (e) { if (e.status === 410 || e.status === 404) { await meta.set('deltaLink', null); if (!first) return pullChanges(progress); } throw e; }
+      catch (e) {
+        if (e.status === 410 || e.status === 404) { await meta.set('deltaLink', null); if (!first) return pullChanges(progress); }
+        if (e.status === 400 && first && !seen && !(await meta.get('deltaNoLinks', false))) { await meta.set('deltaNoLinks', true); return pullChanges(progress); }
+        throw e;
+      }
       for (const it of page.value || []) {
         seen++;
         if (it.deleted && it.name) {
@@ -79,14 +101,18 @@
     }
     // Apply JSON records.
     for (const sub of ['notebooks', 'sections', 'pages', 'versions']) {
-      const table = TABLE[sub]; let n = 0;
-      for (const item of changed[sub]) {
-        const id = item.name.replace(/\.json$/, '');
-        const loc = await table.get(id);
-        if (loc && loc.etag === item.eTag) continue;
-        try { await pullJSON(sub, item, table, loc); n++; } catch (e) { console.warn('pull failed', sub, id, e); }
-        if (progress && n % 20 === 0) progress('Downloading ' + sub + '… ' + n + '/' + changed[sub].length);
-      }
+      const table = TABLE[sub];
+      // Only what we don't already have at this etag; several in flight at once, progress on every one.
+      const todo = [];
+      for (const item of changed[sub]) { const loc = await table.get(item.name.replace(/\.json$/, '')); if (!(loc && loc.etag === item.eTag)) todo.push([item, loc]); }
+      if (!todo.length) continue;
+      let done = 0, failed = 0; const total = todo.length;
+      if (progress) progress('Downloading ' + sub + '… 0/' + total);
+      await pool(todo, 6, async ([item, loc]) => {
+        try { await pullJSON(sub, item, table, loc); } catch (e) { failed++; console.warn('pull failed', sub, item.name, e); }
+        done++;
+        if (progress) progress('Downloading ' + sub + '… ' + done + '/' + total + (failed ? ' (' + failed + ' failed, will retry next sync)' : ''));
+      });
     }
     // Apply assets.
     for (const item of changed.assets) await pullAsset(item);
@@ -110,7 +136,9 @@
     }
     if (loc && loc.dirty && loc.blob) { await db.assets.update(id, { etag: item.eTag }); return; } // ours is newer and will be pushed
     try {
-      const res = await G.download('assets', item.name);
+      let res = null;
+      if (item['@microsoft.graph.downloadUrl']) { try { res = await fetch(item['@microsoft.graph.downloadUrl']); if (!res.ok) res = null; } catch (e) { res = null; } }
+      if (!res) res = await G.download('assets', item.name);
       const blob = await res.blob();
       await db.assets.put({ id, name, mime: blob.type || mime, size: blob.size, blob, created: (loc && loc.created) || when, updated: when, deleted: 0, dirty: 0, etag: item.eTag, downloaded: 1 });
     } catch (e) { console.warn('asset pull failed', id, e); }
@@ -210,10 +238,16 @@
         await meta.set('foldersReady', 'v3');
       }
       // Push first so our edits are on OneDrive before we read the delta (which then echoes them back with matching etags).
-      const prog = (m) => { status.message = m; emit(); };
+      let base = 'Syncing with OneDrive';
+      const prog = (m) => { base = m; status.message = m; emit(); };
+      // While Microsoft rate-limits us, say so in the pill instead of looking stuck.
+      const prevThrottle = G.onThrottle;
+      G.onThrottle = (ms) => { status.message = base + ' — Microsoft is rate-limiting, waiting ' + Math.round(ms / 1000) + ' s'; emit(); if (prevThrottle) prevThrottle(ms); };
+      try {
       for (const [sub, table] of KINDS) await pushKind(sub, table, prog);
       await pushAssets(prog);
       await pullChanges(prog);
+      } finally { G.onThrottle = prevThrottle; }
       try { if (window.NCDrop) { status.message = 'Checking capture relay…'; emit(); const n = await window.NCDrop.pull(); if (n) { status.message = 'Captured ' + n + ' from the relay'; emit(); listeners.forEach((fn) => fn(Object.assign({ dropped: n }, status))); } } } catch (e) { console.warn('drop pull failed', e); }
       // Anything that arrived while pushing/pulling.
       for (const [sub, table] of KINDS) await pushKind(sub, table, prog);
