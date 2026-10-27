@@ -568,3 +568,7 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 700; letter-spacing: 0; tex
 .inkbar .ptool.done svg { width: 18px; height: 18px; }
 @media (max-width: 899px) { .inkbar { bottom: calc(var(--tabbar) + 10px + env(safe-area-inset-bottom, 0px)); } }
 @media print { .inkbar { display: none !important; } .inklayer { pointer-events: none; } }
+
+/* PDF text boxes */
+.pdftext { position: absolute; z-index: 4; min-height: 1.4em; padding: 1px 2px; margin: -1px -2px; border: 1px dashed var(--accent); border-radius: 3px; background: rgba(255,255,255,.75); font-family: Calibri, Carlito, "Segoe UI", system-ui, sans-serif; font-weight: 500; resize: none; overflow: hidden; outline: none; }
+.pdfpage { position: relative; }

@@ -313,7 +313,6 @@
     const cur = (await allNotebooks()).find((n) => n.current);
     view.append(el('div', { class: 'view-head' }, el('h1', {}, 'Inbox')), composer);
     state.suggestIndex = await buildSuggestIndex();
-    if (cur) view.append(el('p', { class: 'rule' }, 'Current rotation: ', el('b', {}, cur.name), ' — filing offers it first.'));
     const cards = el('div', { class: 'cards' });
     for (const p of list) cards.append(inboxCard(p));
     view.append(cards);
