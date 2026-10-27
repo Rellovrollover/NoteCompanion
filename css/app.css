@@ -643,3 +643,5 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 700; letter-spacing: 0; tex
 .sheet-host.centre .sheet:has(.shift-obsrow) { width: min(100% - 24px, 36rem); }
 .apptile.builtin { border-color: var(--accent); }
 
+
+@media (max-width: 899px) { .composer .bar .btn.primary { flex: 1 1 100%; } .composer .bar .btn { padding: 8px 10px; } }
