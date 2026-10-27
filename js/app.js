@@ -920,6 +920,10 @@
         const np = await pages.create({ kind: 'app', inbox: 0, title: name, url: url || '', html: '' }); S.schedule(); go('#page/' + np.id);
       } }, '+ Add link'))), fileIn);
     const grid = el('div', { class: 'appgrid' });
+    grid.append(el('div', { class: 'apptile builtin' },
+      el('div', { class: 'apphead' }, el('span', { class: 'appico', html: appIcon }), el('b', {}, 'Shift Companion')),
+      el('div', { class: 'appdesc' }, 'On-call queue and ward jobs. Lives on this device only, never synced; cleared after 7 days unless kept.'),
+      el('div', { class: 'actions' }, el('a', { class: 'btn small primary', href: '#shift' }, 'Open'), el('span', { class: 'sub' }, 'built in'))));
     for (const a of apps) {
       const tile = el('div', { class: 'apptile' + (a.pinned ? ' pinned' : '') },
         el('div', { class: 'apphead' }, el('span', { class: 'appico', html: appIcon }), el('b', {}, a.title)),
@@ -939,6 +943,18 @@
     }
     view.append(grid, el('p', { class: 'rule' }, 'Open launches the app in its own tab; Notes is a page for how it works and how to update it. Press and hold a tile for more.'));
     content.replaceChildren(view); syncNav();
+  }
+
+  // ---------- Shift Companion (device-only) ----------
+  async function renderShift() {
+    state.view = 'shift';
+    const view = el('div', { class: 'view' });
+    view.append(el('div', { class: 'view-head' }, el('h1', {}, 'Shift Companion'), el('div', { class: 'toolrow' }, el('a', { class: 'btn small', href: '#apps' }, 'Apps'))));
+    const host = el('div', {});
+    view.append(host);
+    content.replaceChildren(view); syncNav();
+    if (!window.NCShift) { host.append(el('p', { class: 'sub' }, 'Not loaded.')); return; }
+    await NCShift.render(host, { toast, sheet, confirm, pickSection, createPage: async (f) => { const np = await pages.create(f); onChanged(); return np; } });
   }
 
   // ---------- PDF library ----------
@@ -1638,7 +1654,7 @@ window.NoteCompanion={back:function(){try{P.postMessage({nc:'app-back'},'*');}ca
 
   // ---------- navigation ----------
   function syncNav() {
-    document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === state.view || ((state.view === 'page' || state.view === 'section' || state.view === 'notebook' || ((state.view === 'pdfs' || state.view === 'apps') && a.closest('.tabbar'))) && a.dataset.nav === 'notes')));
+    document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === state.view || ((state.view === 'page' || state.view === 'section' || state.view === 'notebook' || ((state.view === 'pdfs' || state.view === 'apps' || state.view === 'shift') && a.closest('.tabbar'))) && a.dataset.nav === 'notes')));
     if (typeof PANE !== 'undefined' && !PANE && document.documentElement.classList.contains('sidebar-collapsed')) sidebar.classList.remove('peek');
     closeSidebar();
   }
@@ -1651,6 +1667,7 @@ window.NoteCompanion={back:function(){try{P.postMessage({nc:'app-back'},'*');}ca
     destroyEditor(); state.pageId = null; state.sectionId = null;
     if (h.startsWith('#section/')) return renderSection(h.slice(9));
     if (h.startsWith('#nb/')) return renderNotebook(h.slice(4));
+    if (h === '#shift') return renderShift();
     if (h === '#notes') return renderNotes();
     if (h === '#pdfs') return renderLibrary();
     if (h === '#apps') return renderApps();

@@ -18,6 +18,16 @@
     versions: 'id, pageId, updated, deleted, dirty',
     meta: 'key'
   });
+  // `shift` is device-only: never synced, never backed up, purged after 7 days unless kept.
+  db.version(3).stores({
+    notebooks: 'id, updated, deleted, dirty, order',
+    sections: 'id, notebookId, updated, deleted, dirty, order',
+    pages: 'id, sectionId, notebookId, inbox, updated, deleted, dirty, title, *tags',
+    assets: 'id, updated, deleted, dirty',
+    versions: 'id, pageId, updated, deleted, dirty',
+    meta: 'key',
+    shift: 'id, mode, status, created'
+  });
 
   const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
     const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);

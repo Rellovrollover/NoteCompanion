@@ -594,3 +594,51 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 700; letter-spacing: 0; tex
 
 .tree .sec-head.dropinto { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); }
 .stab.dropinto { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* Shift Companion */
+.shift { display: grid; gap: 12px; }
+.shift-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.shift-toggle { font-size: .85rem; color: var(--muted); display: inline-flex; align-items: center; gap: 4px; }
+.shift-add { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--raised); }
+.shift-quick { width: 100%; border: 1px solid var(--line-strong); background: var(--paper); border-radius: 9px; padding: 11px 12px; font: inherit; font-size: 1rem; color: var(--fg); }
+.shift-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { border: 1px solid var(--line-strong); background: var(--paper); color: var(--fg); border-radius: 999px; padding: 5px 11px; font: inherit; font-size: .82rem; cursor: pointer; }
+.chip.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.shift-list { display: grid; gap: 8px; }
+.shift-job { border: 1px solid var(--line); border-left: 5px solid var(--line-strong); border-radius: 10px; padding: 10px 12px; background: var(--paper); display: grid; gap: 4px; cursor: pointer; }
+.shift-job.p1 { border-left-color: var(--bad); }
+.shift-job.p2 { border-left-color: var(--warn); }
+.shift-job.p3 { border-left-color: var(--good); }
+.shift-job.seen { background: color-mix(in srgb, var(--accent) 5%, var(--paper)); }
+.shift-job.done { opacity: .6; }
+.shift-job-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.shift-type { font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; color: var(--accent); font-weight: 700; }
+.shift-tag { font-size: .7rem; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 0 6px; }
+.shift-when { font-size: .78rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.shift-keep { color: var(--warn); }
+.shift-reason { font-weight: 500; }
+.shift-obs, .shift-plan, .shift-chasecount { font-size: .85rem; color: var(--muted); }
+.shift-plan { color: var(--fg); }
+.shift-job-actions { display: flex; gap: 6px; margin-top: 4px; }
+.shift-bed { font-size: .85rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 6px 0 -2px; }
+.shift-done summary { cursor: pointer; color: var(--muted); font-size: .9rem; padding: 6px 0; }
+.shift-chase { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--paper); }
+.shift-chase input { width: 18px; height: 18px; accent-color: var(--accent); }
+.shift-chase-text { flex: 1; }
+.shift-chase-who { font-size: .8rem; color: var(--muted); }
+.shift-handover { width: 100%; min-height: 40vh; border: 1px solid var(--line); border-radius: 10px; padding: 10px; font: 500 .95rem/1.4 ui-monospace, Menlo, Consolas, monospace; color: var(--fg); background: var(--paper); }
+.shift-foot { font-size: .78rem; }
+.shift-field { display: grid; gap: 4px; }
+.shift-field > span { font-size: .78rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.shift-field input, .shift-field textarea { width: 100%; border: 1px solid var(--line-strong); background: var(--bg); border-radius: 9px; padding: 9px 11px; font: inherit; color: var(--fg); }
+.shift-field textarea { min-height: 64px; resize: vertical; }
+.shift-two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.shift-obsrow { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.shift-obs-field { display: grid; gap: 2px; }
+.shift-obs-field span { font-size: .7rem; color: var(--muted); }
+.shift-obs-field input { width: 100%; border: 1px solid var(--line-strong); background: var(--bg); border-radius: 8px; padding: 7px 8px; font: inherit; color: var(--fg); }
+.shift-chaselist { display: grid; gap: 4px; }
+.shift-chaselist .chip { padding: 0 8px; }
+.shift-learn { display: grid; gap: 8px; padding: 10px; border: 1px dashed var(--line-strong); border-radius: 10px; }
+.sheet-host.centre .sheet:has(.shift-obsrow) { width: min(100% - 24px, 36rem); }
+.apptile.builtin { border-color: var(--accent); }
