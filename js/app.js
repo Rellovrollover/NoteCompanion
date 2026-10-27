@@ -1103,15 +1103,16 @@
     const cur = themePref();
     const seg = el('div', { class: 'seg' }, ...[['system', 'Match phone'], ['light', 'Light'], ['dark', 'Dark']].map(([k, v]) => el('button', { type: 'button', class: k === cur ? 'on' : '', onclick: () => { applyTheme(k); renderSettings(); } }, v)));
     view.append(el('div', { class: 'panel' }, el('h2', {}, 'Appearance'), el('p', { class: 'rule' }, 'Note paper stays white in either mode.'), seg));
+    const kvBuild = el('span', {}, '…'), kvPersist = el('span', {}, '…');
     view.append(el('div', { class: 'panel' }, el('h2', {}, 'This device'),
       el('div', { class: 'kv' }, el('span', {}, 'Name'), el('span', {}, dev)),
       el('div', { class: 'kv' }, el('span', {}, 'Installed as app'), el('span', {}, (navigator.standalone || matchMedia('(display-mode: standalone)').matches) ? 'Yes' : 'No (use Add to Home Screen)')),
       el('div', { class: 'kv' }, el('span', {}, 'Offline cache'), el('span', { id: 'kv-sw' }, navigator.serviceWorker && navigator.serviceWorker.controller ? 'Ready' : 'Not yet; reload once')),
-      el('div', { class: 'kv' }, el('span', {}, 'Build'), el('span', { id: 'kv-build' }, '…')),
-      el('div', { class: 'kv' }, el('span', {}, 'Storage kept'), el('span', { id: 'kv-persist' }, '…')),
+      el('div', { class: 'kv' }, el('span', {}, 'Build'), kvBuild),
+      el('div', { class: 'kv' }, el('span', {}, 'Storage kept'), kvPersist),
       el('div', { class: 'kv' }, el('span', {}, 'Version'), el('span', {}, C.version))));
-    if (window.caches) caches.keys().then((ks) => { const k = $('#kv-build'); if (k) k.textContent = (ks.filter((x) => x.startsWith('nc-')).sort().pop() || 'none').replace(/^nc-/, ''); }).catch(() => {});
-    if (navigator.storage && navigator.storage.persisted) navigator.storage.persisted().then((p) => { const k = $('#kv-persist'); if (k) k.textContent = p ? 'Yes' : 'Not promised by the browser'; });
+    if (window.caches) caches.keys().then((ks) => { kvBuild.textContent = (ks.filter((x) => x.startsWith('nc-')).sort().pop() || 'none').replace(/^nc-/, ''); }).catch(() => { kvBuild.textContent = '?'; });
+    if (navigator.storage && navigator.storage.persisted) navigator.storage.persisted().then((p) => { kvPersist.textContent = p ? 'Yes' : 'Not promised by the browser'; });
     if (g.signedIn) {
       const on = el('div', { class: 'panel' }, el('h2', {}, 'Import from OneNote'),
         el('p', { class: 'rule' }, 'Copies a OneNote notebook into NoteCompanion: sections (section groups become "Group / Section"), pages, images and attachments. Ink comes across as pictures. Safe to run again; pages already imported are skipped.'),
