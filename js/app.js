@@ -931,8 +931,8 @@
         el('div', { class: 'apphead' }, el('span', { class: 'appico', html: appIcon }), el('b', {}, a.title)),
         el('div', { class: 'appdesc' }, textOf(a).slice(0, 120)),
         el('div', { class: 'actions' },
-          (a.assetId || a.embed) ? el('button', { class: 'btn small primary', type: 'button', onclick: () => openPage(a.id) }, 'Open') : a.url ? el('a', { class: 'btn small primary', href: a.url, target: '_blank', rel: 'noopener' }, 'Open') : el('span', { class: 'sub' }, 'No link yet'),
-          (a.assetId || a.embed) ? el('span', { class: 'sub' }, a.assetId ? 'runs inside' : 'embedded') : el('button', { class: 'btn small', type: 'button', onclick: () => openPage(a.id) }, 'Notes'),
+          a.app === 'shop' ? el('a', { class: 'btn small primary', href: '#shop' }, 'Open') : (a.assetId || a.embed) ? el('button', { class: 'btn small primary', type: 'button', onclick: () => openPage(a.id) }, 'Open') : a.url ? el('a', { class: 'btn small primary', href: a.url, target: '_blank', rel: 'noopener' }, 'Open') : el('span', { class: 'sub' }, 'No link yet'),
+          a.app === 'shop' ? el('span', { class: 'sub' }, 'a view of a note') : (a.assetId || a.embed) ? el('span', { class: 'sub' }, a.assetId ? 'runs inside' : 'embedded') : el('button', { class: 'btn small', type: 'button', onclick: () => openPage(a.id) }, 'Notes'),
           SEED_FILES[a.title] ? el('button', { class: 'btn small', type: 'button', onclick: async (e) => { e.target.disabled = true; toast('Importing…'); try { const r = await importSeed(SEED_FILES[a.title]); toast(r.added ? 'Imported ' + r.added + ' pages into ' + r.notebook.name : 'Already imported (' + r.total + ' pages)'); } catch (err) { toast(err.message); } e.target.disabled = false; } }, 'Import into NoteCompanion') : null));
       grid.append(gestures(tile, { onDelete: async () => { if (await confirm('Remove "' + a.title + '" from the hub?', null, 'Remove')) { await pages.remove(a.id); S.schedule(); renderApps(); } }, onLongPress: () => menu(a.title, [
         (a.assetId || a.embed) ? { label: 'Open', fn: () => openPage(a.id) } : { label: 'Open notes', fn: () => openPage(a.id) },
@@ -957,6 +957,26 @@
     content.replaceChildren(view); syncNav();
     if (!window.NCShift) { host.append(el('p', { class: 'sub' }, 'Not loaded.')); return; }
     await NCShift.render(host, { toast, sheet, confirm, pickSection, createPage: async (f) => { const np = await pages.create(f); onChanged(); return np; } });
+  }
+
+  // ---------- Shopping list (a view over a notebook page) ----------
+  async function renderShop() {
+    state.view = 'shop';
+    const view = el('div', { class: 'view' });
+    view.append(el('div', { class: 'view-head' }, el('h1', {}, 'Shopping list'), el('div', { class: 'toolrow' }, el('a', { class: 'btn small', href: '#apps' }, 'Apps'))));
+    const host = el('div', {});
+    view.append(host);
+    content.replaceChildren(view); syncNav();
+    // Make sure the hub tile exists and is the built-in kind (it takes over the old HTML-app tile of the same name).
+    let tile = (await pages.live()).find((q) => q.kind === 'app' && q.app === 'shop');
+    if (!tile) {
+      const old = (await pages.live()).find((q) => q.kind === 'app' && /shopping list/i.test(q.title || ''));
+      if (old) { await pages.update(old.id, { app: 'shop', url: '', assetId: null, embed: 0, html: '<p>A view over the "Shopping list" page in your notebook.</p>' }); tile = await pages.get(old.id); }
+      else tile = await pages.create({ kind: 'app', inbox: 0, title: 'Shopping List Manager', app: 'shop', url: '', html: '<p>A view over the "Shopping list" page in your notebook.</p>' });
+      onChanged();
+    }
+    if (!window.NCShop) { host.append(el('p', { class: 'sub' }, 'Not loaded.')); return; }
+    await NCShop.render(host, { toast, sheet, confirm, pickSection, changed: onChanged });
   }
 
   // ---------- new page ----------
@@ -1131,6 +1151,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
     title.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); if (state.editor) state.editor.focus(); } });
     view.append(title);
 
+    if (p.kind === 'app' && p.app === 'shop') { go('#shop'); return; }
     if (p.kind === 'app' && (p.assetId || p.embed)) {
       view.classList.add('app-view');
       const host = el('div', { class: 'apphost' });
@@ -1635,7 +1656,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
 
   // ---------- navigation ----------
   function syncNav() {
-    document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === state.view || ((state.view === 'page' || state.view === 'section' || state.view === 'notebook' || ((state.view === 'pdfs' || state.view === 'apps' || state.view === 'shift') && a.closest('.tabbar'))) && a.dataset.nav === 'notes')));
+    document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === state.view || ((state.view === 'page' || state.view === 'section' || state.view === 'notebook' || ((state.view === 'pdfs' || state.view === 'apps' || state.view === 'shift' || state.view === 'shop') && a.closest('.tabbar'))) && a.dataset.nav === 'notes')));
     if (typeof PANE !== 'undefined' && !PANE && document.documentElement.classList.contains('sidebar-collapsed')) sidebar.classList.remove('peek');
     closeSidebar();
   }
@@ -1649,6 +1670,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
     if (h.startsWith('#section/')) return renderSection(h.slice(9));
     if (h.startsWith('#nb/')) return renderNotebook(h.slice(4));
     if (h === '#shift') return renderShift();
+    if (h === '#shop') return renderShop();
     if (h === '#notes') return renderNotes();
     if (h === '#pdfs') { state.query = 'is:pdf'; return renderSearch(); }
     if (h === '#apps') return renderApps();
