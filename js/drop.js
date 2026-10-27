@@ -35,13 +35,12 @@
     let n = 0;
     for (const it of items) {
       try {
-        const r = await fetch(API + '/repos/' + repo + '/contents/' + encodeURIComponent('inbox/' + it.name).replace(/%2F/g, '/'), { headers: hdrs(token) });
+        // Raw media type works for any size (the JSON form stops at 1 MB, which photos exceed).
+        const r = await fetch(API + '/repos/' + repo + '/contents/' + encodeURIComponent('inbox/' + it.name).replace(/%2F/g, '/'), { headers: Object.assign(hdrs(token), { Accept: 'application/vnd.github.raw+json' }) });
         if (!r.ok) continue;
-        const j = await r.json();
-        const bin = atob((j.content || '').replace(/\n/g, ''));
-        const bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        const bytes = new Uint8Array(await r.arrayBuffer());
         // Delete first so two devices can't both import it; whoever deletes wins.
-        const del = await fetch(API + '/repos/' + repo + '/contents/' + encodeURIComponent('inbox/' + it.name).replace(/%2F/g, '/'), { method: 'DELETE', headers: Object.assign({ 'Content-Type': 'application/json' }, hdrs(token)), body: JSON.stringify({ message: 'captured', sha: j.sha }) });
+        const del = await fetch(API + '/repos/' + repo + '/contents/' + encodeURIComponent('inbox/' + it.name).replace(/%2F/g, '/'), { method: 'DELETE', headers: Object.assign({ 'Content-Type': 'application/json' }, hdrs(token)), body: JSON.stringify({ message: 'captured', sha: it.sha }) });
         if (!del.ok) continue;
         const mime = sniff(bytes, it.name);
         const base = it.name.replace(/\.\w+$/, '').replace(/^\d{8}-\d{6}-?/, '') || 'Capture';
