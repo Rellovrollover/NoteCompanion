@@ -478,8 +478,9 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 700; letter-spacing: 0; tex
 .tree .nb:not(.open) .nb-head { padding-top: 9px; padding-bottom: 9px; }
 .tree .nb:not(.open) .nb-head .nb-name { font-size: .98rem; color: color-mix(in srgb, var(--nb) 40%, var(--fg)); }
 .tree .nb:not(.open) .spine { width: 4px; margin: -9px 2px -9px 0; }
-.tree .nb.open { margin: 8px 0 8px 4px; border-radius: 12px !important; border-top-width: 1px; box-shadow: 0 6px 18px rgba(20,30,45,.12); transform: translateX(2px); }
-.tree .nb.open + .nb { border-top-width: 1px; border-radius: 10px 10px 0 0; }
+.tree .nb.selected { margin: 8px 0 8px 4px; border-radius: 12px !important; border-top-width: 1px; box-shadow: 0 6px 18px rgba(20,30,45,.12); transform: translateX(2px); }
+.tree .nb.selected + .nb { border-top-width: 1px; border-radius: 10px 10px 0 0; }
+.tree .nb.selected .nb-head .chev { margin-left: 2px; }
 .tree .nb-head .nb-meta { display: inline; }
 .sidebar .tree .nb-meta { display: inline; font-size: .7rem; }
 .tree .archived-link { margin-top: 8px; color: var(--faint); }
@@ -546,3 +547,24 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 700; letter-spacing: 0; tex
 .pagecol-end.dropinto, .pagelist-end.dropinto, .tree .addrow.dropinto { background: var(--accent-soft); color: var(--accent); }
 @media (max-width: 899px) { .pagelist-end { display: none; } }
 .tree .page-row[draggable="true"], .pagecol-row[draggable="true"], .pagelist a[draggable="true"] { cursor: grab; }
+
+/* Desktop: tabs wrap onto further rows instead of scrolling off the edge. */
+@media (min-width: 900px) {
+  .tabrow { flex-wrap: wrap; overflow: visible; row-gap: 4px; padding-bottom: 4px; }
+  .stab { margin-bottom: 0; border-bottom: 1px solid var(--line); border-radius: 9px; }
+  .stab.active { border-bottom-color: var(--tab, var(--accent)); }
+}
+
+/* Ink on note pages */
+.editor-host { position: relative; }
+.inklayer { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 3; }
+.editor-host.inking .inklayer { pointer-events: auto; cursor: crosshair; }
+.editor-host.inking .tox-editor-header { opacity: .35; pointer-events: none; }
+.crumbs .more-page.draw { color: var(--muted); display: inline-flex; align-items: center; justify-content: center; }
+.crumbs .more-page.draw svg { width: 18px; height: 18px; }
+.crumbs .more-page.draw.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+.inkbar { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(14px + env(safe-area-inset-bottom, 0px)); z-index: 45; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: center; max-width: calc(100vw - 24px); padding: 6px 8px; background: var(--paper); border: 1px solid var(--line-strong); border-radius: 14px; box-shadow: 0 10px 30px rgba(20,30,45,.22); }
+.inkbar .ptool.done { width: auto; padding: 0 12px 0 8px; gap: 6px; background: var(--good); color: #fff; font-weight: 600; }
+.inkbar .ptool.done svg { width: 18px; height: 18px; }
+@media (max-width: 899px) { .inkbar { bottom: calc(var(--tabbar) + 10px + env(safe-area-inset-bottom, 0px)); } }
+@media print { .inkbar { display: none !important; } .inklayer { pointer-events: none; } }

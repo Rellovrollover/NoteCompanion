@@ -19,7 +19,7 @@
   const content = $('#content');
   const state = { view: 'inbox', pageId: null, editor: null, saveTimer: null, expanded: new Set(), query: '', focusNew: false, openedHtml: '', openedPage: null, versionTimer: null, sectionView: {}, nbId: null };
   try { state.nbId = localStorage.getItem('nc-nb') || null; } catch (e) { /* ignore */ }
-  const setNotebook = (id) => { if (state.nbId === id) return false; state.nbId = id; try { localStorage.setItem('nc-nb', id || ''); } catch (e) { /* ignore */ } return true; };
+  const setNotebook = (id) => { if (state.nbId === id) return false; state.nbId = id; state.nbCollapsed = false; try { localStorage.setItem('nc-nb', id || ''); } catch (e) { /* ignore */ } return true; };
   const isNarrow = () => matchMedia('(max-width: 899px)').matches;
   const themePref = () => { try { return localStorage.getItem('nc-theme') || 'system'; } catch (e) { return 'system'; } };
   const applyTheme = (t) => { if (t === 'system') document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme', t); try { localStorage.setItem('nc-theme', t); } catch (e) { /* ignore */ } };
@@ -404,7 +404,7 @@
   // ---------- section picker / filing ----------
   const allNotebooks = async () => (await notebooks.all()).sort((a, b) => (b.current || 0) - (a.current || 0) || (a.order || 0) - (b.order || 0));
   async function pickSection(title, opts = {}) {
-    const nbs = (await allNotebooks()).sort((a, b) => (b.current || 0) - (a.current || 0));
+    const nbs = await sortedNotebooks();
     const recent = (await meta.get('recentTargets', [])) || [];
     const all = [];
     for (const nb of nbs) for (const sec of await sections.forNotebook(nb.id)) all.push({ nb, sec, label: (sec.group ? sec.group + ' › ' : '') + sec.name, key: (nb.name + ' ' + (sec.group || '') + ' ' + sec.name).toLowerCase() });
@@ -450,8 +450,18 @@
   const chevron = (open) => el('span', { class: 'chev' + (open ? ' open' : ''), html: '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>' });
   const toggle = (id) => { state.expanded.has(id) ? state.expanded.delete(id) : state.expanded.add(id); refreshTree(); };
   const nbColour = (nb, i) => nb.color || NB_COLOURS[(i == null ? 0 : i) % NB_COLOURS.length];
+  // Notebooks in display order: the current rotation is pinned to the top, the rest by their manual order.
+  async function sortedNotebooks() { return (await notebooks.all()).sort((a, b) => (b.current || 0) - (a.current || 0) || (a.order || 0) - (b.order || 0) || a.name.localeCompare(b.name)); }
+  async function moveNotebook(nb, dir) {
+    const list = (await sortedNotebooks()).filter((x) => !x.current || x.id === nb.id);
+    for (const [i, x] of list.entries()) if (x.order !== i + 1) await notebooks.update(x.id, { order: i + 1 });
+    const i = list.findIndex((x) => x.id === nb.id), j = i + dir;
+    if (i < 0 || j < 0 || j >= list.length) return;
+    await notebooks.update(list[i].id, { order: j + 1 }); await notebooks.update(list[j].id, { order: i + 1 });
+    onChanged();
+  }
   async function currentNotebook(nbs) {
-    nbs = nbs || await notebooks.all();
+    nbs = nbs || await sortedNotebooks();
     const nb = nbs.find((n) => n.id === state.nbId) || nbs.find((n) => n.current) || nbs[0] || null;
     if (nb) setNotebook(nb.id);
     return nb;
@@ -490,7 +500,7 @@
   }
   async function buildTree() {
     const wrap = el('div', { class: 'tree' });
-    const nbs = await notebooks.all();
+    const nbs = await sortedNotebooks();
     const cur = await currentNotebook(nbs);
     if (!cur) { wrap.append(el('div', { class: 'empty' }, 'No notebooks yet. Create one below, or file a capture.')); return wrap; }
     const livePages = await pages.live();
@@ -498,13 +508,15 @@
     for (const q of livePages) if (q.sectionId) pagesBySec.set(q.sectionId, (pagesBySec.get(q.sectionId) || 0) + 1);
     for (const [i, nb] of nbs.entries()) {
     const colour = nbColour(nb, i);
-    const open = nb.id === cur.id;
+    const selected = nb.id === cur.id;
+    const open = selected && !state.nbCollapsed;
     const secs = await sections.forNotebook(nb.id);
     const nPages = secs.reduce((n, sc) => n + (pagesBySec.get(sc.id) || 0), 0);
-    const nbEl = el('div', { class: 'nb' + (open ? ' open' : ''), style: '--nb: ' + colour });
-    // Notebook header: click to make it the open notebook (only one is open at a time).
-    const head = el('div', { class: 'nb-head', role: 'button', tabindex: '0', title: open ? nb.name : 'Open ' + nb.name, onclick: () => { if (open) go('#nb/' + nb.id); else { setNotebook(nb.id); refreshTree(); } }, onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (!open) { setNotebook(nb.id); refreshTree(); } } } },
-      el('span', { class: 'spine' }),
+    const nbEl = el('div', { class: 'nb' + (selected ? ' selected' : '') + (open ? ' open' : ''), style: '--nb: ' + colour });
+    // Notebook header: click a closed notebook to select it; click the selected one to fold or unfold it.
+    const pick = () => { if (selected) { state.nbCollapsed = !state.nbCollapsed; } else { setNotebook(nb.id); state.nbCollapsed = false; } refreshTree(); };
+    const head = el('div', { class: 'nb-head', role: 'button', tabindex: '0', title: selected ? (open ? 'Collapse' : 'Expand') : 'Open ' + nb.name, onclick: pick, onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } } },
+      el('span', { class: 'spine' }), selected ? chevron(open) : null,
       el('span', { class: 'nb-name' }, nb.name), nb.current ? el('span', { class: 'badge-current' }, 'current') : null,
       el('span', { class: 'nb-meta' }, secs.length + ' · ' + nPages),
       el('button', { class: 'more', type: 'button', 'aria-label': 'Notebook options', onclick: (e) => { e.stopPropagation(); notebookMenu(nb); } }));
@@ -583,7 +595,10 @@
   }
   function notebookMenu(nb) {
     menu(nb.name, [
+      { label: 'Open notebook home', fn: () => go('#nb/' + nb.id) },
       { label: 'Rename', fn: async () => { const n = await ask('Rename notebook', '', nb.name, 'Rename'); if (n && n !== nb.name) { await notebooks.update(nb.id, { name: n }); onChanged(); } } },
+      nb.current ? null : { label: 'Move up', fn: () => moveNotebook(nb, -1) },
+      nb.current ? null : { label: 'Move down', fn: () => moveNotebook(nb, 1) },
       { label: 'Add section', fn: async () => { const n = await ask('New section in ' + nb.name, 'Section name'); if (n) { const s = await sections.create(nb.id, n); state.expanded.add(nb.id); state.expanded.add(s.id); onChanged(); } } },
       { label: 'Add section group', fn: async () => { const g = await ask('New section group', 'Group name'); if (!g) return; const n = await ask('First section in ' + g, 'Section name', 'General'); if (n) { const s = await sections.create(nb.id, n); await sections.update(s.id, { group: g }); state.expanded.add(nb.id); state.expanded.add('g:' + nb.id + ':' + g); onChanged(); } } },
       { label: nb.current ? 'Unset as current rotation' : 'Set as current rotation', fn: async () => {
@@ -625,7 +640,7 @@
   async function renderNotes() {
     state.view = 'notes';
     const view = el('div', { class: 'view' });
-    const nbs = await notebooks.all(); const archived = await notebooks.archived();
+    const nbs = await sortedNotebooks(); const archived = await notebooks.archived();
     const allSecs = await window.NCDB.db.sections.where('deleted').equals(0).toArray();
     const livePages = await pages.live();
     view.append(el('div', { class: 'view-head' }, el('h1', {}, 'Notebooks'), el('div', { class: 'toolrow' },
@@ -914,6 +929,7 @@
     clearTimeout(state.saveTimer); clearInterval(state.versionTimer);
     if (state.pendingSave) { const ps = state.pendingSave; state.pendingSave = null; pages.update(ps.id, ps.patch).then(() => S.schedule()); }
     if (state.pdfTeardown) { try { state.pdfTeardown(); } catch (e) { /* ignore */ } state.pdfTeardown = null; }
+    if (state.ink) { try { state.ink.destroy(); } catch (e) { /* ignore */ } state.ink = null; }
     if (state.editor) { snapshotIfChanged().catch(() => {}); try { state.editor.remove(); } catch (e) { /* ignore */ } state.editor = null; }
     state.openedPage = null;
   }
@@ -1000,6 +1016,7 @@
     else crumbs.append(el('a', { href: nb ? '#nb/' + nb.id : '#notes' }, nb ? nb.name : '—'), '›', el('a', { href: sec ? '#section/' + sec.id : '#notes' }, sec ? sec.name : '—'));
     crumbs.append(el('span', { class: 'spacer' }));
     if (p.pinned) crumbs.append(el('span', { class: 'pinmark', title: 'Pinned' }, '📌'));
+    if (p.kind !== 'pdf' && p.kind !== 'app') crumbs.append(el('button', { class: 'more-page draw', id: 'btn-draw', type: 'button', 'aria-label': 'Draw', title: 'Draw with pen or Pencil (D)', html: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l4-1 10.5-10.5a2.1 2.1 0 0 0-3-3L5 16z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M13 7l3 3" stroke="currentColor" stroke-width="1.7"/></svg>', onclick: () => { if (state.ink) state.ink.setDrawing(!state.ink.isDrawing()); } }));
     crumbs.append(el('button', { class: 'more-page', type: 'button', 'aria-label': 'Page options', onclick: () => pageMenu(p) }, '···'));
     crumbs.append(el('button', { class: 'done-page', type: 'button', 'aria-label': 'Done', title: 'Save and close', html: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>', onclick: () => { destroyEditor(); go(p.kind === 'app' ? '#apps' : p.inbox ? '#inbox' : (p.sectionId ? '#section/' + p.sectionId : '#notes')); } }));
     view.append(crumbs);
@@ -1124,6 +1141,7 @@
     state.editor = editors && editors[0];
     if (!state.editor) return;
     state.openedPage = p; state.openedHtml = initial;
+    if (window.NCInk) state.ink = NCInk.attach(host, p.ink, (ink) => queueSave({ ink }), { onMode: (on) => { const b = $('#btn-draw'); if (b) b.classList.toggle('on', on); refreshUndoButtons(); } });
     state.versionTimer = setInterval(() => snapshotIfChanged().catch(() => {}), 10 * 60 * 1000);
     function toggleTodo(ed) {
       let li = ed.dom.getParent(ed.selection.getNode(), 'li');
@@ -1176,6 +1194,7 @@
   }
   function pageMenu(p) {
     const html = state.editor && state.pageId === p.id ? state.editor.getContent() : htmlOf(p);
+    const inkItems = state.ink && state.pageId === p.id && state.ink.hasInk() ? [{ label: 'Clear all ink', danger: true, fn: async () => { if (await confirm('Clear all ink on this page?', '', 'Clear')) state.ink.clear(); } }] : [];
     const words = wordCount(html);
     const note = p.kind === 'pdf' ? ((p.pdfPages || '?') + ' pages · ' + Object.values(p.annots || {}).reduce((n, l) => n + l.length, 0) + ' marks · edited ' + fmtWhen(p.updated)) : (words + (words === 1 ? ' word' : ' words') + ' · about ' + Math.max(1, Math.round(words / 220)) + ' min read · edited ' + fmtWhen(p.updated));
     menu(p.title || 'Untitled', [
@@ -1184,6 +1203,7 @@
       { label: p.pinned ? 'Unpin' : 'Pin to top of section', fn: async () => { await pages.update(p.id, { pinned: p.pinned ? 0 : 1 }); onChanged(); renderPage(p.id); } },
       p.kind === 'pdf' ? null : { label: 'Paper: ' + (PAPERS[p.paper] || 'Plain') + '…', fn: () => menu('Paper', Object.entries(PAPERS).map(([k, v]) => ({ label: v + (k === (p.paper || 'plain') ? '  ✓' : ''), fn: async () => { p.paper = k; await pages.update(p.id, { paper: k }); S.schedule(); if (state.editor && state.pageId === p.id) applyPaper(state.editor, k); } }))) },
       p.kind === 'pdf' ? null : { label: 'History…', fn: () => historySheet(p) },
+      ...inkItems,
       p.kind === 'pdf' ? { label: 'Export annotated PDF', fn: async () => { try { toast('Preparing PDF…'); const blob = await window.NCPDF.exportAnnotated(p); await deliver(blob, (p.title || 'document') + ' (annotated).pdf'); } catch (e) { toast(e.message); } } } : { label: 'Export as Markdown (.md)', fn: () => exportPage(p, 'md') },
       p.kind === 'pdf' ? { label: 'Export original PDF', fn: async () => { const a = await assets.get(p.assetId); if (a && a.blob) await deliver(a.blob, (p.title || 'document') + '.pdf'); else toast('PDF not on this device'); } } : { label: 'Export as Word (.doc)', fn: () => exportPage(p, 'doc') },
       p.kind === 'pdf' ? { label: 'Clear all marks', danger: true, fn: async () => { if (await confirm('Remove every pen and highlighter mark from this PDF?', null, 'Clear')) { await pages.update(p.id, { annots: {} }); S.schedule(); renderPage(p.id); } } } : { label: 'Print / Save as PDF', fn: () => setTimeout(() => window.print(), 200) },
@@ -1577,7 +1597,7 @@
   $('#btn-back').addEventListener('click', () => history.back());
   $('#btn-fwd').addEventListener('click', () => history.forward());
   $('#btn-reload').addEventListener('click', () => location.reload());
-  const undoTarget = () => state.editor ? { undo: () => state.editor.execCommand('Undo'), redo: () => state.editor.execCommand('Redo') } : (window.NCPDF && window.NCPDF.active) || null;
+  const undoTarget = () => (window.NCInk && window.NCInk.active) || (state.editor ? { undo: () => state.editor.execCommand('Undo'), redo: () => state.editor.execCommand('Redo') } : (window.NCPDF && window.NCPDF.active) || null);
   $('#btn-undo').addEventListener('click', () => { const t = undoTarget(); if (t) t.undo(); });
   $('#btn-redo').addEventListener('click', () => { const t = undoTarget(); if (t) t.redo(); });
   const refreshUndoButtons = () => { const on = !!undoTarget(); $('#btn-undo').disabled = !on; $('#btn-redo').disabled = !on; };
