@@ -25,11 +25,11 @@
     const groups = await pageAll('/me/onenote/notebooks/' + notebookId + '/sectionGroups?$select=id,displayName,parentSectionGroup&$expand=parentSectionGroup($select=id,displayName)');
     const gName = new Map(groups.map((g) => [g.id, g]));
     const pathOf = (g) => { const parts = []; let cur = g; let guard = 0; while (cur && guard++ < 10) { parts.unshift(cur.displayName); cur = cur.parentSectionGroup && gName.get(cur.parentSectionGroup.id); } return parts.join(' / '); };
-    for (const s of secs) out.push({ id: s.id, name: (s.parentSectionGroup ? pathOf(gName.get(s.parentSectionGroup.id) || s.parentSectionGroup) + ' / ' : '') + s.displayName });
+    for (const s of secs) out.push({ id: s.id, name: s.displayName, group: s.parentSectionGroup ? pathOf(gName.get(s.parentSectionGroup.id) || s.parentSectionGroup) : '' });
     // Sections nested inside section groups are not returned by the notebook-level call; fetch per group.
     for (const g of groups) {
       const gs = await pageAll('/me/onenote/sectionGroups/' + g.id + '/sections?$select=id,displayName');
-      for (const s of gs) if (!out.some((x) => x.id === s.id)) out.push({ id: s.id, name: pathOf(g) + ' / ' + s.displayName });
+      for (const s of gs) if (!out.some((x) => x.id === s.id)) out.push({ id: s.id, name: s.displayName, group: pathOf(g) });
     }
     return out;
   }
@@ -108,8 +108,8 @@
     for (const { sec, pgs, failed: secFailed } of plan) {
       if (secFailed) { failed++; continue; }
       const existingSecs = await sections.forNotebook(target.id);
-      let tsec = existingSecs.find((x) => x.onenoteId === sec.id) || existingSecs.find((x) => x.name === sec.name);
-      if (!tsec) { tsec = await sections.create(target.id, sec.name); await sections.update(tsec.id, { onenoteId: sec.id }); }
+      let tsec = existingSecs.find((x) => x.onenoteId === sec.id) || existingSecs.find((x) => x.name === sec.name && (x.group || '') === (sec.group || ''));
+      if (!tsec) { tsec = await sections.create(target.id, sec.name); await sections.update(tsec.id, { onenoteId: sec.id, group: sec.group || '' }); }
       for (const pg of pgs) {
         done++;
         if (doneIds.has(pg.id)) { skipped++; log(done + ' / ' + total + ' · ' + sec.name, done, total); continue; }

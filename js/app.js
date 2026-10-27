@@ -349,7 +349,7 @@
       for (const nb of nbs) {
         list.append(el('div', { class: 'group' }, nb.name + (nb.current ? ' · current' : '')));
         const secs = await sections.forNotebook(nb.id);
-        for (const s of secs) list.append(el('button', { type: 'button', onclick: () => close({ notebookId: nb.id, sectionId: s.id }) }, s.name));
+        for (const s of secs) list.append(el('button', { type: 'button', onclick: () => close({ notebookId: nb.id, sectionId: s.id }) }, (s.group ? s.group + ' › ' : '') + s.name));
         list.append(el('button', { type: 'button', style: 'color: var(--accent)', onclick: async () => {
           const name = await ask('New section in ' + nb.name, 'Section name'); if (!name) return;
           const s = await sections.create(nb.id, name); onChanged(); close({ notebookId: nb.id, sectionId: s.id });
@@ -396,24 +396,39 @@
       nbEl.append(head);
       if (open) {
         const body = el('div', { class: 'nb-body' });
-        for (const s of secs) {
+        const groups = []; const seen = new Map();
+        for (const s of secs) { const g = s.group || ''; if (!seen.has(g)) { seen.set(g, { name: g, secs: [] }); groups.push(seen.get(g)); } seen.get(g).secs.push(s); }
+        const renderSec = (s, inGroup) => {
           const sopen = state.expanded.has(s.id);
           const count = pagesBySec.get(s.id) || 0;
-          const secEl = el('div', { class: 'sec' + (sopen ? ' open' : '') });
+          const secEl = el('div', { class: 'sec' + (sopen ? ' open' : '') + (inGroup ? ' grouped' : '') });
           secEl.append(el('div', { class: 'sec-head' },
             el('button', { class: 'sec-toggle', type: 'button', 'aria-label': 'Expand', onclick: () => toggle(s.id) }, chevron(sopen)),
-            el('button', { class: 'sec-name', type: 'button', title: 'Open section', onclick: () => go('#section/' + s.id) }, s.name),
+            el('button', { class: 'sec-name', type: 'button', title: s.name, onclick: () => go('#section/' + s.id) }, s.name),
             el('span', { class: 'sec-count' }, count ? String(count) : ''),
             el('button', { class: 'more', type: 'button', 'aria-label': 'Section options', onclick: (e) => { e.stopPropagation(); sectionMenu(nb, s); } })));
           if (sopen) {
             const pgs = livePages.filter((p) => p.sectionId === s.id).sort(pinnedFirst);
             const pl = el('div', { class: 'pages' });
-            for (const p of pgs) pl.append(gestures(el('button', { class: 'page-row' + (p.id === state.pageId ? ' active' : '') + (p.pinned ? ' pinned' : ''), type: 'button', onclick: () => openPage(p.id) }, p.kind === 'pdf' ? el('span', { class: 'page-pdf' }, 'PDF') : el('span', { class: 'page-dot' }), el('span', { class: 'page-title' }, p.title || 'Untitled')),
+            for (const p of pgs) pl.append(gestures(el('button', { class: 'page-row' + (p.id === state.pageId ? ' active' : '') + (p.pinned ? ' pinned' : ''), type: 'button', title: p.title || 'Untitled', onclick: () => openPage(p.id) }, p.kind === 'pdf' ? el('span', { class: 'page-pdf' }, 'PDF') : el('span', { class: 'page-dot' }), el('span', { class: 'page-title' }, p.title || 'Untitled')),
               { onDelete: async () => { if (await confirm('Delete "' + (p.title || 'Untitled') + '"?')) { if (state.pageId === p.id) destroyEditor(); await pages.remove(p.id); onChanged(); if (state.pageId === p.id) go('#notes'); } }, onLongPress: () => pageQuickMenu(p) }));
             pl.append(el('button', { class: 'addrow', type: 'button', onclick: () => newPage(nb.id, s.id) }, '+ New page'));
             secEl.append(pl);
           }
-          body.append(secEl);
+          return secEl;
+        };
+        for (const g of groups) {
+          if (!g.name) { for (const s of g.secs) body.append(renderSec(s, false)); continue; }
+          const gid = 'g:' + nb.id + ':' + g.name;
+          const gopen = state.expanded.has(gid);
+          const gEl = el('div', { class: 'secgroup' + (gopen ? ' open' : '') });
+          const gcount = g.secs.reduce((n, s) => n + (pagesBySec.get(s.id) || 0), 0);
+          gEl.append(el('div', { class: 'group-head', role: 'button', tabindex: '0', onclick: () => toggle(gid), onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(gid); } } },
+            chevron(gopen), el('span', { class: 'group-ico', html: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2h8.5A1.5 1.5 0 0 1 21 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>' }),
+            el('span', { class: 'group-name', title: g.name }, g.name), el('span', { class: 'sec-count' }, g.secs.length + ' · ' + gcount),
+            el('button', { class: 'more', type: 'button', 'aria-label': 'Group options', onclick: (e) => { e.stopPropagation(); groupMenu(nb, g.name, g.secs); } })));
+          if (gopen) { const inner = el('div', { class: 'group-body' }); for (const s of g.secs) inner.append(renderSec(s, true)); inner.append(el('button', { class: 'addrow', type: 'button', onclick: async () => { const n = await ask('New section in ' + g.name, 'Section name'); if (n) { const sc = await sections.create(nb.id, n); await sections.update(sc.id, { group: g.name }); state.expanded.add(nb.id); state.expanded.add(gid); state.expanded.add(sc.id); onChanged(); } } }, '+ New section here')); gEl.append(inner); }
+          body.append(gEl);
         }
         body.append(el('button', { class: 'addrow addsec', type: 'button', onclick: async () => { const n = await ask('New section in ' + nb.name, 'Section name'); if (n) { const sc = await sections.create(nb.id, n); state.expanded.add(nb.id); state.expanded.add(sc.id); onChanged(); } } }, '+ New section'));
         nbEl.append(body);
@@ -442,6 +457,7 @@
     menu(nb.name, [
       { label: 'Rename', fn: async () => { const n = await ask('Rename notebook', '', nb.name, 'Rename'); if (n && n !== nb.name) { await notebooks.update(nb.id, { name: n }); onChanged(); } } },
       { label: 'Add section', fn: async () => { const n = await ask('New section in ' + nb.name, 'Section name'); if (n) { const s = await sections.create(nb.id, n); state.expanded.add(nb.id); state.expanded.add(s.id); onChanged(); } } },
+      { label: 'Add section group', fn: async () => { const g = await ask('New section group', 'Group name'); if (!g) return; const n = await ask('First section in ' + g, 'Section name', 'General'); if (n) { const s = await sections.create(nb.id, n); await sections.update(s.id, { group: g }); state.expanded.add(nb.id); state.expanded.add('g:' + nb.id + ':' + g); onChanged(); } } },
       { label: nb.current ? 'Unset as current rotation' : 'Set as current rotation', fn: async () => {
         for (const o of await notebooks.all()) if (o.current && o.id !== nb.id) await notebooks.update(o.id, { current: 0 });
         await notebooks.update(nb.id, { current: nb.current ? 0 : 1 }); onChanged(); toast(nb.current ? 'Cleared' : nb.name + ' is the current rotation');
@@ -450,9 +466,26 @@
       { label: 'Delete notebook', danger: true, fn: async () => { if (await confirm('Delete notebook "' + nb.name + '"?', 'All its sections and pages go to the bin too.')) { await notebooks.remove(nb.id); onChanged(); if (state.view === 'page') go('#inbox'); } } }
     ]);
   }
+  async function pickGroup(nb, current) {
+    const secs = await sections.forNotebook(nb.id);
+    const groups = [...new Set(secs.map((x) => x.group).filter(Boolean))].sort();
+    return new Promise((resolve) => menu('Section group', [
+      ...groups.filter((g) => g !== current).map((g) => ({ label: g, fn: () => resolve(g) })),
+      { label: 'New group…', accent: true, fn: async () => { const n = await ask('New section group', 'Group name'); resolve(n || undefined); } },
+      current ? { label: 'Remove from group', danger: true, fn: () => resolve('') } : null
+    ]).then(() => setTimeout(() => resolve(undefined), 0)));
+  }
+  function groupMenu(nb, name, secs) {
+    menu(nb.name + ' › ' + name, [
+      { label: 'New section in this group', fn: async () => { const n = await ask('New section in ' + name, 'Section name'); if (n) { const sc = await sections.create(nb.id, n); await sections.update(sc.id, { group: name }); state.expanded.add('g:' + nb.id + ':' + name); state.expanded.add(sc.id); onChanged(); } } },
+      { label: 'Rename group', fn: async () => { const n = await ask('Rename group', '', name, 'Rename'); if (n && n !== name) { for (const sc of secs) await sections.update(sc.id, { group: n }); state.expanded.add('g:' + nb.id + ':' + n); onChanged(); } } },
+      { label: 'Ungroup (sections stay)', danger: true, fn: async () => { if (await confirm('Ungroup "' + name + '"?', 'The sections stay in the notebook, just not grouped.', 'Ungroup')) { for (const sc of secs) await sections.update(sc.id, { group: '' }); onChanged(); } } }
+    ]);
+  }
   function sectionMenu(nb, s) {
-    menu(nb.name + ' › ' + s.name, [
+    menu(nb.name + ' › ' + (s.group ? s.group + ' › ' : '') + s.name, [
       { label: 'Open section', fn: () => go('#section/' + s.id) },
+      { label: s.group ? 'Move to group… (now in ' + s.group + ')' : 'Move to group…', fn: async () => { const g = await pickGroup(nb, s.group || ''); if (g === undefined) return; await sections.update(s.id, { group: g }); if (g) state.expanded.add('g:' + nb.id + ':' + g); onChanged(); } },
       { label: 'New page', fn: () => newPage(nb.id, s.id) },
       { label: s.view === 'table' ? 'Show as list' : 'Show as table (database view)', fn: async () => { await sections.update(s.id, { view: s.view === 'table' ? 'list' : 'table' }); onChanged(); if (state.view === 'section') renderSection(s.id); } },
       { label: 'Rename', fn: async () => { const n = await ask('Rename section', '', s.name, 'Rename'); if (n && n !== s.name) { await sections.update(s.id, { name: n }); onChanged(); } } },
@@ -486,7 +519,7 @@
     const sv = state.sectionView[id] || (state.sectionView[id] = { sort: 'updated', dir: -1, q: '' });
     const pgs = (await pages.forSection(id));
     const view = el('div', { class: 'view' });
-    view.append(el('div', { class: 'crumbs' }, el('a', { href: '#notes' }, nb ? nb.name : '—'), '›', s.name, el('span', { class: 'spacer' }), el('button', { class: 'more-page', type: 'button', 'aria-label': 'Section options', onclick: () => sectionMenu(nb, s) }, '···')));
+    view.append(el('div', { class: 'crumbs' }, el('a', { href: '#notes' }, nb ? nb.name : '—'), '›', ...(s.group ? [s.group, '›'] : []), s.name, el('span', { class: 'spacer' }), el('button', { class: 'more-page', type: 'button', 'aria-label': 'Section options', onclick: () => sectionMenu(nb, s) }, '···')));
     const head = el('div', { class: 'view-head' }, el('h1', {}, s.name), el('div', { class: 'toolrow' },
       el('div', { class: 'seg' }, el('button', { type: 'button', class: s.view !== 'table' ? 'on' : '', onclick: async () => { await sections.update(id, { view: 'list' }); onChanged(); renderSection(id); } }, 'List'), el('button', { type: 'button', class: s.view === 'table' ? 'on' : '', onclick: async () => { await sections.update(id, { view: 'table' }); onChanged(); renderSection(id); } }, 'Table')),
       el('button', { class: 'btn small primary', type: 'button', onclick: () => newPage(nb.id, id) }, '+ Page')));
@@ -1263,6 +1296,12 @@
 
   // ---------- boot ----------
   (async () => {
+    if (!(await meta.get('groupsMigrated'))) {
+      for (const sc of await window.NCDB.db.sections.toArray()) {
+        if (!sc.group && sc.name && sc.name.includes(' / ')) { const parts = sc.name.split(' / '); await sections.update(sc.id, { group: parts.slice(0, -1).join(' / '), name: parts[parts.length - 1] }); }
+      }
+      await meta.set('groupsMigrated', true);
+    }
     if (PANE) { await refreshTree(); await refreshInboxCount(); await route(); return; }
     await handleURLCapture();
     await refreshTree(); await refreshInboxCount();
