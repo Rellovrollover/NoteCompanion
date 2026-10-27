@@ -327,7 +327,8 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 700; letter-spacing: 0; tex
 
 /* Swipe-to-delete and press-and-hold */
 .swipe { position: relative; overflow: hidden; border-radius: 12px; }
-.swipe-under { position: absolute; inset: 0; display: flex; justify-content: flex-end; align-items: stretch; background: var(--bad); border-radius: inherit; }
+.swipe-under { position: absolute; inset: 0; display: flex; justify-content: flex-end; align-items: stretch; background: var(--bad); border-radius: inherit; visibility: hidden; }
+.swipe.open .swipe-under, .swipe.swiping .swipe-under { visibility: visible; }
 .swipe-del { width: 96px; border: 0; background: transparent; color: #fff; font-weight: 600; cursor: pointer; }
 .swipe-front { position: relative; transition: transform .18s ease; touch-action: pan-y; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 .tree .pages .swipe { border-radius: 8px; }
@@ -590,3 +591,6 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 700; letter-spacing: 0; tex
 .scanhandle { position: absolute; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%; background: rgba(255,255,255,.85); border: 3px solid var(--accent); box-shadow: 0 2px 8px rgba(0,0,0,.25); cursor: grab; touch-action: none; }
 .scanhandle.on { background: var(--accent); }
 .sheet-host.centre .sheet:has(.scanstage) { width: min(100% - 24px, 46rem); }
+
+.tree .sec-head.dropinto { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); }
+.stab.dropinto { outline: 2px solid var(--accent); outline-offset: 1px; }

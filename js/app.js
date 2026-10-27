@@ -109,6 +109,13 @@
     if (state.view === 'section' && state.sectionId) renderSection(state.sectionId);
     const col = $('.pagecol'); if (col && state.view === 'page') { const nb = await notebooks.get(col.dataset.nb), sec = await sections.get(col.dataset.sec); if (nb && sec) col.replaceWith(await pageColumn(nb, sec, state.pageId)); }
   }
+  // Move a page into another section (dropped on a section header, a tab, or a page in that section).
+  async function movePageTo(id, sectionId, beforeId) {
+    const sec = await sections.get(sectionId); const q = await pages.get(id); if (!sec || !q) return;
+    if (q.sectionId !== sectionId) await pages.update(id, { inbox: 0, notebookId: sec.notebookId, sectionId, order: Date.now() });
+    if (beforeId) await placePage(id, beforeId); else { onChanged(); if (state.view === 'section' && state.sectionId) renderSection(state.sectionId); }
+    toast('Moved to ' + sec.name);
+  }
   async function nudgePage(q, dir) {
     const list = (await pages.forSection(q.sectionId)).sort(pinnedFirst);
     const i = list.findIndex((x) => x.id === q.id), j = i + dir;
@@ -123,14 +130,22 @@
     row.addEventListener('dragend', () => row.classList.remove('dragging'));
     row.addEventListener('dragover', (e) => { if (e.dataTransfer.types.includes('text/nc-page')) { e.preventDefault(); row.classList.add('dropbefore'); } });
     row.addEventListener('dragleave', () => row.classList.remove('dropbefore'));
-    row.addEventListener('drop', async (e) => { e.preventDefault(); row.classList.remove('dropbefore'); const id = e.dataTransfer.getData('text/nc-page'); if (id && id !== q.id) { const src = await pages.get(id); if (src && src.sectionId === q.sectionId) await placePage(id, q.id); } });
+    row.addEventListener('drop', async (e) => { e.preventDefault(); row.classList.remove('dropbefore'); const id = e.dataTransfer.getData('text/nc-page'); if (id && id !== q.id) { const src = await pages.get(id); if (!src) return; if (src.sectionId === q.sectionId) await placePage(id, q.id); else await movePageTo(id, q.sectionId, q.id); } });
     return row;
+  }
+  // Any element standing for a section accepts dropped pages (and, in the tree, sections).
+  function sectionDropTarget(target, sectionId) {
+    if (isNarrow()) return target;
+    target.addEventListener('dragover', (e) => { if (e.dataTransfer.types.includes('text/nc-page')) { e.preventDefault(); target.classList.add('dropinto'); } });
+    target.addEventListener('dragleave', () => target.classList.remove('dropinto'));
+    target.addEventListener('drop', async (e) => { const id = e.dataTransfer.getData('text/nc-page'); if (!id) return; e.preventDefault(); e.stopPropagation(); target.classList.remove('dropinto'); await movePageTo(id, sectionId, null); });
+    return target;
   }
   function dropEnd(target, sectionId) {
     if (isNarrow()) return target;
     target.addEventListener('dragover', (e) => { if (e.dataTransfer.types.includes('text/nc-page')) { e.preventDefault(); target.classList.add('dropinto'); } });
     target.addEventListener('dragleave', () => target.classList.remove('dropinto'));
-    target.addEventListener('drop', async (e) => { e.preventDefault(); target.classList.remove('dropinto'); const id = e.dataTransfer.getData('text/nc-page'); if (id) { const src = await pages.get(id); if (src && src.sectionId === sectionId) await placePage(id, null); } });
+    target.addEventListener('drop', async (e) => { e.preventDefault(); target.classList.remove('dropinto'); const id = e.dataTransfer.getData('text/nc-page'); if (id) { const src = await pages.get(id); if (!src) return; if (src.sectionId === sectionId) await placePage(id, null); else await movePageTo(id, sectionId, null); } });
     return target;
   }
 
@@ -150,7 +165,7 @@
     front.classList.add('swipe-front');
     wrap.append(under, front);
     let sx = 0, sy = 0, dx = 0, dragging = null, open = false, lp = null, fired = false;
-    const reset = () => { open = false; front.style.transform = ''; wrap.classList.remove('open'); };
+    const reset = () => { open = false; front.style.transform = ''; wrap.classList.remove('open', 'swiping'); };
     const setX = (x) => { front.style.transition = 'none'; front.style.transform = 'translateX(' + x + 'px)'; };
     front.addEventListener('touchstart', (e) => {
       const t = e.touches[0]; sx = t.clientX; sy = t.clientY; dx = 0; dragging = null; fired = false;
@@ -158,7 +173,7 @@
     }, { passive: true });
     front.addEventListener('touchmove', (e) => {
       const t = e.touches[0]; dx = t.clientX - sx; const dy = t.clientY - sy;
-      if (dragging === null) { if (Math.abs(dx) > 8 || Math.abs(dy) > 8) { dragging = Math.abs(dx) > Math.abs(dy); clearTimeout(lp); lp = null; } else return; }
+      if (dragging === null) { if (Math.abs(dx) > 8 || Math.abs(dy) > 8) { dragging = Math.abs(dx) > Math.abs(dy); clearTimeout(lp); lp = null; if (dragging) wrap.classList.add('swiping'); } else return; }
       if (!dragging) return;
       e.preventDefault();
       const base = open ? -96 : 0;
@@ -168,7 +183,7 @@
       clearTimeout(lp); lp = null;
       front.style.transition = '';
       if (dragging) { const pos = (open ? -96 : 0) + dx; if (pos < -70) { open = true; front.style.transform = 'translateX(-96px)'; wrap.classList.add('open'); } else reset(); }
-      dragging = null;
+      wrap.classList.remove('swiping'); dragging = null;
     });
     front.addEventListener('touchcancel', () => { clearTimeout(lp); lp = null; front.style.transition = ''; dragging = null; });
     front.addEventListener('click', (e) => { if (fired || open) { e.preventDefault(); e.stopPropagation(); fired = false; reset(); } }, true);
@@ -571,7 +586,7 @@
         el('button', { class: 'sec-name', type: 'button', title: sc.name, onclick: () => go('#section/' + sc.id) }, sc.name),
         el('span', { class: 'sec-count' }, count ? String(count) : ''),
         el('button', { class: 'more', type: 'button', 'aria-label': 'Section options', onclick: (e) => { e.stopPropagation(); sectionMenu(nb, sc); } })));
-      if (!isNarrow()) dragSection(secEl, sc, nb);
+      if (!isNarrow()) { dragSection(secEl, sc, nb); sectionDropTarget(secEl.firstChild, sc.id); }
       if (sopen) {
         const pgs = livePages.filter((q) => q.sectionId === sc.id).sort(pinnedFirst);
         const pl = el('div', { class: 'pages' });
@@ -669,8 +684,13 @@
       { label: 'Open section', fn: () => go('#section/' + s.id) },
       { label: s.group ? 'Move to group… (now in ' + s.group + ')' : 'Move to group…', fn: async () => { const g = await pickGroup(nb, s.group || ''); if (g === undefined) return; await sections.update(s.id, { group: g }); if (g) state.expanded.add('g:' + nb.id + ':' + g); onChanged(); } },
       { label: 'New page', fn: () => newPage(nb.id, s.id) },
+      { label: 'Select pages to move or delete…', fn: () => { const sv = state.sectionView[s.id] || (state.sectionView[s.id] = { sort: 'manual', dir: 1, q: '' }); sv.select = true; sv.picked = new Set(); go('#section/' + s.id); if (state.view === 'section' && state.sectionId === s.id) renderSection(s.id); } },
       { label: 'Move up', fn: () => moveSection(s, -1) },
       { label: 'Move down', fn: () => moveSection(s, 1) },
+      { label: 'Move to another notebook…', fn: async () => {
+        const nbs = (await sortedNotebooks()).filter((x) => x.id !== nb.id); if (!nbs.length) { toast('No other notebook yet'); return; }
+        menu('Move "' + s.name + '" to', nbs.map((x) => ({ label: x.name, fn: async () => { await sections.update(s.id, { notebookId: x.id, group: '', order: Date.now() }); for (const q of await pages.forSection(s.id)) await pages.update(q.id, { notebookId: x.id }); onChanged(); toast('Moved to ' + x.name); } })));
+      } },
       { label: s.view === 'table' ? 'Show as list' : 'Show as table (database view)', fn: async () => { await sections.update(s.id, { view: s.view === 'table' ? 'list' : 'table' }); onChanged(); if (state.view === 'section') renderSection(s.id); } },
       { label: 'Rename', fn: async () => { const n = await ask('Rename section', '', s.name, 'Rename'); if (n && n !== s.name) { await sections.update(s.id, { name: n }); onChanged(); } } },
       { label: 'Delete section', danger: true, fn: async () => { if (await confirm('Delete section "' + s.name + '"?', 'Its pages go to the bin too.')) { await sections.remove(s.id); onChanged(); if (state.view === 'page' || state.view === 'section') go('#inbox'); } } }
@@ -719,7 +739,7 @@
     const strip = el('div', { class: 'sectabs', 'data-nb': nb.id, 'data-sec': activeSecId || '' });
     const row1 = el('div', { class: 'tabrow' });
     let ci = 0;
-    const tabFor = (sc, i) => el('a', { class: 'stab' + (active && active.id === sc.id ? ' active' : ''), href: '#section/' + sc.id, style: '--tab: ' + NB_COLOURS[i % NB_COLOURS.length], title: sc.name }, sc.name);
+    const tabFor = (sc, i) => sectionDropTarget(el('a', { class: 'stab' + (active && active.id === sc.id ? ' active' : ''), href: '#section/' + sc.id, style: '--tab: ' + NB_COLOURS[i % NB_COLOURS.length], title: sc.name }, sc.name), sc.id);
     for (const g of groups) {
       if (!g.name) { for (const sc of g.secs) row1.append(tabFor(sc, ci++)); continue; }
       const open = openGroup === g.name;
