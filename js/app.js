@@ -1087,7 +1087,7 @@
             $('#onenote-list').replaceChildren(list);
           } catch (err) {
             e.target.disabled = false; e.target.textContent = 'Show my OneNote notebooks';
-            toast(/403|consent|Notes\.Read/i.test(err.message || '') ? 'Sign out and in again to grant OneNote access' : (err.message || 'Could not list notebooks'));
+            toast(/429/.test(err.message || '') ? 'OneNote is rate-limiting this account. Wait a couple of minutes and try again.' : /403|consent|Notes\.Read/i.test(err.message || '') ? 'Sign out and in again to grant OneNote access' : (err.message || 'Could not list notebooks'));
           }
         } }, 'Show my OneNote notebooks')));
       view.append(on);
@@ -1152,6 +1152,7 @@
   }
   pill.addEventListener('click', () => { if (!G.state().signedIn) go('#settings'); else { S.run(); toast('Syncing…'); } });
   S.onChange(showStatus);
+  G.onThrottle = (ms) => { const sec = Math.round(ms / 1000); if (sec >= 5) toast('Microsoft is rate-limiting; waiting ' + sec + ' s before retrying'); };
   G.onChange(() => { if (state.view === 'settings') renderSettings(); S.schedule(300); });
 
   // ---------- service worker ----------

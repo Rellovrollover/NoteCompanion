@@ -5,6 +5,9 @@
   const { notebooks, sections, pages, assets, meta } = window.NCDB;
   const G = window.NCGraph;
   const S = window.NCSync;
+  const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+  // OneNote's API throttles per user; pace requests rather than hammer it.
+  const PACE = 350;
 
   async function listNotebooks() {
     const r = await G.json('/me/onenote/notebooks?$select=id,displayName,lastModifiedDateTime&$orderby=displayName');
@@ -51,6 +54,7 @@
       const src = img.getAttribute('data-fullres-src') || img.getAttribute('src');
       if (!src) { img.remove(); continue; }
       try {
+        await pause(PACE);
         const blob = await fetchResource(src);
         const name = (img.getAttribute('alt') || 'image').replace(/[^\w.-]+/g, '_').slice(0, 60) + (blob.type.includes('png') ? '.png' : blob.type.includes('gif') ? '.gif' : '.jpg');
         const a = await assets.create(blob, name);
@@ -62,6 +66,7 @@
     for (const obj of [...body.querySelectorAll('object')]) {
       const src = obj.getAttribute('data'); const name = obj.getAttribute('data-attachment') || 'attachment';
       try {
+        await pause(PACE);
         const blob = await fetchResource(src);
         const a = await assets.create(blob, name);
         const link = doc.createElement('p'); const aEl = doc.createElement('a'); aEl.href = 'asset/' + a.id; aEl.textContent = '📎 ' + name; link.append(aEl); obj.replaceWith(link);
@@ -96,7 +101,7 @@
     const secs = await sectionsOf(nb.id);
     // Count first so the progress bar means something.
     const plan = [];
-    for (const sec of secs) { try { plan.push({ sec, pgs: await pagesOf(sec.id) }); } catch (e) { plan.push({ sec, pgs: [], failed: true }); } }
+    for (const sec of secs) { try { await pause(PACE); plan.push({ sec, pgs: await pagesOf(sec.id) }); } catch (e) { plan.push({ sec, pgs: [], failed: true }); } }
     const total = plan.reduce((n, x) => n + x.pgs.length, 0);
     let count = 0, skipped = 0, failed = 0, done = 0;
     log('0 / ' + total + ' pages', 0, total);
@@ -109,6 +114,7 @@
         done++;
         if (doneIds.has(pg.id)) { skipped++; log(done + ' / ' + total + ' · ' + sec.name, done, total); continue; }
         try {
+          await pause(PACE);
           const res = await G.call('/me/onenote/pages/' + pg.id + '/content?includeIDs=false');
           if (!res.ok) throw new Error('content ' + res.status);
           const html = await convertPage(await res.text(), pg.title);

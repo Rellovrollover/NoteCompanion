@@ -56,14 +56,18 @@
     }
   }
 
-  async function call(path, opts = {}, retry = true) {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  async function call(path, opts = {}, attempt = 0) {
     const t = await token();
     const headers = Object.assign({ Authorization: 'Bearer ' + t }, opts.headers || {});
     const res = await fetch(path.startsWith('http') ? path : GRAPH + path, Object.assign({}, opts, { headers }));
-    if ((res.status === 429 || res.status === 503) && retry) {
-      const wait = Math.min(30, parseInt(res.headers.get('Retry-After') || '3', 10)) * 1000;
-      await new Promise((r) => setTimeout(r, wait));
-      return call(path, opts, false);
+    if ((res.status === 429 || res.status === 503 || res.status === 504) && attempt < 6) {
+      // Honour Retry-After; OneNote throttles hard, so back off generously.
+      const ra = parseInt(res.headers.get('Retry-After') || '', 10);
+      const wait = Math.min(120, (isNaN(ra) ? Math.pow(2, attempt) * 2 : ra + 1)) * 1000;
+      if (window.NCGraph && window.NCGraph.onThrottle) window.NCGraph.onThrottle(wait);
+      await sleep(wait);
+      return call(path, opts, attempt + 1);
     }
     return res;
   }
