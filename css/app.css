@@ -70,7 +70,7 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 700; letter-spacing: 0; tex
 .side-link.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .count { font-size: .75rem; color: var(--muted); background: var(--raised); border-radius: 999px; padding: 1px 8px; }
 .count:empty { display: none; }
-.side-foot { margin-top: auto; padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px)); display: flex; justify-content: space-between; gap: 8px; border-top: 1px solid var(--line); }
+.side-foot { margin-top: auto; padding: 10px 12px calc(28px + env(safe-area-inset-bottom, 0px)); display: flex; justify-content: space-between; gap: 8px; border-top: 1px solid var(--line); }
 .textbtn { background: transparent; border: 0; color: var(--accent); cursor: pointer; padding: 6px 4px; text-decoration: none; font-weight: 600; font-size: .9rem; }
 .scrim { display: none; }
 .content { flex: 1; min-width: 0; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 18px calc(28px + env(safe-area-inset-bottom, 0px)); }
