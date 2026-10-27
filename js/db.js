@@ -86,7 +86,7 @@
     async create(fields) {
       const rec = Object.assign({
         id: uuid(), notebookId: null, sectionId: null, inbox: 0, title: '', md: '', html: '', mode: 'wysiwyg',
-        tags: [], kind: 'note', assetId: null, pinned: 0, created: now(), deleted: 0, etag: null
+        tags: [], kind: 'note', assetId: null, pinned: 0, created: now(), order: now(), deleted: 0, etag: null
       }, fields);
       await db.pages.put(stamp(rec)); return rec;
     },
