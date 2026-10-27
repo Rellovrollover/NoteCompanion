@@ -1063,23 +1063,28 @@
           e.target.disabled = true; e.target.textContent = 'Loading notebooks…';
           try {
             const nbs = await window.NCOneNote.listNotebooks();
+            const localNbs = [...(await notebooks.all()), ...(await notebooks.archived())];
+            const allPages = await pages.live();
             const list = el('div', { class: 'list' });
             if (!nbs.length) list.append(el('p', { class: 'sub' }, 'No OneNote notebooks found on this account.'));
             for (const nb of nbs) {
-              const row = el('button', { type: 'button' }, nb.displayName);
+              const local = localNbs.find((x) => x.onenoteId === nb.id);
+              const nLocal = local ? allPages.filter((q) => q.notebookId === local.id && q.onenoteId).length : 0;
+              const row = el('button', { type: 'button', class: local ? 'imported' : '' }, el('span', { class: 'nbname' }, nb.displayName), local ? el('span', { class: 'sec-count ok' }, '✓ imported · ' + nLocal + ' pages') : el('span', { class: 'sec-count' }, 'not imported'));
               row.addEventListener('click', async () => {
-                if (!(await confirm('Import "' + nb.displayName + '"?', 'This can take a few minutes for a big notebook. Keep this screen open.', 'Import'))) return;
+                if (!(await confirm((local ? 'Update "' : 'Import "') + nb.displayName + '"?', local ? 'Pages already imported are skipped; only new OneNote pages are added.' : 'This can take a few minutes for a big notebook. Keep this screen open.', local ? 'Update' : 'Import'))) return;
                 row.disabled = true;
-                const bar = el('div', { class: 'progress' }, el('div', { class: 'progress-fill' }));
+                const bar = el('div', { class: 'progress busy' }, el('div', { class: 'progress-fill' }));
                 const status = el('p', { class: 'rule' }, 'Counting pages…');
                 row.after(bar, status);
                 try {
-                  const r = await window.NCOneNote.importNotebook(nb, (m, done, total) => { status.textContent = m; if (total) bar.firstChild.style.width = Math.round(done / total * 100) + '%'; });
-                  bar.firstChild.style.width = '100%';
+                  const r = await window.NCOneNote.importNotebook(nb, (m, done, total) => { status.textContent = m; if (total) { bar.classList.remove('busy'); bar.firstChild.style.width = Math.max(2, Math.round(done / total * 100)) + '%'; } });
+                  bar.classList.remove('busy'); bar.firstChild.style.width = '100%';
                   status.textContent = 'Done: ' + r.count + ' pages imported into "' + r.notebook.name + '" (' + r.sections + ' sections' + (r.skipped ? ', ' + r.skipped + ' already there' : '') + (r.failed ? ', ' + r.failed + ' failed' : '') + ').';
+                  row.replaceChildren(el('span', { class: 'nbname' }, nb.displayName), el('span', { class: 'sec-count ok' }, '✓ imported · ' + (nLocal + r.count) + ' pages'));
                   toast('Notebook added: ' + r.notebook.name, { label: 'Open', fn: () => { state.expanded.add(r.notebook.id); go('#notes'); } });
                   onChanged();
-                } catch (err) { status.textContent = 'Import failed: ' + (err.message || err); console.warn(err); }
+                } catch (err) { bar.classList.remove('busy'); status.textContent = 'Import failed: ' + (err.message || err); console.warn(err); }
                 row.disabled = false;
               });
               list.append(row);
