@@ -894,15 +894,17 @@
     let nb = (await window.NCDB.db.notebooks.where('deleted').equals(0).toArray()).find((n) => n.name === seed.notebook);
     if (!nb) nb = await notebooks.create(seed.notebook);
     const secs = new Map();
-    const existing = new Set((await window.NCDB.db.pages.toArray()).map((q) => q.id));
+    const existing = new Map((await window.NCDB.db.pages.toArray()).map((q) => [q.id, q]));
     let n = 0;
     for (const pg of seed.pages) {
-      if (existing.has(pg.id)) continue;
+      const have = existing.get(pg.id);
+      if (have && !have.deleted) continue;
       const isPearl = pg.section === 'Pearls';
       const secName = isPearl ? ((pg.props || []).find((x) => x.k === 'Category') || {}).v || 'General' : pg.section;
       const key = (isPearl ? 'Pearls/' : 'Trials/') + secName;
       let sc = secs.get(key);
       if (!sc) { sc = (await sections.forNotebook(nb.id)).find((x) => x.name === secName && x.group === (isPearl ? 'Pearls' : 'Trials')); if (!sc) { sc = await sections.create(nb.id, secName); await sections.update(sc.id, { group: isPearl ? 'Pearls' : 'Trials', view: isPearl ? 'list' : 'table' }); } secs.set(key, sc); }
+      if (have) { await pages.update(pg.id, { deleted: 0, inbox: 0, notebookId: nb.id, sectionId: sc.id, title: pg.title, html: pg.html, props: pg.props || [], tags: pg.tags || [], ptype: isPearl ? 'pearl' : 'trial' }); n++; continue; }
       await pages.create({ id: pg.id, notebookId: nb.id, sectionId: sc.id, title: pg.title, html: pg.html, props: pg.props || [], tags: pg.tags || [], pinned: pg.pinned || 0, ptype: isPearl ? 'pearl' : 'trial', created: pg.created ? Date.parse(pg.created) || Date.now() : Date.now() });
       n++;
     }
