@@ -35,6 +35,8 @@
     let n = 0;
     for (const it of items) {
       try {
+        // Jobs from the "Add job" Shortcut wait in the repo until a device that is on shift pulls them.
+        if (/\.job\.txt$/i.test(it.name) && !(window.NCShift && window.NCShift.onShift())) continue;
         // Raw media type works for any size (the JSON form stops at 1 MB, which photos exceed).
         const r = await fetch(API + '/repos/' + repo + '/contents/' + encodeURIComponent('inbox/' + it.name).replace(/%2F/g, '/'), { headers: Object.assign(hdrs(token), { Accept: 'application/vnd.github.raw+json' }) });
         if (!r.ok) continue;
@@ -43,6 +45,7 @@
         const del = await fetch(API + '/repos/' + repo + '/contents/' + encodeURIComponent('inbox/' + it.name).replace(/%2F/g, '/'), { method: 'DELETE', headers: Object.assign({ 'Content-Type': 'application/json' }, hdrs(token)), body: JSON.stringify({ message: 'captured', sha: it.sha }) });
         if (!del.ok) continue;
         if (!bytes.length) continue; // a test run of the Shortcut with no input uploads an empty file
+        if (/\.job\.txt$/i.test(it.name)) { const text = new TextDecoder().decode(bytes).trim(); if (text && window.NCShift) { await window.NCShift.addQuick(text); n++; } continue; }
         const mime = sniff(bytes, it.name);
         const base = it.name.replace(/\.\w+$/, '').replace(/^\d{8}-\d{6}-?/, '') || 'Capture';
         // "<Name>.app.html" installs straight into the Apps hub, replacing a tile of the same name.

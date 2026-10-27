@@ -52,7 +52,7 @@
       const viewSeg = el('div', { class: 'seg' }, ...views.map(([k, v]) => el('button', { type: 'button', class: prefs.view === k ? 'on' : '', onclick: () => { prefs.view = k; savePrefs(); draw(); } }, v)));
       const head = el('div', { class: 'shift-head' }, modeSeg, viewSeg, el('span', { class: 'spacer' }),
         prefs.mode === 'oncall' ? el('label', { class: 'shift-toggle' }, el('input', { type: 'checkbox', checked: prefs.showWard ? '' : null, onchange: (e) => { prefs.showWard = e.target.checked; savePrefs(); draw(); } }), ' include ward jobs') : null,
-        el('button', { class: 'btn small' + (prefs.onShift ? ' primary' : ''), type: 'button', title: 'Shows a + Job button on every screen while on', onclick: () => { setOnShift(!prefs.onShift); draw(); } }, prefs.onShift ? '● On shift' : 'Start shift'),
+        el('label', { class: 'shift-toggle', title: 'Jobs sent from the iPhone Shortcut land on the device that has this on' }, el('input', { type: 'checkbox', checked: prefs.onShift ? '' : null, onchange: (e) => { setOnShift(e.target.checked); draw(); } }), ' receive Shortcut jobs here'),
         el('button', { class: 'btn small', type: 'button', onclick: () => endShift() }, 'End shift'));
       wrap.append(head);
       // Quick add row: type chips + one-line entry
@@ -129,7 +129,6 @@
       const open = jobs.filter((j) => j.status !== 'done' && j.mode === prefs.mode).length;
       if (!(await ui.confirm('End ' + (prefs.mode === 'oncall' ? 'on-call' : 'ward') + ' shift?', 'Done jobs are cleared now' + (open ? '; ' + open + ' open job' + (open === 1 ? '' : 's') + ' stay for the handover' : '') + '. Kept jobs are never cleared.', 'End shift'))) return;
       for (const j of jobs) if (j.mode === prefs.mode && j.status === 'done' && !j.keep) await db.shift.delete(j.id);
-      setOnShift(false);
       draw();
     }
     await draw();
@@ -185,7 +184,9 @@
     }, { centre: true });
   }
   const onShift = () => !!prefs.onShift;
-  const setOnShift = (v) => { prefs.onShift = !!v; savePrefs(); document.documentElement.classList.toggle('on-shift', prefs.onShift); };
+  const setOnShift = (v) => { prefs.onShift = !!v; savePrefs(); };
+  // A one-line job from the iPhone Shortcut (via the capture relay).
+  async function addQuick(text) { const j = parseQuick(text, prefs.mode); await put(j); return j; }
 
   // "9A ATSP hypotension" → where 9A, type ATSP, reason hypotension. Type words are matched case-insensitively.
   function parseQuick(text, mode) {
@@ -199,6 +200,5 @@
     return j;
   }
 
-  document.documentElement.classList.toggle('on-shift', !!prefs.onShift);
-  window.NCShift = { render, quickSheet, onShift, setOnShift };
+  window.NCShift = { render, quickSheet, onShift, setOnShift, addQuick };
 })();
