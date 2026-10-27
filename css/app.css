@@ -645,3 +645,15 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 700; letter-spacing: 0; tex
 
 
 @media (max-width: 899px) { .composer .bar .btn.primary { flex: 1 1 100%; } .composer .bar .btn { padding: 8px 10px; } }
+
+/* Sync panel */
+.syncpanel-title { display: flex; align-items: center; gap: 8px; }
+.syncpanel-title .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--faint); }
+.syncpanel-title .dot[data-state="ok"] { background: var(--good); }
+.syncpanel-title .dot[data-state="syncing"] { background: var(--accent); animation: pulse 1s infinite alternate; }
+.syncpanel-title .dot[data-state="offline"], .syncpanel-title .dot[data-state="signedout"] { background: var(--warn); }
+.syncpanel-title .dot[data-state="error"] { background: var(--bad); }
+.syncpanel-msg { color: var(--muted); min-height: 1.4em; word-break: break-word; }
+.syncpanel-kv { display: grid; gap: 0; }
+.syncpanel-kv .kv { display: flex; justify-content: space-between; gap: 10px; padding: 7px 0; border-top: 1px solid var(--line); font-size: .9rem; }
+.syncpanel-kv .kv span:last-child { color: var(--muted); text-align: right; }

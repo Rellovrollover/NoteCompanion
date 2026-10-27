@@ -170,7 +170,7 @@
       for (const [sub, table] of KINDS) await pushKind(sub, table);
       await pushAssets();
       await pullChanges((m) => { status.message = m; emit(); });
-      try { if (window.NCDrop) { const n = await window.NCDrop.pull(); if (n) listeners.forEach((fn) => fn(Object.assign({ dropped: n }, status))); } } catch (e) { console.warn('drop pull failed', e); }
+      try { if (window.NCDrop) { status.message = 'Checking capture relay…'; emit(); const n = await window.NCDrop.pull(); if (n) { status.message = 'Captured ' + n + ' from the relay'; emit(); listeners.forEach((fn) => fn(Object.assign({ dropped: n }, status))); } } } catch (e) { console.warn('drop pull failed', e); }
       // Anything that arrived while pushing/pulling.
       for (const [sub, table] of KINDS) await pushKind(sub, table);
       status.lastSync = Date.now();

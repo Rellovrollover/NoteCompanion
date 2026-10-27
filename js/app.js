@@ -1761,8 +1761,43 @@ window.NoteCompanion={back:function(){try{P.postMessage({nc:'app-back'},'*');}ca
     const kp = $('#kv-pending'), ks = $('#kv-status'), kl = $('#kv-last');
     if (kp) kp.textContent = String(st.pending); if (ks) ks.textContent = st.message || st.state; if (kl) kl.textContent = st.lastSync ? fmtWhen(st.lastSync) : 'Never';
   }
-  pill.addEventListener('click', () => { if (!G.state().signedIn) go('#settings'); else { S.run(); toast('Syncing…'); } });
-  S.onChange(showStatus);
+  // Sync panel: the whole story behind the pill, live while it is open.
+  let syncPanel = null;
+  function syncPanelSheet() {
+    sheet((box, close) => {
+      const dot = el('span', { class: 'dot' });
+      const stateEl = el('span', { id: 'sp-state' }, '');
+      const title = el('h2', { class: 'syncpanel-title' }, dot, stateEl);
+      const msg = el('p', { class: 'syncpanel-msg', id: 'sp-msg' }, '');
+      const bar = el('div', { class: 'progress', id: 'sp-bar' }, el('div', { class: 'progress-fill' }));
+      const kv = el('div', { class: 'syncpanel-kv' });
+      const paint = (st) => {
+        const g = G.state();
+        dot.dataset.state = st.state;
+        stateEl.textContent = st.state === 'ok' ? 'Synced' : st.state === 'syncing' ? 'Syncing' : st.state === 'offline' ? 'Offline' : st.state === 'signedout' ? 'Not signed in' : st.state === 'error' ? 'Sync problem' : 'Starting';
+        msg.textContent = st.message || '';
+        const m = /(\d+)\s*\/\s*(\d+)/.exec(st.message || '');
+        bar.hidden = st.state !== 'syncing';
+        bar.classList.toggle('busy', st.state === 'syncing' && !m);
+        bar.firstChild.style.width = m ? Math.max(2, Math.round(+m[1] / +m[2] * 100)) + '%' : (st.state === 'syncing' ? '' : '0%');
+        kv.replaceChildren(
+          el('div', { class: 'kv' }, el('span', {}, 'Account'), el('span', {}, g.signedIn ? (g.name || 'Signed in') : 'Not signed in')),
+          el('div', { class: 'kv' }, el('span', {}, 'Waiting to upload'), el('span', {}, String(st.pending || 0))),
+          el('div', { class: 'kv' }, el('span', {}, 'Last synced'), el('span', {}, st.lastSync ? fmtWhen(st.lastSync) : 'Never')),
+          el('div', { class: 'kv' }, el('span', {}, 'Connection'), el('span', {}, navigator.onLine ? 'Online' : 'Offline')));
+      };
+      paint(S.status());
+      syncPanel = paint;
+      box.append(title, msg, bar, kv, el('div', { class: 'actions' },
+        el('a', { class: 'btn', href: '#settings', onclick: () => close() }, 'Settings'),
+        G.state().signedIn ? el('button', { class: 'btn primary', type: 'button', onclick: () => { S.run(); } }, 'Sync now') : el('button', { class: 'btn primary', type: 'button', onclick: () => { close(); go('#settings'); } }, 'Sign in'),
+        el('button', { class: 'btn', type: 'button', onclick: () => close() }, 'Close')));
+      const stop = () => { syncPanel = null; };
+      box.addEventListener('nc-close', stop);
+    }).then(() => { syncPanel = null; });
+  }
+  pill.addEventListener('click', () => syncPanelSheet());
+  S.onChange((st) => { showStatus(st); if (syncPanel) syncPanel(st); });
   G.onThrottle = (ms) => { const sec = Math.round(ms / 1000); if (sec >= 5) toast('Microsoft is rate-limiting; waiting ' + sec + ' s before retrying'); };
   G.onChange(() => { if (state.view === 'settings') renderSettings(); S.schedule(300); });
 
