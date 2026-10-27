@@ -4,7 +4,7 @@ window.NC_CONFIG = {
   authority: 'https://login.microsoftonline.com/common',
   // Redirect back to this app after Microsoft sign-in. Must match the SPA redirect URI in Azure.
   redirectUri: location.origin + location.pathname.replace(/[^/]*$/, ''),
-  graphScopes: ['User.Read', 'Files.ReadWrite'],
+  graphScopes: ['User.Read', 'Files.ReadWrite', 'Notes.Read'],
   // Folder in the root of OneDrive that holds everything.
   driveFolder: 'NoteCompanion',
   // Assets above this size are not downloaded automatically (bytes).

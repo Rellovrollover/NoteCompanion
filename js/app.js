@@ -1055,6 +1055,37 @@
       el('div', { class: 'kv' }, el('span', {}, 'Storage kept'), el('span', { id: 'kv-persist' }, '…')),
       el('div', { class: 'kv' }, el('span', {}, 'Version'), el('span', {}, C.version))));
     if (navigator.storage && navigator.storage.persisted) navigator.storage.persisted().then((p) => { const k = $('#kv-persist'); if (k) k.textContent = p ? 'Yes' : 'Not promised by the browser'; });
+    if (g.signedIn) {
+      const on = el('div', { class: 'panel' }, el('h2', {}, 'Import from OneNote'),
+        el('p', { class: 'rule' }, 'Copies a OneNote notebook into NoteCompanion: sections (section groups become "Group / Section"), pages, images and attachments. Ink comes across as pictures. Safe to run again; pages already imported are skipped.'),
+        el('div', { id: 'onenote-list' }, el('button', { class: 'btn', type: 'button', onclick: async (e) => {
+          e.target.disabled = true; e.target.textContent = 'Loading notebooks…';
+          try {
+            const nbs = await window.NCOneNote.listNotebooks();
+            const list = el('div', { class: 'list' });
+            if (!nbs.length) list.append(el('p', { class: 'sub' }, 'No OneNote notebooks found on this account.'));
+            for (const nb of nbs) {
+              const row = el('button', { type: 'button' }, nb.displayName);
+              row.addEventListener('click', async () => {
+                if (!(await confirm('Import "' + nb.displayName + '"?', 'This can take a few minutes for a big notebook. Keep this screen open.', 'Import'))) return;
+                row.disabled = true; const status = el('p', { class: 'rule' }, 'Starting…'); row.after(status);
+                try {
+                  const r = await window.NCOneNote.importNotebook(nb, (m) => { status.textContent = m; });
+                  status.textContent = 'Done: ' + r.count + ' pages imported into "' + r.notebook.name + '" (' + r.sections + ' sections' + (r.skipped ? ', ' + r.skipped + ' already there' : '') + (r.failed ? ', ' + r.failed + ' failed' : '') + ').';
+                  onChanged();
+                } catch (err) { status.textContent = 'Import failed: ' + (err.message || err); console.warn(err); }
+                row.disabled = false;
+              });
+              list.append(row);
+            }
+            $('#onenote-list').replaceChildren(list);
+          } catch (err) {
+            e.target.disabled = false; e.target.textContent = 'Show my OneNote notebooks';
+            toast(/403|consent|Notes\.Read/i.test(err.message || '') ? 'Sign out and in again to grant OneNote access' : (err.message || 'Could not list notebooks'));
+          }
+        } }, 'Show my OneNote notebooks')));
+      view.append(on);
+    }
     view.append(el('div', { class: 'panel' }, el('h2', {}, 'Backup'),
       el('p', { class: 'rule' }, 'Everything is in your OneDrive folder as plain JSON and files. This also downloads a single JSON file of all notes from this device.'),
       el('div', {}, el('button', { class: 'btn', type: 'button', onclick: async () => { const data = await window.NCDB.exportAll(); await deliver(new Blob([JSON.stringify(data)], { type: 'application/json' }), 'notecompanion-backup-' + isoDay(new Date()) + '.json'); } }, 'Download backup'))));
