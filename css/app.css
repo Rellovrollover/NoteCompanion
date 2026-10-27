@@ -179,9 +179,14 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 700; letter-spacing: 0; tex
 .seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 9px; overflow: hidden; }
 .seg button { border: 0; background: var(--paper); padding: 6px 11px; cursor: pointer; font-size: .85rem; color: var(--muted); }
 .seg button.on { background: var(--accent); color: var(--accent-ink); }
-.editor-host { background: #ffffff; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.editor-host { background: #ffffff; overflow: hidden; }
 .editor-host .tox-tinymce { border: 0 !important; border-radius: 0 !important; }
-.editor-host .tox .tox-toolbar__primary, .editor-host .tox .tox-toolbar-overlord { background: var(--raised) !important; }
+.editor-host .tox .tox-toolbar__primary, .editor-host .tox .tox-toolbar-overlord { background: transparent !important; border-bottom: 1px solid var(--line) !important; }
+.editor-host .tox .tox-toolbar__primary { padding-left: 0 !important; }
+.editor-host .tox:not(.tox-tinymce-inline) .tox-editor-header { box-shadow: none !important; border: 0 !important; padding: 0 !important; }
+/* Dark mode keeps the paper white, so give it soft corners there rather than a hard edge against the dark shell. */
+:root[data-theme="dark"] .editor-host { border-radius: 12px; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .editor-host { border-radius: 12px; } }
 .editor-host .tox .tox-edit-area::before { display: none; }
 .crumbs .more-page { margin-left: auto; width: 34px; height: 30px; border: 1px solid var(--line-strong); background: var(--paper); color: var(--muted); border-radius: 8px; cursor: pointer; letter-spacing: -1px; font-size: .95rem; }
 .crumbs .more-page:hover { background: var(--raised); color: var(--fg); }
@@ -236,6 +241,19 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 700; letter-spacing: 0; tex
 .sheet input[type="text"], .sheet textarea { width: 100%; border: 1px solid var(--line-strong); background: var(--bg); border-radius: 9px; padding: 10px 12px; font: inherit; color: var(--fg); }
 .sheet .actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
 .sheet .danger-note { color: var(--bad); font-size: .9rem; }
+.sheet .list.pick button { display: flex; justify-content: space-between; gap: 10px; padding: 8px 10px; }
+.sheet .list.pick button .sub { color: var(--muted); font-size: .8rem; margin: 0; }
+.sheet input[type="search"] { width: 100%; border: 1px solid var(--line-strong); background: var(--bg); border-radius: 9px; padding: 9px 12px; font: inherit; color: var(--fg); }
+.sheet-host.centre { align-items: center; }
+.sheet-host.centre .sheet { border-radius: 16px; max-height: 84vh; width: min(100% - 24px, 30rem); grid-template-rows: auto auto 1fr auto; }
+.sheet-host.centre .sheet .list { overflow-y: auto; min-height: 0; }
+.bulkbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; border: 1px solid var(--line); background: var(--raised); border-radius: 10px; font-size: .9rem; color: var(--muted); }
+.bulkbar .spacer { flex: 1; }
+.pagelist.selecting label { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.pagelist.selecting label.picked { background: var(--accent-soft); }
+.pagelist.selecting label input { width: 18px; height: 18px; accent-color: var(--accent); }
+.pagelist.selecting label .when { margin-left: auto; color: var(--muted); font-size: .8rem; }
+.dbtable tr.picked td { background: var(--accent-soft); }
 
 @media (max-width: 899px) {
   .sidebar { position: fixed; top: calc(var(--topbar) + env(safe-area-inset-top, 0px)); left: 0; bottom: 0; height: auto; transform: translateX(-104%); transition: transform .22s ease; z-index: 40; width: min(84vw, var(--sidebar)); box-shadow: 0 0 30px rgba(0,0,0,.25); }

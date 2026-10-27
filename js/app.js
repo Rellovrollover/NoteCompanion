@@ -36,14 +36,15 @@
   // Where the last click/tap happened, so desktop menus open there rather than at the bottom of the screen.
   const lastPoint = { x: 0, y: 0, t: 0 };
   document.addEventListener('pointerdown', (e) => { lastPoint.x = e.clientX; lastPoint.y = e.clientY; lastPoint.t = Date.now(); }, true);
-  function sheet(build) {
-    return new Promise((resolve) => {
+  function sheet(build, opts = {}) {
+    return new Promise(async (resolve) => {
       const host = $('#sheet-host'); host.innerHTML = '';
-      const close = (v) => { host.hidden = true; host.innerHTML = ''; host.classList.remove('popover'); resolve(v); };
+      const close = (v) => { host.hidden = true; host.innerHTML = ''; host.classList.remove('popover', 'centre'); resolve(v); };
       const box = el('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true' });
-      build(box, close);
-      const anchored = !isNarrow() && Date.now() - lastPoint.t < 1500;
+      await build(box, close);
+      const anchored = !opts.centre && !isNarrow() && Date.now() - lastPoint.t < 1500;
       host.classList.toggle('popover', anchored);
+      host.classList.toggle('centre', !!opts.centre && !isNarrow());
       host.append(box); host.hidden = false;
       if (anchored) {
         const margin = 12, w = Math.min(380, innerWidth - 2 * margin);
@@ -174,6 +175,27 @@
     return assets.create(blob, name || file.name || 'file');
   }
   const assetUrl = (id) => 'asset/' + id;
+  async function inlineAssets(html) {
+    const ids = [...new Set([...html.matchAll(/src="[^"]*asset\/([^"?#]+)"/g)].map((m) => m[1]))];
+    const map = {};
+    for (const id of ids) { const a = await NCDB.db.assets.get(id); if (a && a.blob) map[id] = await new Promise((r) => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.onerror = () => r(null); fr.readAsDataURL(a.blob); }); }
+    return html.replace(/src="[^"]*asset\/([^"?#]+)"/g, (m, id) => map[id] ? 'src="' + map[id] + '"' : m);
+  }
+  async function localiseImages(ed, onDone) {
+    const own = new URL('asset/', C.redirectUri).href;
+    let changed = false;
+    for (const img of ed.dom.select('img')) {
+      const src = img.getAttribute('src') || '';
+      if (!/^https?:/i.test(src) || src.startsWith(own)) continue;
+      try {
+        const res = await fetch(src, { mode: 'cors' }); if (!res.ok) continue;
+        const blob = await res.blob(); if (!blob.type.startsWith('image/')) continue;
+        const a = await storeAsset(blob, (src.split('/').pop().split('?')[0] || 'image').slice(0, 60));
+        ed.dom.setAttrib(img, 'src', assetUrl(a.id)); changed = true;
+      } catch (e) { /* cross-origin refusal: keep the remote link */ }
+    }
+    if (changed) { ed.undoManager.add(); onDone && onDone(); }
+  }
 
   // ---------- inbox ----------
   let recorder = null, recChunks = [], recStream = null;
@@ -341,27 +363,42 @@
 
   // ---------- section picker / filing ----------
   const allNotebooks = async () => (await notebooks.all()).sort((a, b) => (b.current || 0) - (a.current || 0) || (a.order || 0) - (b.order || 0));
-  async function pickSection(title) {
-    const nbs = await allNotebooks();
+  async function pickSection(title, opts = {}) {
+    const nbs = (await allNotebooks()).sort((a, b) => (b.current || 0) - (a.current || 0));
+    const recent = (await meta.get('recentTargets', [])) || [];
+    const all = [];
+    for (const nb of nbs) for (const sec of await sections.forNotebook(nb.id)) all.push({ nb, sec, label: (sec.group ? sec.group + ' › ' : '') + sec.name, key: (nb.name + ' ' + (sec.group || '') + ' ' + sec.name).toLowerCase() });
+    const choose = async (nb, sec) => {
+      await meta.set('recentTargets', [sec.id, ...recent.filter((x) => x !== sec.id)].slice(0, 6));
+      return { notebookId: nb.id, sectionId: sec.id };
+    };
     return sheet(async (box, close) => {
-      box.append(el('h2', {}, title || 'File to section'));
-      const list = el('div', { class: 'list' });
-      for (const nb of nbs) {
-        list.append(el('div', { class: 'group' }, nb.name + (nb.current ? ' · current' : '')));
-        const secs = await sections.forNotebook(nb.id);
-        for (const s of secs) list.append(el('button', { type: 'button', onclick: () => close({ notebookId: nb.id, sectionId: s.id }) }, (s.group ? s.group + ' › ' : '') + s.name));
-        list.append(el('button', { type: 'button', style: 'color: var(--accent)', onclick: async () => {
-          const name = await ask('New section in ' + nb.name, 'Section name'); if (!name) return;
-          const s = await sections.create(nb.id, name); onChanged(); close({ notebookId: nb.id, sectionId: s.id });
-        } }, '+ New section'));
-      }
-      list.append(el('div', { class: 'group' }, ''));
-      list.append(el('button', { type: 'button', style: 'color: var(--accent)', onclick: async () => {
-        const name = await ask('New notebook', 'Notebook name'); if (!name) return;
-        const nb = await notebooks.create(name); const s = await sections.create(nb.id, 'General'); onChanged(); close({ notebookId: nb.id, sectionId: s.id });
-      } }, '+ New notebook'));
-      box.append(list, el('div', { class: 'actions' }, el('button', { class: 'btn', type: 'button', onclick: () => close(undefined) }, 'Cancel')));
-    });
+      const filter = el('input', { type: 'search', placeholder: 'Type to filter…', autocomplete: 'off' });
+      const list = el('div', { class: 'list pick' });
+      const draw = () => {
+        const q = filter.value.trim().toLowerCase();
+        list.innerHTML = '';
+        const rows = all.filter((x) => !q || x.key.includes(q));
+        if (!q) {
+          const rec = recent.map((id) => all.find((x) => x.sec.id === id)).filter(Boolean);
+          if (rec.length) { list.append(el('div', { class: 'group' }, 'Recent')); for (const x of rec) list.append(el('button', { type: 'button', onclick: async () => close(await choose(x.nb, x.sec)) }, el('span', {}, x.label), el('span', { class: 'sub' }, x.nb.name))); }
+        }
+        let lastNb = null;
+        for (const x of rows) {
+          if (x.nb !== lastNb) { lastNb = x.nb; list.append(el('div', { class: 'group' }, x.nb.name + (x.nb.current ? ' · current' : ''))); }
+          list.append(el('button', { type: 'button', onclick: async () => close(await choose(x.nb, x.sec)) }, x.label));
+        }
+        if (!q) {
+          list.append(el('div', { class: 'group' }, ''));
+          for (const nb of nbs) list.append(el('button', { type: 'button', style: 'color: var(--accent)', onclick: async () => { const name = await ask('New section in ' + nb.name, 'Section name'); if (!name) return; const sec = await sections.create(nb.id, name); onChanged(); close(await choose(nb, sec)); } }, '+ New section in ' + nb.name));
+          list.append(el('button', { type: 'button', style: 'color: var(--accent)', onclick: async () => { const name = await ask('New notebook', 'Notebook name'); if (!name) return; const nb = await notebooks.create(name); const sec = await sections.create(nb.id, 'General'); onChanged(); close(await choose(nb, sec)); } }, '+ New notebook'));
+        } else if (!rows.length) list.append(el('p', { class: 'sub' }, 'No section matches.'));
+      };
+      filter.addEventListener('input', draw);
+      filter.addEventListener('keydown', (e) => { if (e.key === 'Enter') { const b = list.querySelector('button'); if (b) b.click(); } if (e.key === 'Escape') close(undefined); });
+      draw();
+      box.append(el('h2', {}, title || 'File to section'), filter, list, el('div', { class: 'actions' }, el('button', { class: 'btn', type: 'button', onclick: () => close(undefined) }, 'Cancel')));
+    }, { centre: true });
   }
   async function fileInto(pageId) {
     const target = await pickSection(); if (!target) return false;
@@ -522,8 +559,21 @@
     view.append(el('div', { class: 'crumbs' }, el('a', { href: '#notes' }, nb ? nb.name : '—'), '›', ...(s.group ? [s.group, '›'] : []), s.name, el('span', { class: 'spacer' }), el('button', { class: 'more-page', type: 'button', 'aria-label': 'Section options', onclick: () => sectionMenu(nb, s) }, '···')));
     const head = el('div', { class: 'view-head' }, el('h1', {}, s.name), el('div', { class: 'toolrow' },
       el('div', { class: 'seg' }, el('button', { type: 'button', class: s.view !== 'table' ? 'on' : '', onclick: async () => { await sections.update(id, { view: 'list' }); onChanged(); renderSection(id); } }, 'List'), el('button', { type: 'button', class: s.view === 'table' ? 'on' : '', onclick: async () => { await sections.update(id, { view: 'table' }); onChanged(); renderSection(id); } }, 'Table')),
+      el('button', { class: 'btn small', type: 'button', onclick: () => { sv.select = !sv.select; sv.picked = new Set(); renderSection(id); } }, sv.select ? 'Done' : 'Select'),
       el('button', { class: 'btn small primary', type: 'button', onclick: () => newPage(nb.id, id) }, '+ Page')));
     view.append(head);
+    const bulk = el('div', { class: 'bulkbar', hidden: '' });
+    const syncBulk = () => {
+      const n = sv.picked ? sv.picked.size : 0;
+      bulk.hidden = !sv.select;
+      bulk.replaceChildren(el('span', {}, n + ' selected'),
+        el('button', { class: 'btn small', type: 'button', onclick: () => { sv.picked = new Set(pgs.map((x) => x.id)); draw(); } }, 'All'),
+        el('button', { class: 'btn small', type: 'button', onclick: () => { sv.picked = new Set(); draw(); } }, 'None'),
+        el('span', { class: 'spacer' }),
+        el('button', { class: 'btn small primary', type: 'button', disabled: n ? null : '', onclick: async () => { const t = await pickSection('Move ' + n + ' page' + (n === 1 ? '' : 's') + ' to'); if (!t) return; for (const pid of sv.picked) await pages.update(pid, { inbox: 0, notebookId: t.notebookId, sectionId: t.sectionId }); toast('Moved ' + n + ' page' + (n === 1 ? '' : 's')); sv.select = false; sv.picked = new Set(); onChanged(); renderSection(id); } }, 'Move to…'),
+        el('button', { class: 'btn small danger', type: 'button', disabled: n ? null : '', onclick: async () => { if (!(await confirm('Delete ' + n + ' page' + (n === 1 ? '' : 's') + '?'))) return; for (const pid of sv.picked) await pages.remove(pid); sv.select = false; sv.picked = new Set(); onChanged(); renderSection(id); } }, 'Delete'));
+    };
+    view.append(bulk);
     const filter = el('input', { class: 'searchbox', type: 'search', placeholder: 'Filter this section…', value: sv.q, id: 'section-filter' });
     filter.addEventListener('input', () => { sv.q = filter.value; draw(); });
     view.append(filter);
@@ -546,17 +596,26 @@
         table.append(el('thead', {}, tr));
         const tb = el('tbody', {});
         for (const p of rows) {
-          const r = el('tr', { onclick: () => openPage(p.id) });
+          const r = el('tr', { class: sv.select && sv.picked.has(p.id) ? 'picked' : '', onclick: () => { if (!sv.select) { openPage(p.id); return; } if (sv.picked.has(p.id)) sv.picked.delete(p.id); else sv.picked.add(p.id); r.classList.toggle('picked'); syncBulk(); } });
           for (const [k] of cols) r.append(el('td', { class: k === 'title' ? 'tcell' : '' }, k === 'updated' ? fmtWhen(p.updated) : (k === 'title' ? (p.pinned ? '📌 ' : '') + (p.title || 'Untitled') : String(val(p, k)))));
           tb.append(r);
         }
         table.append(tb);
         holder.append(el('div', { class: 'dbwrap' }, table));
+        syncBulk();
       } else {
-        const pl = el('div', { class: 'pagelist' });
-        for (const p of rows) pl.append(gestures(el('a', { href: '#page/' + p.id }, el('span', {}, (p.pinned ? '📌 ' : '') + (p.title || 'Untitled'), (p.props || []).length ? el('span', { class: 'proptxt' }, ' · ' + p.props.map((x) => x.k + ': ' + x.v).join(' · ')) : null), el('span', { class: 'when' }, fmtWhen(p.updated))),
-          { onDelete: async () => { if (await confirm('Delete "' + (p.title || 'Untitled') + '"?')) { await pages.remove(p.id); onChanged(); renderSection(id); } }, onLongPress: () => pageQuickMenu(p, () => renderSection(id)) }));
+        const pl = el('div', { class: 'pagelist' + (sv.select ? ' selecting' : '') });
+        for (const p of rows) {
+          if (sv.select) {
+            const on = sv.picked.has(p.id);
+            pl.append(el('label', { class: on ? 'picked' : '' }, el('input', { type: 'checkbox', checked: on ? '' : null, onchange: (e) => { if (e.target.checked) sv.picked.add(p.id); else sv.picked.delete(p.id); e.target.closest('label').classList.toggle('picked', e.target.checked); syncBulk(); } }), el('span', {}, (p.pinned ? '📌 ' : '') + (p.title || 'Untitled')), el('span', { class: 'when' }, fmtWhen(p.updated))));
+            continue;
+          }
+          pl.append(gestures(el('a', { href: '#page/' + p.id }, el('span', {}, (p.pinned ? '📌 ' : '') + (p.title || 'Untitled'), (p.props || []).length ? el('span', { class: 'proptxt' }, ' · ' + p.props.map((x) => x.k + ': ' + x.v).join(' · ')) : null), el('span', { class: 'when' }, fmtWhen(p.updated))),
+            { onDelete: async () => { if (await confirm('Delete "' + (p.title || 'Untitled') + '"?')) { await pages.remove(p.id); onChanged(); renderSection(id); } }, onLongPress: () => pageQuickMenu(p, () => renderSection(id)) }));
+        }
         holder.append(pl);
+        syncBulk();
       }
     };
     draw();
@@ -695,7 +754,7 @@
     @font-face { font-family: Carlito; font-style: italic; font-weight: 700; src: url('${FONT_BASE}carlito-latin-700-italic.woff2') format('woff2'); }
     :root { --pitch: 24px; --rule: rgba(47,93,138,.18); --grid: rgba(47,93,138,.13); --ink: #1a1d23; color-scheme: light; }
     html { background: #ffffff; min-height: 100%; }
-    body { background: transparent; color: var(--ink); font-family: Calibri, Carlito, "Segoe UI", -apple-system, system-ui, sans-serif; font-size: 17px; line-height: var(--pitch); padding: var(--pitch) 28px var(--pitch); max-width: none; margin: 0; box-sizing: border-box; min-height: 100%; }
+    body { background: transparent; color: var(--ink); font-family: Calibri, Carlito, "Segoe UI", -apple-system, system-ui, sans-serif; font-size: 17px; line-height: var(--pitch); padding: var(--pitch) 4px var(--pitch); max-width: none; margin: 0; box-sizing: border-box; min-height: 100%; }
     html.paper-ruled { background-image: repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--pitch) - 1px), var(--rule) calc(var(--pitch) - 1px), var(--rule) var(--pitch)); background-origin: border-box; }
     html.paper-grid { background-image: repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--pitch) - 1px), var(--grid) calc(var(--pitch) - 1px), var(--grid) var(--pitch)), repeating-linear-gradient(to right, transparent 0, transparent calc(var(--pitch) - 1px), var(--grid) calc(var(--pitch) - 1px), var(--grid) var(--pitch)); background-origin: border-box; }
     html.paper-dots { background-image: radial-gradient(circle, var(--rule) 1.2px, transparent 1.6px); background-size: var(--pitch) var(--pitch); background-position: calc(var(--pitch) / 2) calc(var(--pitch) / 2); background-origin: border-box; }
@@ -860,6 +919,19 @@
           if (li && e.target === li && e.offsetX < 24) { ed.dom.setAttrib(li, 'data-todo', li.getAttribute('data-todo') === 'done' ? '' : 'done'); ed.undoManager.add(); scheduleSave(); }
         });
         ed.on('input change undo redo SetContent ExecCommand', () => { if (ed.initialized) scheduleSave(); });
+        // Copying a selection that contains pictures: put the pixels on the clipboard, not our local asset URL,
+        // so they paste into Word, Teams, other devices and so on.
+        ed.on('copy cut', (e) => {
+          const html = ed.selection.getContent({ format: 'html' });
+          if (!/<img[^>]+src="[^"]*asset\/[^"]+"/.test(html) || !navigator.clipboard || !window.ClipboardItem) return;
+          e.preventDefault();
+          const text = ed.selection.getContent({ format: 'text' });
+          const inlined = inlineAssets(html).then((h) => new Blob([h], { type: 'text/html' }));
+          navigator.clipboard.write([new ClipboardItem({ 'text/html': inlined, 'text/plain': new Blob([text], { type: 'text/plain' }) })]).catch(() => {});
+          if (e.type === 'cut') { ed.execCommand('Delete'); scheduleSave(); }
+        });
+        // Pasted HTML with pictures hosted elsewhere: copy them into the note so it works offline.
+        ed.on('PastePostProcess', () => setTimeout(() => localiseImages(ed, scheduleSave), 0));
         ed.on('init', () => { ed.setContent(initial); applyPaper(ed, p.paper); ed.undoManager.clear(); ed.setDirty(false); if (focusNew && !p.title) setTimeout(() => title.focus(), 60); });
       }
     });
