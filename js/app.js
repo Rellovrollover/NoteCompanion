@@ -1026,6 +1026,8 @@ window.NoteCompanion={back:function(){try{P.postMessage({nc:'app-back'},'*');}ca
       const a = await assets.get(p.assetId);
       if (!a || !a.blob) { host.append(el('p', { class: 'sub' }, 'This app\'s file has not reached this device yet — sync and try again.')); return; }
       let html = await a.blob.text();
+      // Libraries we keep a local copy of, so the app also opens with no connection.
+      html = html.replace(/<script[^>]+src="https:\/\/cdn\.jsdelivr\.net\/npm\/@supabase\/supabase-js@2[^"]*"[^>]*><\/script>/gi, '<script src="' + new URL('vendor/supabase.js', C.redirectUri).href + '"></script>');
       const seed = JSON.stringify(data).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
       // Seed goes on <html> so the bridge can read it; the bridge goes at the very top of <head>.
       if (/<html[^>]*>/i.test(html)) html = html.replace(/<html([^>]*)>/i, '<html$1 data-nc-seed="' + seed + '">'); else html = '<html data-nc-seed="' + seed + '">' + html + '</html>';
