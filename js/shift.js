@@ -52,6 +52,7 @@
       const viewSeg = el('div', { class: 'seg' }, ...views.map(([k, v]) => el('button', { type: 'button', class: prefs.view === k ? 'on' : '', onclick: () => { prefs.view = k; savePrefs(); draw(); } }, v)));
       const head = el('div', { class: 'shift-head' }, modeSeg, viewSeg, el('span', { class: 'spacer' }),
         prefs.mode === 'oncall' ? el('label', { class: 'shift-toggle' }, el('input', { type: 'checkbox', checked: prefs.showWard ? '' : null, onchange: (e) => { prefs.showWard = e.target.checked; savePrefs(); draw(); } }), ' include ward jobs') : null,
+        el('button', { class: 'btn small' + (prefs.onShift ? ' primary' : ''), type: 'button', title: 'Shows a + Job button on every screen while on', onclick: () => { setOnShift(!prefs.onShift); draw(); } }, prefs.onShift ? '● On shift' : 'Start shift'),
         el('button', { class: 'btn small', type: 'button', onclick: () => endShift() }, 'End shift'));
       wrap.append(head);
       // Quick add row: type chips + one-line entry
@@ -123,8 +124,20 @@
       }
       return lines.join('\n') || 'No open jobs.';
     }
-    // ---- job sheet ----
-    function openJob(j, isNew) {
+    const openJob = (j, isNew) => jobSheet(j, isNew, ui, draw);
+    async function endShift() {
+      const open = jobs.filter((j) => j.status !== 'done' && j.mode === prefs.mode).length;
+      if (!(await ui.confirm('End ' + (prefs.mode === 'oncall' ? 'on-call' : 'ward') + ' shift?', 'Done jobs are cleared now' + (open ? '; ' + open + ' open job' + (open === 1 ? '' : 's') + ' stay for the handover' : '') + '. Kept jobs are never cleared.', 'End shift'))) return;
+      for (const j of jobs) if (j.mode === prefs.mode && j.status === 'done' && !j.keep) await db.shift.delete(j.id);
+      setOnShift(false);
+      draw();
+    }
+    await draw();
+    return () => {};
+  }
+
+  // ---- job sheet (shared by the main view and the quick-add button) ----
+  function jobSheet(j, isNew, ui, after) {
       const copy = JSON.parse(JSON.stringify(j));
       ui.sheet(async (box, close) => {
         const field = (label, input) => el('label', { class: 'shift-field' }, el('span', {}, label), input);
@@ -155,20 +168,24 @@
           field('Call back', txt('callback', 'Number / bleep', { attrs: { inputmode: 'tel' } })),
           el('div', { class: 'formrow' }, keepBtn), learnBox,
           el('div', { class: 'actions' },
-            isNew ? null : el('button', { class: 'btn danger', type: 'button', onclick: async () => { if (await ui.confirm('Delete this job?')) { await db.shift.delete(copy.id); close(); draw(); } } }, 'Delete'),
+            isNew ? null : el('button', { class: 'btn danger', type: 'button', onclick: async () => { if (await ui.confirm('Delete this job?')) { await db.shift.delete(copy.id); close(); after && after(); } } }, 'Delete'),
             el('button', { class: 'btn', type: 'button', onclick: () => close() }, 'Cancel'),
-            el('button', { class: 'btn primary', type: 'button', onclick: async () => { if (copy.where && !prefs.locations.includes(copy.where)) { prefs.locations = [copy.where, ...prefs.locations].slice(0, 30); savePrefs(); } await put(copy); close(); draw(); } }, 'Save')));
+            el('button', { class: 'btn primary', type: 'button', onclick: async () => { if (copy.where && !prefs.locations.includes(copy.where)) { prefs.locations = [copy.where, ...prefs.locations].slice(0, 30); savePrefs(); } await put(copy); close(); after && after(); } }, 'Save')));
       }, { centre: true });
-    }
-    async function endShift() {
-      const open = jobs.filter((j) => j.status !== 'done' && j.mode === prefs.mode).length;
-      if (!(await ui.confirm('End ' + (prefs.mode === 'oncall' ? 'on-call' : 'ward') + ' shift?', 'Done jobs are cleared now' + (open ? '; ' + open + ' open job' + (open === 1 ? '' : 's') + ' stay for the handover' : '') + '. Kept jobs are never cleared.', 'End shift'))) return;
-      for (const j of jobs) if (j.mode === prefs.mode && j.status === 'done' && !j.keep) await db.shift.delete(j.id);
-      draw();
-    }
-    await draw();
-    return () => {};
   }
+
+  // Quick add from anywhere (the bleep button): one line or a type chip.
+  function quickSheet(ui, after) {
+    ui.sheet((box, close) => {
+      const quick = el('input', { class: 'shift-quick', type: 'text', placeholder: 'e.g. 9A ATSP hypotension — Enter', autocomplete: 'off' });
+      quick.addEventListener('keydown', async (e) => { if (e.key === 'Enter' && quick.value.trim()) { e.preventDefault(); const j = parseQuick(quick.value.trim(), prefs.mode); await put(j); close(); ui.toast && ui.toast('Added ' + j.type + (j.where ? ' · ' + j.where : '')); after && after(); } });
+      box.append(el('h2', {}, 'New ' + (prefs.mode === 'oncall' ? 'on-call' : 'ward') + ' job'), quick,
+        el('div', { class: 'shift-chips' }, ...TYPES.map((t) => el('button', { class: 'chip', type: 'button', onclick: () => { close(); jobSheet(newJob(prefs.mode, t), true, ui, after); } }, t))),
+        el('div', { class: 'actions' }, el('button', { class: 'btn', type: 'button', onclick: () => close() }, 'Cancel')));
+    }, { centre: true });
+  }
+  const onShift = () => !!prefs.onShift;
+  const setOnShift = (v) => { prefs.onShift = !!v; savePrefs(); document.documentElement.classList.toggle('on-shift', prefs.onShift); };
 
   // "9A ATSP hypotension" → where 9A, type ATSP, reason hypotension. Type words are matched case-insensitively.
   function parseQuick(text, mode) {
@@ -182,5 +199,6 @@
     return j;
   }
 
-  window.NCShift = { render };
+  document.documentElement.classList.toggle('on-shift', !!prefs.onShift);
+  window.NCShift = { render, quickSheet, onShift, setOnShift };
 })();

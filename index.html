@@ -15,7 +15,7 @@
 <link rel="icon" href="./icons/icon-192.png">
 <link rel="apple-touch-icon" href="./icons/icon-180.png">
 <link rel="stylesheet" href="./css/app.css">
-<script>try{var t=localStorage.getItem('nc-theme');if(t&&t!=='system')document.documentElement.setAttribute('data-theme',t);if(location.search.indexOf('pane=1')>=0)document.documentElement.classList.add('pane-mode');if(localStorage.getItem('nc-sidebar')==='collapsed')document.documentElement.classList.add('sidebar-collapsed');}catch(e){}</script>
+<script>try{var t=localStorage.getItem('nc-theme');if(t&&t!=='system')document.documentElement.setAttribute('data-theme',t);if(location.search.indexOf('pane=1')>=0)document.documentElement.classList.add('pane-mode');if(localStorage.getItem('nc-sidebar')==='collapsed')document.documentElement.classList.add('sidebar-collapsed');try{if(JSON.parse(localStorage.getItem('nc-shift')||'{}').onShift)document.documentElement.classList.add('on-shift');}catch(e){}}catch(e){}</script>
 </head>
 <body>
 <header class="topbar">
@@ -45,6 +45,7 @@
     <button class="iconbtn nav" id="btn-redo" type="button" aria-label="Redo" title="Redo (Ctrl+Y)"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M16 7h4v4M19.5 11a8 8 0 1 0-1.6 6.4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
   </div>
   <div class="topbar-spacer"></div>
+  <button class="bleep" id="btn-bleep" type="button" title="Add a job (Shift Companion)">+ Job</button>
   <button class="iconbtn nav" id="btn-reload" type="button" aria-label="Reload" title="Reload the app"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
   <button class="syncpill" id="syncpill" type="button" title="Sync status">
     <span class="dot"></span><span class="label">Starting</span>

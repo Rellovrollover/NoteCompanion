@@ -1764,6 +1764,15 @@ window.NoteCompanion={back:function(){try{P.postMessage({nc:'app-back'},'*');}ca
   G.onThrottle = (ms) => { const sec = Math.round(ms / 1000); if (sec >= 5) toast('Microsoft is rate-limiting; waiting ' + sec + ' s before retrying'); };
   G.onChange(() => { if (state.view === 'settings') renderSettings(); S.schedule(300); });
 
+  // ---------- Shift Companion quick add (the bleep button) ----------
+  const shiftUi = () => ({ toast, sheet, confirm, pickSection, createPage: async (f) => { const np = await pages.create(f); onChanged(); return np; } });
+  const bleep = $('#btn-bleep');
+  if (bleep) bleep.addEventListener('click', () => { if (!window.NCShift) return; NCShift.quickSheet(shiftUi(), () => { if (state.view === 'shift') renderShift(); }); });
+  if (!PANE && window.NCShift && NCShift.onShift() && (!location.hash || location.hash === '#inbox') && !sessionStorage.getItem('nc-shift-opened')) { sessionStorage.setItem('nc-shift-opened', '1'); location.hash = '#shift'; }
+  // Installed-app shortcut: ?shift=1 opens Shift Companion, ?job=1 opens the quick-add sheet too.
+  if (!PANE && /[?&]shift=1/.test(location.search)) { history.replaceState(null, '', location.pathname + '#shift'); }
+  if (!PANE && /[?&]job=1/.test(location.search)) { history.replaceState(null, '', location.pathname + '#shift'); setTimeout(() => bleep && bleep.click(), 600); }
+
   // ---------- service worker ----------
   if ('serviceWorker' in navigator && !PANE) {
     navigator.serviceWorker.register('./sw.js').then((reg) => {
