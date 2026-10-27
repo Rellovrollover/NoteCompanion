@@ -2,7 +2,7 @@
 // 1. Caches the app shell so it opens with no connection.
 // 2. Serves local assets (images, audio, files) from IndexedDB at ./asset/<id>,
 //    so markdown can reference them with a plain relative URL on every device.
-const VERSION = 'nc-2026-10-29c';
+const VERSION = 'nc-2026-10-29d';
 const SHELL = [
   './', './index.html', './manifest.webmanifest',
   './css/app.css',
@@ -55,14 +55,14 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // App shell: cache first, then network, and refresh the cache in the background.
-  e.respondWith(
-    caches.match(req, { ignoreSearch: true }).then((hit) => {
-      const fetching = fetch(req).then((res) => {
-        if (res && res.ok) caches.open(VERSION).then((c) => c.put(req, res.clone()));
-        return res;
-      }).catch(() => hit);
-      return hit || fetching;
-    })
-  );
+  // App shell. Only this version's cache is consulted (never an older one that is still being cleared).
+  // The page itself is fetched network-first so a stale shell can't outlive an update; everything else cache-first.
+  e.respondWith(caches.open(VERSION).then((cache) => cache.match(req, { ignoreSearch: true }).then((hit) => {
+    const fetching = fetch(req).then((res) => {
+      if (res && res.ok) cache.put(req, res.clone());
+      return res;
+    }).catch(() => hit);
+    if (req.mode === 'navigate') return fetching.then((res) => res || hit);
+    return hit || fetching;
+  })));
 });
