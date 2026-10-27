@@ -1130,15 +1130,22 @@
                 row.disabled = true;
                 const bar = el('div', { class: 'progress busy' }, el('div', { class: 'progress-fill' }));
                 const status = el('p', { class: 'rule' }, 'Counting pages…');
-                row.after(bar, status);
+                const stop = el('button', { class: 'btn small', type: 'button', onclick: () => { window.NCOneNote.cancel(); stop.disabled = true; stop.textContent = 'Stopping after this page…'; } }, 'Stop');
+                const stopRow = el('div', { class: 'formrow' }, stop);
+                row.after(bar, status, stopRow);
+                let last = '';
+                const prevThrottle = G.onThrottle;
+                G.onThrottle = (ms) => { status.textContent = last + ' — Microsoft is rate-limiting, waiting ' + Math.round(ms / 1000) + ' s (resumes by itself)'; };
                 try {
-                  const r = await window.NCOneNote.importNotebook(nb, (m, done, total) => { status.textContent = m; if (total) { bar.classList.remove('busy'); bar.firstChild.style.width = Math.max(2, Math.round(done / total * 100)) + '%'; } });
-                  bar.classList.remove('busy'); bar.firstChild.style.width = '100%';
-                  status.textContent = 'Done: ' + r.count + ' pages imported into "' + r.notebook.name + '" (' + r.sections + ' sections' + (r.skipped ? ', ' + r.skipped + ' already there' : '') + (r.failed ? ', ' + r.failed + ' failed' : '') + ').';
+                  const r = await window.NCOneNote.importNotebook(nb, (m, done, total) => { last = m; status.textContent = m; if (total) { bar.classList.remove('busy'); bar.firstChild.style.width = Math.max(2, Math.round(done / total * 100)) + '%'; } });
+                  bar.classList.remove('busy'); if (!r.stopped) bar.firstChild.style.width = '100%';
+                  status.textContent = (r.stopped ? 'Stopped: ' : 'Done: ') + r.count + ' pages imported into "' + r.notebook.name + '" (' + r.sections + ' sections' + (r.skipped ? ', ' + r.skipped + ' already there' : '') + (r.failed ? ', ' + r.failed + ' failed — run again to retry them' : '') + ').';
                   row.replaceChildren(el('span', { class: 'nbname' }, nb.displayName), el('span', { class: 'sec-count ok' }, '✓ imported · ' + (nLocal + r.count) + ' pages'));
-                  toast('Notebook added: ' + r.notebook.name, { label: 'Open', fn: () => { state.expanded.add(r.notebook.id); go('#notes'); } });
+                  if (!r.stopped) toast('Notebook added: ' + r.notebook.name, { label: 'Open', fn: () => { state.expanded.add(r.notebook.id); go('#notes'); } });
                   onChanged();
                 } catch (err) { bar.classList.remove('busy'); status.textContent = 'Import failed: ' + (err.message || err); console.warn(err); }
+                G.onThrottle = prevThrottle;
+                stopRow.remove();
                 row.disabled = false;
               });
               list.append(row);

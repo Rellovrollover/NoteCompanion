@@ -7,7 +7,11 @@
   const S = window.NCSync;
   const pause = (ms) => new Promise((r) => setTimeout(r, ms));
   // OneNote's API throttles per user; pace requests rather than hammer it.
-  const PACE = 350;
+  const PACE = 500;
+  // Graph's OneNote endpoints throttle hard. Within an import we wait as long as it takes rather than failing.
+  const PATIENT = { maxAttempts: 40 };
+  let cancelled = false;
+  function cancel() { cancelled = true; }
 
   async function listNotebooks() {
     const r = await G.json('/me/onenote/notebooks?$select=id,displayName,lastModifiedDateTime&$orderby=displayName', { maxAttempts: 2 });
@@ -15,7 +19,7 @@
   }
   async function pageAll(url) {
     const out = [];
-    while (url) { const r = await G.json(url); out.push(...(r.value || [])); url = r['@odata.nextLink'] || null; }
+    while (url) { const r = await G.json(url, PATIENT); out.push(...(r.value || [])); url = r['@odata.nextLink'] || null; }
     return out;
   }
   // Returns a flat list of { name, pages: [...] } sections, with section-group names folded into the section name.
@@ -38,7 +42,7 @@
   }
 
   async function fetchResource(url) {
-    const res = await G.call(url);
+    const res = await G.call(url, PATIENT);
     if (!res.ok) throw new Error('resource ' + res.status);
     return res.blob();
   }
@@ -49,28 +53,27 @@
     const body = doc.body;
     // Drop the duplicated title element OneNote puts at the top.
     const t = body.querySelector('title'); if (t) t.remove();
-    // Images: data-fullres-src is the real image; src is a resource URL needing auth.
-    for (const img of [...body.querySelectorAll('img')]) {
-      const src = img.getAttribute('data-fullres-src') || img.getAttribute('src');
-      if (!src) { img.remove(); continue; }
-      try {
-        await pause(PACE);
-        const blob = await fetchResource(src);
-        const name = (img.getAttribute('alt') || 'image').replace(/[^\w.-]+/g, '_').slice(0, 60) + (blob.type.includes('png') ? '.png' : blob.type.includes('gif') ? '.gif' : '.jpg');
-        const a = await assets.create(blob, name);
-        img.setAttribute('src', 'asset/' + a.id);
-        for (const attr of ['data-fullres-src', 'data-fullres-src-type', 'data-src-type', 'data-id', 'width', 'height', 'style']) img.removeAttribute(attr);
-      } catch (e) { img.replaceWith(doc.createTextNode('[image not imported]')); }
+    // Fetch every image and attachment before writing anything, so a throttled request fails the page
+    // cleanly (it is retried on the next run) instead of leaving a page with holes in it.
+    const imgs = [...body.querySelectorAll('img')].map((img) => ({ img, src: img.getAttribute('data-fullres-src') || img.getAttribute('src') }));
+    const objs = [...body.querySelectorAll('object')].map((obj) => ({ obj, src: obj.getAttribute('data'), name: obj.getAttribute('data-attachment') || 'attachment' }));
+    for (const it of [...imgs, ...objs]) {
+      if (!it.src) continue;
+      if (cancelled) throw new Error('cancelled');
+      await pause(PACE);
+      it.blob = await fetchResource(it.src);
     }
-    // Attached files.
-    for (const obj of [...body.querySelectorAll('object')]) {
-      const src = obj.getAttribute('data'); const name = obj.getAttribute('data-attachment') || 'attachment';
-      try {
-        await pause(PACE);
-        const blob = await fetchResource(src);
-        const a = await assets.create(blob, name);
-        const link = doc.createElement('p'); const aEl = doc.createElement('a'); aEl.href = 'asset/' + a.id; aEl.textContent = '📎 ' + name; link.append(aEl); obj.replaceWith(link);
-      } catch (e) { obj.replaceWith(doc.createTextNode('[attachment not imported: ' + name + ']')); }
+    for (const { img, src, blob } of imgs) {
+      if (!src) { img.remove(); continue; }
+      const name = (img.getAttribute('alt') || 'image').replace(/[^\w.-]+/g, '_').slice(0, 60) + (blob.type.includes('png') ? '.png' : blob.type.includes('gif') ? '.gif' : '.jpg');
+      const a = await assets.create(blob, name);
+      img.setAttribute('src', 'asset/' + a.id);
+      for (const attr of ['data-fullres-src', 'data-fullres-src-type', 'data-src-type', 'data-id', 'width', 'height', 'style']) img.removeAttribute(attr);
+    }
+    for (const { obj, src, name, blob } of objs) {
+      if (!src) { obj.remove(); continue; }
+      const a = await assets.create(blob, name);
+      const link = doc.createElement('p'); const aEl = doc.createElement('a'); aEl.href = 'asset/' + a.id; aEl.textContent = '📎 ' + name; link.append(aEl); obj.replaceWith(link);
     }
     // Flatten absolute positioning; keep order by top coordinate so columns read sensibly.
     const abs = [...body.querySelectorAll('[style*="position:absolute"], [style*="position: absolute"]')];
@@ -97,7 +100,12 @@
     const existingNb = (await notebooks.all()).find((n) => n.onenoteId === nb.id) || (await notebooks.archived()).find((n) => n.onenoteId === nb.id);
     const target = existingNb || await notebooks.create(nb.displayName);
     if (!existingNb) await notebooks.update(target.id, { onenoteId: nb.id });
-    const doneIds = new Set((await window.NCDB.db.pages.toArray()).filter((q) => q.onenoteId).map((q) => q.onenoteId));
+    cancelled = false;
+    // Pages imported earlier with missing images/attachments (from throttled runs) are imported again and replaced.
+    const incomplete = /\[(image|attachment) not imported/;
+    const existingPages = (await window.NCDB.db.pages.toArray()).filter((q) => q.onenoteId && !q.deleted);
+    const doneIds = new Set(existingPages.filter((q) => !incomplete.test(q.html || '')).map((q) => q.onenoteId));
+    const redo = new Map(existingPages.filter((q) => incomplete.test(q.html || '')).map((q) => [q.onenoteId, q.id]));
     const secs = await sectionsOf(nb.id);
     // Count first so the progress bar means something.
     const plan = [];
@@ -111,16 +119,18 @@
       let tsec = existingSecs.find((x) => x.onenoteId === sec.id) || existingSecs.find((x) => x.name === sec.name && (x.group || '') === (sec.group || ''));
       if (!tsec) { tsec = await sections.create(target.id, sec.name); await sections.update(tsec.id, { onenoteId: sec.id, group: sec.group || '' }); }
       for (const pg of pgs) {
+        if (cancelled) { log('Stopped at ' + done + ' / ' + total + ' — run again to continue', done, total); return { notebook: target, count, skipped, failed, sections: secs.length, stopped: true }; }
         done++;
         if (doneIds.has(pg.id)) { skipped++; log(done + ' / ' + total + ' · ' + sec.name, done, total); continue; }
         try {
           await pause(PACE);
-          const res = await G.call('/me/onenote/pages/' + pg.id + '/content?includeIDs=false');
+          const res = await G.call('/me/onenote/pages/' + pg.id + '/content?includeIDs=false', PATIENT);
           if (!res.ok) throw new Error('content ' + res.status);
           const html = await convertPage(await res.text(), pg.title);
-          await pages.create({ notebookId: target.id, sectionId: tsec.id, title: pg.title || 'Untitled', html, onenoteId: pg.id, created: Date.parse(pg.createdDateTime) || Date.now(), updated: Date.parse(pg.lastModifiedDateTime) || Date.now() });
+          if (redo.has(pg.id)) await pages.update(redo.get(pg.id), { html, sectionId: tsec.id });
+          else await pages.create({ notebookId: target.id, sectionId: tsec.id, title: pg.title || 'Untitled', html, onenoteId: pg.id, created: Date.parse(pg.createdDateTime) || Date.now(), updated: Date.parse(pg.lastModifiedDateTime) || Date.now() });
           count++; log(done + ' / ' + total + ' · ' + sec.name + ' · ' + (pg.title || 'Untitled'), done, total);
-        } catch (e) { console.warn('page import failed', pg.title, e); failed++; log(done + ' / ' + total + ' · ' + sec.name, done, total); }
+        } catch (e) { if (cancelled) { done--; continue; } console.warn('page import failed', pg.title, e); failed++; log(done + ' / ' + total + ' · ' + sec.name, done, total); }
       }
     }
     S.schedule();
@@ -162,5 +172,5 @@
     return { section: sec, count: n };
   }
 
-  window.NCOneNote = { listNotebooks, importNotebook, importDocxSection };
+  window.NCOneNote = { cancel, listNotebooks, importNotebook, importDocxSection };
 })();
