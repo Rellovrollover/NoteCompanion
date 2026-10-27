@@ -100,8 +100,10 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 700; letter-spacing: 0; tex
 .tree .chev.open { transform: rotate(90deg); color: var(--muted); }
 .tree .nb-name { font-family: var(--serif); font-weight: 600; font-size: 1.05rem; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tree .nb-meta { font-size: .72rem; color: var(--faint); white-space: nowrap; }
-.tree .more { width: 30px; height: 28px; border: 0; background: transparent; color: var(--faint); border-radius: 7px; cursor: pointer; flex: none; letter-spacing: -1px; font-size: .9rem; }
+.tree .more { width: 30px; height: 28px; border: 0; background: transparent; color: var(--muted); border-radius: 7px; cursor: pointer; flex: none; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+.tree .more::before { content: ""; width: 18px; height: 18px; background: currentColor; -webkit-mask: radial-gradient(circle, #000 1.6px, transparent 1.9px) 0 0 / 6px 18px repeat-x; mask: radial-gradient(circle, #000 1.6px, transparent 1.9px) 0 0 / 6px 18px repeat-x; }
 .tree .more:hover { background: var(--line); color: var(--fg); }
+.tree .nb-head .more { color: color-mix(in srgb, var(--nb) 70%, var(--fg)); }
 .tree .nb-body { border-top: 1px solid color-mix(in srgb, var(--nb) 25%, var(--line)); background: var(--paper); }
 .tree .sec-head { display: flex; align-items: center; gap: 4px; padding: 5px 8px 5px 8px; user-select: none; -webkit-user-select: none; border-top: 1px solid var(--line); }
 .tree .sec:first-child .sec-head { border-top: 0; }

@@ -376,7 +376,7 @@
         el('span', { class: 'spine' }), chevron(open),
         el('span', { class: 'nb-name' }, nb.name), nb.current ? el('span', { class: 'badge-current' }, 'current') : null,
         el('span', { class: 'nb-meta' }, secs.length + (secs.length === 1 ? ' section' : ' sections') + ' · ' + nPages + (nPages === 1 ? ' page' : ' pages')),
-        el('button', { class: 'more', type: 'button', 'aria-label': 'Notebook options', onclick: (e) => { e.stopPropagation(); notebookMenu(nb); } }, '···'));
+        el('button', { class: 'more', type: 'button', 'aria-label': 'Notebook options', onclick: (e) => { e.stopPropagation(); notebookMenu(nb); } }));
       nbEl.append(head);
       if (open) {
         const body = el('div', { class: 'nb-body' });
@@ -388,7 +388,7 @@
             el('button', { class: 'sec-toggle', type: 'button', 'aria-label': 'Expand', onclick: () => toggle(s.id) }, chevron(sopen)),
             el('button', { class: 'sec-name', type: 'button', title: 'Open section', onclick: () => go('#section/' + s.id) }, s.name),
             el('span', { class: 'sec-count' }, count ? String(count) : ''),
-            el('button', { class: 'more', type: 'button', 'aria-label': 'Section options', onclick: (e) => { e.stopPropagation(); sectionMenu(nb, s); } }, '···')));
+            el('button', { class: 'more', type: 'button', 'aria-label': 'Section options', onclick: (e) => { e.stopPropagation(); sectionMenu(nb, s); } })));
           if (sopen) {
             const pgs = livePages.filter((p) => p.sectionId === s.id).sort(pinnedFirst);
             const pl = el('div', { class: 'pages' });
@@ -409,7 +409,7 @@
       const open = state.expanded.has('__archived');
       const box = el('div', { class: 'archived' + (open ? ' open' : '') });
       box.append(el('button', { class: 'archived-head', type: 'button', onclick: () => toggle('__archived') }, chevron(open), el('span', {}, 'Archived'), el('span', { class: 'sec-count' }, String(archived.length))));
-      if (open) for (const nb of archived) box.append(el('div', { class: 'archived-row' }, el('span', { class: 'page-title' }, nb.name), el('button', { class: 'more', type: 'button', 'aria-label': 'Notebook options', onclick: () => notebookMenu(nb) }, '···')));
+      if (open) for (const nb of archived) box.append(el('div', { class: 'archived-row' }, el('span', { class: 'page-title' }, nb.name), el('button', { class: 'more', type: 'button', 'aria-label': 'Notebook options', onclick: () => notebookMenu(nb) })));
       wrap.append(box);
     }
     return wrap;
