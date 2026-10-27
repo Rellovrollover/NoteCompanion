@@ -1056,6 +1056,7 @@ S.removeItem=function(k){ri.call(this,k);if(this===localStorage)send('remove',St
 S.clear=function(){cl.call(this);if(this===localStorage)send('clear');};
 window.NoteCompanion={back:function(){try{P.postMessage({nc:'app-back'},'*');}catch(e){}}};
 if(!window.claude){window.claude={use:function(){return Promise.reject({code:'not_granted'});}};}
+window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-page',title:String(title||'Untitled'),html:String(html||'')},'*');}catch(e){}};
 }catch(e){}})();</script>`;
   async function runApp(p, host, queueSave) {
     const frame = el('iframe', { class: 'appframe', title: p.title || 'App', allow: 'camera; microphone; clipboard-read; clipboard-write; fullscreen' });
@@ -1064,6 +1065,7 @@ if(!window.claude){window.claude={use:function(){return Promise.reject({code:'no
     const onMsg = (e) => {
       if (e.source !== frame.contentWindow || !e.data || !e.data.nc) return;
       if (e.data.nc === 'app-back') { go('#apps'); return; }
+      if (e.data.nc === 'app-page') { (async () => { const t = await pickSection('Save "' + e.data.title + '" to'); if (!t) return; await pages.create({ notebookId: t.notebookId, sectionId: t.sectionId, title: e.data.title, html: e.data.html }); onChanged(); toast('Saved to notes'); })(); return; }
       if (e.data.nc !== 'app-storage') return;
       if (e.data.op === 'set') data[e.data.key] = e.data.value;
       else if (e.data.op === 'remove') delete data[e.data.key];
