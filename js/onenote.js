@@ -10,7 +10,7 @@
   const PACE = 350;
 
   async function listNotebooks() {
-    const r = await G.json('/me/onenote/notebooks?$select=id,displayName,lastModifiedDateTime&$orderby=displayName');
+    const r = await G.json('/me/onenote/notebooks?$select=id,displayName,lastModifiedDateTime&$orderby=displayName', { maxAttempts: 2 });
     return r.value || [];
   }
   async function pageAll(url) {
@@ -127,5 +127,40 @@
     return { notebook: target, count, skipped, failed, sections: secs.length };
   }
 
-  window.NCOneNote = { listNotebooks, importNotebook };
+  // ---- Offline route: OneNote's File → Export → Section → Word (.docx) ----
+  // One .docx per section; pages are separated by page breaks, each starting with its title.
+  async function importDocxSection(file, notebookId, sectionName, onProgress) {
+    if (!window.mammoth) throw new Error('Word reader not loaded');
+    const buf = await file.arrayBuffer();
+    const r = await mammoth.convertToHtml({ arrayBuffer: buf }, {
+      styleMap: ["br[type='page'] => hr.pb", "p[style-name='Title'] => h1.pt:fresh", "p[style-name='Heading 1'] => h2:fresh", "p[style-name='Heading 2'] => h3:fresh", "p[style-name='Heading 3'] => h4:fresh"],
+      convertImage: mammoth.images.imgElement(async (image) => {
+        const b = await image.read(); const blob = new Blob([b], { type: image.contentType || 'image/png' });
+        const a = await assets.create(blob, 'image.' + ((image.contentType || 'image/png').split('/')[1] || 'png'));
+        return { src: 'asset/' + a.id };
+      })
+    });
+    const chunks = r.value.split(/<hr class="pb"\s*\/?>/i).map((c) => c.trim()).filter((c) => c && c.replace(/<[^>]+>/g, '').trim());
+    const existing = await sections.forNotebook(notebookId);
+    let sec = existing.find((x) => x.name === sectionName);
+    if (!sec) sec = await sections.create(notebookId, sectionName);
+    let n = 0;
+    for (const chunk of chunks) {
+      const doc = new DOMParser().parseFromString('<div>' + chunk + '</div>', 'text/html');
+      const root = doc.body.firstChild;
+      let title = '';
+      const h = root.querySelector('h1.pt');
+      if (h) { title = h.textContent.trim(); h.remove(); }
+      else { const first = root.querySelector('h2, h3, p'); if (first && first.textContent.trim()) { title = first.textContent.trim().slice(0, 120); first.remove(); } }
+      // OneNote puts the page's date and time on the next two lines; drop them when they look like it.
+      for (let k = 0; k < 2; k++) { const f = root.firstElementChild; if (f && f.tagName === 'P' && /^(\d{1,2} \w+ \d{4}|\d{1,2}:\d{2})/.test(f.textContent.trim())) f.remove(); else break; }
+      const html = root.innerHTML.trim();
+      await pages.create({ notebookId, sectionId: sec.id, title: title || 'Untitled', html });
+      n++; if (onProgress) onProgress(n, chunks.length);
+    }
+    S.schedule();
+    return { section: sec, count: n };
+  }
+
+  window.NCOneNote = { listNotebooks, importNotebook, importDocxSection };
 })();

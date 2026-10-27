@@ -61,7 +61,7 @@
     const t = await token();
     const headers = Object.assign({ Authorization: 'Bearer ' + t }, opts.headers || {});
     const res = await fetch(path.startsWith('http') ? path : GRAPH + path, Object.assign({}, opts, { headers }));
-    if ((res.status === 429 || res.status === 503 || res.status === 504) && attempt < 6) {
+    if ((res.status === 429 || res.status === 503 || res.status === 504) && attempt < (opts.maxAttempts == null ? 6 : opts.maxAttempts)) {
       // Honour Retry-After; OneNote throttles hard, so back off generously.
       const ra = parseInt(res.headers.get('Retry-After') || '', 10);
       const wait = Math.min(120, (isNaN(ra) ? Math.pow(2, attempt) * 2 : ra + 1)) * 1000;

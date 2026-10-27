@@ -1146,11 +1146,46 @@
             $('#onenote-list').replaceChildren(list);
           } catch (err) {
             e.target.disabled = false; e.target.textContent = 'Show my OneNote notebooks';
-            toast(/429/.test(err.message || '') ? 'OneNote is rate-limiting this account. Wait a couple of minutes and try again.' : /403|consent|Notes\.Read/i.test(err.message || '') ? 'Sign out and in again to grant OneNote access' : (err.message || 'Could not list notebooks'));
+            toast(/429/.test(err.message || '') ? 'OneNote is still rate-limiting this account; it can take 30–60 minutes to clear. Use the Word-export route below meanwhile.' : /403|consent|Notes\.Read/i.test(err.message || '') ? 'Sign out and in again to grant OneNote access' : (err.message || 'Could not list notebooks'));
           }
         } }, 'Show my OneNote notebooks')));
       view.append(on);
     }
+    // Offline OneNote route: Word exports of sections.
+    const docxStatus = el('p', { class: 'rule' }, '');
+    const docxBar = el('div', { class: 'progress', hidden: '' }, el('div', { class: 'progress-fill' }));
+    const docxInput = el('input', { type: 'file', accept: '.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document', multiple: '', hidden: '' });
+    const docxDrop = el('div', { class: 'dropzone', onclick: () => docxInput.click() }, el('b', {}, 'Drop OneNote Word exports here'), el('span', {}, ' or click to choose .docx files (one per section)'));
+    const runDocx = async (files) => {
+      files = [...files].filter((f) => /\.docx$/i.test(f.name)); if (!files.length) { toast('Choose .docx files exported from OneNote'); return; }
+      const nbs = await notebooks.all();
+      const target = await sheet((box, close) => {
+        box.append(el('h2', {}, 'Import ' + files.length + ' section' + (files.length === 1 ? '' : 's') + ' into'), el('div', { class: 'list' },
+          ...nbs.map((nb) => el('button', { type: 'button', onclick: () => close(nb) }, nb.name)),
+          el('button', { type: 'button', style: 'color: var(--accent)', onclick: async () => { const name = await ask('New notebook', 'Notebook name', files.length === 1 ? '' : files[0].name.replace(/\.docx$/i, '').split(/ - | – /)[0]); if (name) { const nb = await notebooks.create(name); close(nb); } } }, '+ New notebook')),
+          el('div', { class: 'actions' }, el('button', { class: 'btn', type: 'button', onclick: () => close(undefined) }, 'Cancel')));
+      });
+      if (!target) return;
+      docxBar.hidden = false; let total = 0;
+      for (const [i, f] of files.entries()) {
+        const secName = f.name.replace(/\.docx$/i, '');
+        docxStatus.textContent = 'Reading ' + secName + '… (' + (i + 1) + ' of ' + files.length + ')';
+        try {
+          const r = await window.NCOneNote.importDocxSection(f, target.id, secName, (n, of) => { docxBar.firstChild.style.width = Math.round(((i + n / of) / files.length) * 100) + '%'; });
+          total += r.count;
+        } catch (err) { console.warn(err); toast('Failed on ' + f.name + ': ' + err.message); }
+      }
+      docxBar.firstChild.style.width = '100%';
+      docxStatus.textContent = 'Done: ' + total + ' pages into "' + target.name + '".';
+      state.expanded.add(target.id); onChanged(); toast('Notebook updated: ' + target.name, { label: 'Open', fn: () => go('#notes') });
+    };
+    docxInput.addEventListener('change', () => { runDocx(docxInput.files); docxInput.value = ''; });
+    docxDrop.addEventListener('dragover', (e) => { e.preventDefault(); docxDrop.classList.add('over'); });
+    docxDrop.addEventListener('dragleave', () => docxDrop.classList.remove('over'));
+    docxDrop.addEventListener('drop', (e) => { e.preventDefault(); docxDrop.classList.remove('over'); runDocx(e.dataTransfer.files); });
+    view.append(el('div', { class: 'panel help' }, el('h2', {}, 'Import from OneNote without the API'),
+      el('p', {}, 'If Microsoft is rate-limiting, or a notebook is broken in the cloud, export it from the OneNote desktop app instead: open the section, ', el('b', {}, 'File → Export → Section → Word Document (*.docx)'), '. One file per section; drop them all here at once. Pages, formatting, tables and images come across; ink becomes pictures.'),
+      docxDrop, docxInput, docxBar, docxStatus));
     view.append(el('div', { class: 'panel' }, el('h2', {}, 'Backup'),
       el('p', { class: 'rule' }, 'Everything is in your OneDrive folder as plain JSON and files. This also downloads a single JSON file of all notes from this device.'),
       el('div', {}, el('button', { class: 'btn', type: 'button', onclick: async () => { const data = await window.NCDB.exportAll(); await deliver(new Blob([JSON.stringify(data)], { type: 'application/json' }), 'notecompanion-backup-' + isoDay(new Date()) + '.json'); } }, 'Download backup'))));
