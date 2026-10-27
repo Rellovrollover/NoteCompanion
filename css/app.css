@@ -469,10 +469,20 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 700; letter-spacing: 0; tex
 
 
 /* ---- Navigation rework: one notebook in the sidebar, tabs across the top, page column ---- */
-.tree .nb-head { cursor: pointer; }
-.tree .nb-head .chev.switch { transform: none; width: 18px; color: color-mix(in srgb, var(--nb) 70%, var(--fg)); }
+/* Notebooks stack as flat tabs; the open one lifts out with its sections beneath. */
+.tree { gap: 0; padding: 6px 8px 12px; }
+.tree .nb { border-radius: 0; border-top-width: 0; box-shadow: none; transition: margin .15s ease, transform .15s ease; }
+.tree .nb:first-child { border-top-width: 1px; border-radius: 10px 10px 0 0; }
+.tree .nb:last-of-type { border-radius: 0 0 10px 10px; }
+.tree .nb:first-child:last-of-type { border-radius: 10px; }
+.tree .nb:not(.open) .nb-head { padding-top: 9px; padding-bottom: 9px; }
+.tree .nb:not(.open) .nb-head .nb-name { font-size: .98rem; color: color-mix(in srgb, var(--nb) 40%, var(--fg)); }
+.tree .nb:not(.open) .spine { width: 4px; margin: -9px 2px -9px 0; }
+.tree .nb.open { margin: 8px 0 8px 4px; border-radius: 12px !important; border-top-width: 1px; box-shadow: 0 6px 18px rgba(20,30,45,.12); transform: translateX(2px); }
+.tree .nb.open + .nb { border-top-width: 1px; border-radius: 10px 10px 0 0; }
 .tree .nb-head .nb-meta { display: inline; }
 .sidebar .tree .nb-meta { display: inline; font-size: .7rem; }
+.tree .archived-link { margin-top: 8px; color: var(--faint); }
 .tree .sec.here > .sec-head { background: color-mix(in srgb, var(--nb) 12%, var(--paper)); }
 .tree .sec.here > .sec-head .sec-name { color: var(--nb); font-weight: 600; }
 .tree .sec.dragging { opacity: .45; }

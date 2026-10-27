@@ -491,23 +491,25 @@
   async function buildTree() {
     const wrap = el('div', { class: 'tree' });
     const nbs = await notebooks.all();
-    const nb = await currentNotebook(nbs);
-    if (!nb) { wrap.append(el('div', { class: 'empty' }, 'No notebooks yet. Create one below, or file a capture.')); return wrap; }
-    const colour = nbColour(nb, nbs.indexOf(nb));
-    const secs = await sections.forNotebook(nb.id);
+    const cur = await currentNotebook(nbs);
+    if (!cur) { wrap.append(el('div', { class: 'empty' }, 'No notebooks yet. Create one below, or file a capture.')); return wrap; }
     const livePages = await pages.live();
     const pagesBySec = new Map();
     for (const q of livePages) if (q.sectionId) pagesBySec.set(q.sectionId, (pagesBySec.get(q.sectionId) || 0) + 1);
+    for (const [i, nb] of nbs.entries()) {
+    const colour = nbColour(nb, i);
+    const open = nb.id === cur.id;
+    const secs = await sections.forNotebook(nb.id);
     const nPages = secs.reduce((n, sc) => n + (pagesBySec.get(sc.id) || 0), 0);
-    const nbEl = el('div', { class: 'nb open', style: '--nb: ' + colour });
-    // Notebook switcher
-    const head = el('div', { class: 'nb-head', role: 'button', tabindex: '0', title: 'Switch notebook', onclick: () => notebookPicker(nb), onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); notebookPicker(nb); } } },
+    const nbEl = el('div', { class: 'nb' + (open ? ' open' : ''), style: '--nb: ' + colour });
+    // Notebook header: click to make it the open notebook (only one is open at a time).
+    const head = el('div', { class: 'nb-head', role: 'button', tabindex: '0', title: open ? nb.name : 'Open ' + nb.name, onclick: () => { if (open) go('#nb/' + nb.id); else { setNotebook(nb.id); refreshTree(); } }, onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (!open) { setNotebook(nb.id); refreshTree(); } } } },
       el('span', { class: 'spine' }),
       el('span', { class: 'nb-name' }, nb.name), nb.current ? el('span', { class: 'badge-current' }, 'current') : null,
-      el('span', { class: 'nb-meta' }, nbs.length > 1 ? nbs.length + ' notebooks' : secs.length + ' sections · ' + nPages + ' pages'),
-      el('span', { class: 'chev switch', html: '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>' }),
+      el('span', { class: 'nb-meta' }, secs.length + ' · ' + nPages),
       el('button', { class: 'more', type: 'button', 'aria-label': 'Notebook options', onclick: (e) => { e.stopPropagation(); notebookMenu(nb); } }));
     nbEl.append(head);
+    if (!open) { wrap.append(nbEl); continue; }
     const body = el('div', { class: 'nb-body' });
     const renderSec = (sc, inGroup) => {
       const sopen = state.expanded.has(sc.id);
@@ -554,6 +556,9 @@
     body.append(addsec);
     nbEl.append(body);
     wrap.append(nbEl);
+    }
+    const archived = await notebooks.archived();
+    if (archived.length) wrap.append(el('button', { class: 'addrow archived-link', type: 'button', onclick: () => go('#notes') }, archived.length + ' archived'));
     return wrap;
   }
   async function notebookPicker(current) {
