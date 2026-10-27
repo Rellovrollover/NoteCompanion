@@ -433,3 +433,7 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 700; letter-spacing: 0; tex
 .tree .group-body { border-left: 3px solid color-mix(in srgb, var(--nb) 35%, var(--line)); margin-left: 14px; }
 .tree .group-body .sec-head { padding-left: 4px; }
 .tree .group-body .addrow { margin: 2px 8px 6px 10px; }
+
+/* Created / edited line under the page title */
+.pagedates { display: flex; gap: 8px; align-items: center; font-size: .8rem; color: var(--muted); font-variant-numeric: tabular-nums; margin-top: -6px; flex-wrap: wrap; }
+.pagedates .dot { color: var(--faint); }

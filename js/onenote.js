@@ -118,7 +118,7 @@
           const res = await G.call('/me/onenote/pages/' + pg.id + '/content?includeIDs=false');
           if (!res.ok) throw new Error('content ' + res.status);
           const html = await convertPage(await res.text(), pg.title);
-          await pages.create({ notebookId: target.id, sectionId: tsec.id, title: pg.title || 'Untitled', html, onenoteId: pg.id, created: Date.parse(pg.createdDateTime) || Date.now(), props: [{ k: 'Imported from', v: 'OneNote' }] });
+          await pages.create({ notebookId: target.id, sectionId: tsec.id, title: pg.title || 'Untitled', html, onenoteId: pg.id, created: Date.parse(pg.createdDateTime) || Date.now(), updated: Date.parse(pg.lastModifiedDateTime) || Date.now() });
           count++; log(done + ' / ' + total + ' · ' + sec.name + ' · ' + (pg.title || 'Untitled'), done, total);
         } catch (e) { console.warn('page import failed', pg.title, e); failed++; log(done + ' / ' + total + ' · ' + sec.name, done, total); }
       }

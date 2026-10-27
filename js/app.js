@@ -774,6 +774,10 @@
       return;
     }
 
+    const fmtDate = (ms) => ms ? new Date(ms).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+    const dates = el('div', { class: 'pagedates' }, el('span', { title: 'Created' }, 'Created ' + fmtDate(p.created)), el('span', { class: 'dot' }, '·'), el('span', { title: 'Last edited', id: 'page-updated' }, 'Edited ' + fmtDate(p.updated)));
+    view.append(dates);
+
     // Properties: small key-value chips under the title.
     const props = el('div', { class: 'props' });
     const renderProps = () => {
@@ -909,7 +913,7 @@
       Object.assign(p, patch);
       clearTimeout(state.saveTimer);
       state.pendingSave = { id: p.id, patch };
-      state.saveTimer = setTimeout(async () => { state.pendingSave = null; await pages.update(p.id, patch); if (!PANE) S.schedule(); refreshTree(); announce('changed'); }, 700);
+      state.saveTimer = setTimeout(async () => { state.pendingSave = null; await pages.update(p.id, patch); const u = $('#page-updated'); if (u) u.textContent = 'Edited ' + fmtDate(Date.now()); if (!PANE) S.schedule(); refreshTree(); announce('changed'); }, 700);
     }
   }
   function pageMenu(p) {
@@ -1301,6 +1305,10 @@
         if (!sc.group && sc.name && sc.name.includes(' / ')) { const parts = sc.name.split(' / '); await sections.update(sc.id, { group: parts.slice(0, -1).join(' / '), name: parts[parts.length - 1] }); }
       }
       await meta.set('groupsMigrated', true);
+    }
+    if (!(await meta.get('importedPropStripped'))) {
+      for (const q of await window.NCDB.db.pages.toArray()) if ((q.props || []).some((x) => x.k === 'Imported from')) await pages.update(q.id, { props: q.props.filter((x) => x.k !== 'Imported from') });
+      await meta.set('importedPropStripped', true);
     }
     if (PANE) { await refreshTree(); await refreshInboxCount(); await route(); return; }
     await handleURLCapture();
