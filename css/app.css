@@ -71,7 +71,10 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 700; letter-spacing: 0; tex
 .count { font-size: .75rem; color: var(--muted); background: var(--raised); border-radius: 999px; padding: 1px 8px; }
 .count:empty { display: none; }
 .side-foot { margin-top: auto; padding: 10px 12px calc(28px + env(safe-area-inset-bottom, 0px)); display: flex; justify-content: space-between; gap: 8px; border-top: 1px solid var(--line); }
-.textbtn { background: transparent; border: 0; color: var(--accent); cursor: pointer; padding: 6px 4px; text-decoration: none; font-weight: 600; font-size: .9rem; }
+.textbtn { background: transparent; border: 1px solid transparent; color: var(--accent); cursor: pointer; padding: 9px 14px; border-radius: 9px; text-decoration: none; font-weight: 600; font-size: 1rem; transition: background .12s ease, border-color .12s ease; }
+.textbtn:hover { background: var(--accent-soft); border-color: var(--accent); }
+.textbtn:active { filter: brightness(.95); }
+.side-foot .textbtn { width: 100%; text-align: left; }
 .scrim { display: none; }
 .content { flex: 1; min-width: 0; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 18px calc(28px + env(safe-area-inset-bottom, 0px)); }
 .content { overflow-x: hidden; }
