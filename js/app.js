@@ -33,13 +33,28 @@
     t.hidden = false; clearTimeout(toastTimer);
     if (!action || !action.sticky) toastTimer = setTimeout(() => { t.hidden = true; }, action ? 8000 : 2600);
   }
+  // Where the last click/tap happened, so desktop menus open there rather than at the bottom of the screen.
+  const lastPoint = { x: 0, y: 0, t: 0 };
+  document.addEventListener('pointerdown', (e) => { lastPoint.x = e.clientX; lastPoint.y = e.clientY; lastPoint.t = Date.now(); }, true);
   function sheet(build) {
     return new Promise((resolve) => {
       const host = $('#sheet-host'); host.innerHTML = '';
-      const close = (v) => { host.hidden = true; host.innerHTML = ''; resolve(v); };
+      const close = (v) => { host.hidden = true; host.innerHTML = ''; host.classList.remove('popover'); resolve(v); };
       const box = el('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true' });
       build(box, close);
+      const anchored = !isNarrow() && Date.now() - lastPoint.t < 1500;
+      host.classList.toggle('popover', anchored);
       host.append(box); host.hidden = false;
+      if (anchored) {
+        const margin = 12, w = Math.min(380, innerWidth - 2 * margin);
+        box.style.width = w + 'px';
+        const h = Math.min(box.offsetHeight, innerHeight - 2 * margin);
+        let x = lastPoint.x - 20, y = lastPoint.y + 8;
+        if (x + w > innerWidth - margin) x = innerWidth - margin - w;
+        if (x < margin) x = margin;
+        if (y + h > innerHeight - margin) y = Math.max(margin, lastPoint.y - h - 8);
+        box.style.left = x + 'px'; box.style.top = y + 'px'; box.style.maxHeight = (innerHeight - y - margin) + 'px';
+      }
       host.onclick = (e) => { if (e.target === host) close(undefined); };
       const first = box.querySelector('input, textarea, button'); if (first) setTimeout(() => first.focus(), 30);
     });
@@ -122,7 +137,7 @@
     return wrap;
   }
 
-  function onChanged() { S.schedule(); refreshTree(); refreshInboxCount(); }
+  function onChanged() { if (typeof PANE === 'undefined' || !PANE) S.schedule(); refreshTree(); refreshInboxCount(); if (typeof announce === 'function') announce('changed'); }
 
   // ---------- assets ----------
   async function downscale(file) {
@@ -301,6 +316,7 @@
   function pageQuickMenu(p, after) {
     menu(p.title || 'Untitled', [
       { label: 'Open', fn: () => openPage(p.id) },
+      (!PANE && !isNarrow()) ? { label: 'Open in split view', fn: () => openSplit('#page/' + p.id) } : null,
       p.inbox ? { label: 'File to…', fn: async () => { if (await fileInto(p.id)) after && after(); } } : { label: 'Move to…', fn: async () => { const t = await pickSection('Move page to'); if (t) { await pages.update(p.id, { inbox: 0, notebookId: t.notebookId, sectionId: t.sectionId }); onChanged(); after && after(); } } },
       { label: p.pinned ? 'Unpin' : 'Pin', fn: async () => { await pages.update(p.id, { pinned: p.pinned ? 0 : 1 }); onChanged(); after && after(); } },
       { label: 'Delete', danger: true, fn: async () => { if (await confirm('Delete "' + (p.title || 'Untitled') + '"?')) { if (state.pageId === p.id) destroyEditor(); await pages.remove(p.id); onChanged(); if (state.pageId === p.id) go('#notes'); else after && after(); } } }
@@ -646,7 +662,7 @@
     @font-face { font-family: Carlito; font-style: italic; font-weight: 700; src: url('${FONT_BASE}carlito-latin-700-italic.woff2') format('woff2'); }
     :root { --pitch: 24px; --rule: rgba(47,93,138,.18); --grid: rgba(47,93,138,.13); --ink: #1a1d23; color-scheme: light; }
     html { background: #ffffff; min-height: 100%; }
-    body { background: transparent; color: var(--ink); font-family: Calibri, Carlito, "Segoe UI", -apple-system, system-ui, sans-serif; font-size: 17px; line-height: var(--pitch); padding: var(--pitch) 24px var(--pitch); max-width: 50rem; margin: 0 auto; box-sizing: border-box; min-height: 100%; }
+    body { background: transparent; color: var(--ink); font-family: Calibri, Carlito, "Segoe UI", -apple-system, system-ui, sans-serif; font-size: 17px; line-height: var(--pitch); padding: var(--pitch) 28px var(--pitch); max-width: none; margin: 0; box-sizing: border-box; min-height: 100%; }
     html.paper-ruled { background-image: repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--pitch) - 1px), var(--rule) calc(var(--pitch) - 1px), var(--rule) var(--pitch)); background-origin: border-box; }
     html.paper-grid { background-image: repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--pitch) - 1px), var(--grid) calc(var(--pitch) - 1px), var(--grid) var(--pitch)), repeating-linear-gradient(to right, transparent 0, transparent calc(var(--pitch) - 1px), var(--grid) calc(var(--pitch) - 1px), var(--grid) var(--pitch)); background-origin: border-box; }
     html.paper-dots { background-image: radial-gradient(circle, var(--rule) 1.2px, transparent 1.6px); background-size: var(--pitch) var(--pitch); background-position: calc(var(--pitch) / 2) calc(var(--pitch) / 2); background-origin: border-box; }
@@ -860,7 +876,7 @@
       Object.assign(p, patch);
       clearTimeout(state.saveTimer);
       state.pendingSave = { id: p.id, patch };
-      state.saveTimer = setTimeout(async () => { state.pendingSave = null; await pages.update(p.id, patch); S.schedule(); refreshTree(); }, 700);
+      state.saveTimer = setTimeout(async () => { state.pendingSave = null; await pages.update(p.id, patch); if (!PANE) S.schedule(); refreshTree(); announce('changed'); }, 700);
     }
   }
   function pageMenu(p) {
@@ -869,6 +885,7 @@
     const note = p.kind === 'pdf' ? ((p.pdfPages || '?') + ' pages · ' + Object.values(p.annots || {}).reduce((n, l) => n + l.length, 0) + ' marks · edited ' + fmtWhen(p.updated)) : (words + (words === 1 ? ' word' : ' words') + ' · about ' + Math.max(1, Math.round(words / 220)) + ' min read · edited ' + fmtWhen(p.updated));
     menu(p.title || 'Untitled', [
       p.kind === 'app' ? { label: 'Change link', fn: async () => { const u = await ask('Link', 'https://…', p.url || '', 'Save'); if (u !== undefined) { await pages.update(p.id, { url: u }); S.schedule(); renderPage(p.id); } } } : p.inbox ? { label: 'File to section…', fn: async () => { if (await fileInto(p.id)) renderPage(p.id); } } : { label: 'Move to…', fn: async () => { const t = await pickSection('Move page to'); if (t) { await pages.update(p.id, { inbox: 0, notebookId: t.notebookId, sectionId: t.sectionId }); onChanged(); renderPage(p.id); } } },
+      (!PANE && !isNarrow()) ? { label: 'Open in split view', fn: () => openSplit('#page/' + p.id) } : null,
       { label: p.pinned ? 'Unpin' : 'Pin to top of section', fn: async () => { await pages.update(p.id, { pinned: p.pinned ? 0 : 1 }); onChanged(); renderPage(p.id); } },
       p.kind === 'pdf' ? null : { label: 'Paper: ' + (PAPERS[p.paper] || 'Plain') + '…', fn: () => menu('Paper', Object.entries(PAPERS).map(([k, v]) => ({ label: v + (k === (p.paper || 'plain') ? '  ✓' : ''), fn: async () => { p.paper = k; await pages.update(p.id, { paper: k }); S.schedule(); if (state.editor && state.pageId === p.id) applyPaper(state.editor, k); } }))) },
       p.kind === 'pdf' ? null : { label: 'History…', fn: () => historySheet(p) },
@@ -1114,12 +1131,14 @@
   // ---------- navigation ----------
   function syncNav() {
     document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === state.view || ((state.view === 'page' || state.view === 'section' || ((state.view === 'pdfs' || state.view === 'apps') && a.closest('.tabbar'))) && a.dataset.nav === 'notes')));
+    if (typeof PANE !== 'undefined' && !PANE && document.documentElement.classList.contains('sidebar-collapsed')) sidebar.classList.remove('peek');
     closeSidebar();
   }
   function go(hash) { if (location.hash === hash) route(); else location.hash = hash; }
   const openPage = (id) => go('#page/' + id);
   async function route() {
     const h = location.hash || '#inbox';
+    if (PANE) { const pid = h.startsWith('#page/') ? h.slice(6) : null; const pg = pid ? await pages.get(pid) : null; announce('navigated', { hash: h, title: pg ? (pg.title || 'Untitled') : h.replace('#', '') }); }
     if (h.startsWith('#page/')) return renderPage(h.slice(6));
     destroyEditor(); state.pageId = null;
     if (h.startsWith('#section/')) return renderSection(h.slice(9));
@@ -1133,7 +1152,60 @@
   addEventListener('hashchange', route);
   const sidebar = $('#sidebar'), scrim = $('#scrim');
   const closeSidebar = () => { sidebar.classList.remove('open'); scrim.classList.remove('open'); };
-  $('#btn-menu').addEventListener('click', () => { sidebar.classList.toggle('open'); scrim.classList.toggle('open'); });
+  const PANE = location.search.indexOf('pane=1') >= 0;
+  const appmenu = $('#appmenu');
+  const closeMenu = () => { appmenu.hidden = true; };
+  $('#btn-menu').addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (isNarrow()) { sidebar.classList.toggle('open'); scrim.classList.toggle('open'); return; }
+    appmenu.hidden = !appmenu.hidden;
+    $('#menu-inbox-count').textContent = $('#inbox-count').textContent;
+    $('#menu-sidebar').textContent = document.documentElement.classList.contains('sidebar-collapsed') ? 'Pin sidebar open' : 'Collapse sidebar';
+    $('#menu-split').textContent = state.split ? 'Close split view' : 'Split view';
+  });
+  document.addEventListener('click', (e) => { if (!appmenu.hidden && !appmenu.contains(e.target)) closeMenu(); });
+  appmenu.addEventListener('click', (e) => { if (e.target.closest('a')) closeMenu(); });
+  $('#menu-new-notebook').addEventListener('click', () => { closeMenu(); $('#btn-new-notebook').click(); });
+  // Collapsible sidebar: collapsed = hidden until you hover the left edge or press Ctrl+\
+  const setSidebar = (collapsed) => { document.documentElement.classList.toggle('sidebar-collapsed', collapsed); sidebar.classList.remove('peek'); try { localStorage.setItem('nc-sidebar', collapsed ? 'collapsed' : 'pinned'); } catch (e) { /* ignore */ } };
+  const toggleSidebar = () => setSidebar(!document.documentElement.classList.contains('sidebar-collapsed'));
+  $('#btn-sidebar').addEventListener('click', toggleSidebar);
+  $('#menu-sidebar').addEventListener('click', () => { closeMenu(); toggleSidebar(); });
+  let peekTimer = null;
+  $('#hoverzone').addEventListener('mouseenter', () => { clearTimeout(peekTimer); sidebar.classList.add('peek'); });
+  sidebar.addEventListener('mouseleave', () => { if (document.documentElement.classList.contains('sidebar-collapsed')) peekTimer = setTimeout(() => sidebar.classList.remove('peek'), 250); });
+  sidebar.addEventListener('mouseenter', () => clearTimeout(peekTimer));
+  // Split view: a second copy of the app in the right-hand pane, sharing the same local store.
+  const pane = $('#pane'), paneframe = $('#paneframe'), splitter = $('#splitter');
+  const paneUrl = (hash) => location.pathname + '?pane=1' + (hash || '#notes');
+  function openSplit(hash) {
+    state.split = hash || state.split || '#notes';
+    document.body.classList.add('split'); pane.hidden = false; splitter.hidden = false;
+    paneframe.src = paneUrl(state.split);
+    $('#panetitle').textContent = 'Split view';
+    try { localStorage.setItem('nc-split', state.split); } catch (e) { /* ignore */ }
+  }
+  function closeSplit() {
+    state.split = null; document.body.classList.remove('split'); pane.hidden = true; splitter.hidden = true; paneframe.src = 'about:blank';
+    try { localStorage.removeItem('nc-split'); } catch (e) { /* ignore */ }
+  }
+  $('#menu-split').addEventListener('click', () => { closeMenu(); state.split ? closeSplit() : openSplit(state.pageId ? '#page/' + state.pageId : '#notes'); });
+  $('#pane-close').addEventListener('click', closeSplit);
+  $('#pane-pick').addEventListener('click', async () => { const t = await pickPage('Show in split view'); if (t) openSplit('#page/' + t.id); });
+  $('#pane-swap').addEventListener('click', () => { const mine = location.hash || '#inbox'; const theirs = state.split; openSplit(mine); go(theirs && theirs.startsWith('#') ? theirs : '#notes'); });
+  let dragging = false;
+  splitter.addEventListener('pointerdown', (e) => { dragging = true; splitter.setPointerCapture(e.pointerId); paneframe.style.pointerEvents = 'none'; });
+  splitter.addEventListener('pointermove', (e) => { if (!dragging) return; const w = Math.max(320, Math.min(innerWidth * 0.7, innerWidth - e.clientX)); pane.style.setProperty('--pane-w', w + 'px'); });
+  splitter.addEventListener('pointerup', () => { dragging = false; paneframe.style.pointerEvents = ''; });
+  // Keep the two halves in step: the pane tells the main window when it changes something, and vice versa.
+  const bus = ('BroadcastChannel' in window) ? new BroadcastChannel('notecompanion') : null;
+  if (bus) bus.onmessage = (ev) => {
+    const m = ev.data || {};
+    if (m.type === 'changed') { refreshTree(); refreshInboxCount(); if (!PANE) S.schedule(); if (state.view === 'inbox') renderInbox(); }
+    if (m.type === 'navigated' && !PANE) { state.split = m.hash; $('#panetitle').textContent = m.title || 'Split view'; try { localStorage.setItem('nc-split', m.hash); } catch (e) { /* ignore */ } }
+  };
+  const announce = (type, extra) => { if (bus) bus.postMessage(Object.assign({ type }, extra || {})); };
+  document.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === '\\') { e.preventDefault(); toggleSidebar(); } });
   $('#btn-back').addEventListener('click', () => history.back());
   $('#btn-fwd').addEventListener('click', () => history.forward());
   $('#btn-reload').addEventListener('click', () => location.reload());
@@ -1167,7 +1239,7 @@
   G.onChange(() => { if (state.view === 'settings') renderSettings(); S.schedule(300); });
 
   // ---------- service worker ----------
-  if ('serviceWorker' in navigator) {
+  if ('serviceWorker' in navigator && !PANE) {
     navigator.serviceWorker.register('./sw.js').then((reg) => {
       reg.addEventListener('updatefound', () => {
         const w = reg.installing;
@@ -1191,9 +1263,11 @@
 
   // ---------- boot ----------
   (async () => {
+    if (PANE) { await refreshTree(); await refreshInboxCount(); await route(); return; }
     await handleURLCapture();
     await refreshTree(); await refreshInboxCount();
     await route();
+    try { const sp = localStorage.getItem('nc-split'); if (sp && !isNarrow()) openSplit(sp); } catch (e) { /* ignore */ }
     await G.init();
     await S.init();
     if (G.state().signedIn) S.schedule(600);

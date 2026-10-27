@@ -257,7 +257,8 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 700; letter-spacing: 0; tex
   .topbar { gap: 4px; }
 }
 @media (min-width: 900px) {
-  #btn-menu { display: none; }
+  .side-top { display: none; }
+  .sidebar .side-foot { display: none; }
   .tree-view { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { .sidebar, .scrim, .syncpill .dot, .btn.recording { transition: none; animation: none; } }
@@ -373,3 +374,51 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 700; letter-spacing: 0; tex
 .list button .nbname { flex: 1; min-width: 0; }
 .list button { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .sec-count.ok { background: var(--good-soft); color: var(--good); }
+
+/* Desktop app menu (hamburger) */
+.appmenu { position: fixed; top: calc(var(--topbar) + env(safe-area-inset-top, 0px) - 4px); left: 8px; z-index: 60; background: var(--paper); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: 0 10px 30px rgba(20,30,45,.18); padding: 6px; display: grid; gap: 2px; min-width: 220px; }
+.appmenu a, .appmenu button { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px; text-decoration: none; color: var(--fg); border: 0; background: transparent; font: inherit; text-align: left; cursor: pointer; }
+.appmenu a:hover, .appmenu button:hover { background: var(--accent-soft); color: var(--accent); }
+.appmenu a.active { font-weight: 600; color: var(--accent); }
+.desktop-only { display: none; }
+@media (min-width: 900px) { .desktop-only { display: inline-flex; } .appmenu { left: 8px; } }
+@media (max-width: 899px) { .appmenu { display: none !important; } #menu-split, #menu-sidebar { display: none; } }
+
+/* Collapsible sidebar (desktop) */
+@media (min-width: 900px) {
+  .sidebar { transition: margin-left .18s ease, transform .18s ease, box-shadow .18s ease; }
+  .sidebar-collapsed .sidebar { position: fixed; left: 0; top: calc(var(--topbar) + env(safe-area-inset-top, 0px)); bottom: 0; height: auto; transform: translateX(-100%); z-index: 25; box-shadow: none; }
+  .sidebar-collapsed .sidebar.peek { transform: none; box-shadow: 8px 0 24px rgba(20,30,45,.18); }
+  .hoverzone { display: none; }
+  .sidebar-collapsed .hoverzone { display: block; position: fixed; left: 0; top: calc(var(--topbar) + env(safe-area-inset-top, 0px)); bottom: 0; width: 10px; z-index: 24; }
+}
+
+/* Pages use the full width on desktop */
+@media (min-width: 900px) {
+  .content > .view.page-view { max-width: none; }
+  .content > .view.page-view .editor-host { min-height: calc(100vh - 230px); }
+}
+
+/* Split view */
+.splitter { width: 6px; cursor: col-resize; background: var(--line); flex: none; }
+.splitter:hover { background: var(--accent); }
+.pane { flex: none; width: var(--pane-w, 46%); min-width: 320px; display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--bg); }
+.panebar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--line); background: var(--raised); }
+.panetitle { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+#paneframe { flex: 1; border: 0; width: 100%; background: var(--bg); }
+.split .shell { height: 100vh; height: 100dvh; overflow: hidden; }
+.split .content { overflow-y: auto; height: 100%; }
+.split .sidebar { height: calc(100vh - var(--topbar)); }
+@media (max-width: 899px) { .pane, .splitter { display: none !important; } }
+
+/* Pane mode: this window is the right-hand half of a split view */
+.pane-mode .topbar, .pane-mode .sidebar, .pane-mode .tabbar, .pane-mode .hoverzone, .pane-mode .scrim { display: none !important; }
+.pane-mode .shell { padding-top: 0; }
+.pane-mode .content { padding-top: 10px; }
+.pane-mode .content > .view { max-width: none; }
+
+/* Desktop: menus open as a popover next to the click instead of a bottom sheet */
+.sheet-host.popover { background: rgba(20,22,28,.08); align-items: flex-start; justify-content: flex-start; }
+.sheet-host.popover .sheet { position: absolute; border-radius: 14px; max-height: none; padding: 12px 14px 14px; box-shadow: 0 12px 36px rgba(20,30,45,.22); border: 1px solid var(--line-strong); overflow-y: auto; }
+.sheet-host.popover .sheet h2 { font-size: 1rem; }
+.sheet-host.popover .sheet .list button { padding: 8px 10px; }
