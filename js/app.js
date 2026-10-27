@@ -1029,10 +1029,11 @@
   async function newPage(notebookId, sectionId) {
     const paper = await sheet((box, close) => {
       box.append(el('h2', {}, 'New page'), el('p', { class: 'rule' }, 'Paper'), el('div', { class: 'list papers' }, Object.entries(PAPERS).map(([k, v]) => el('button', { type: 'button', class: 'paper-' + k, onclick: () => close(k) }, el('span', { class: 'swatch' }), v))),
+        el('p', { class: 'rule' }, 'Or a page type'), el('div', { class: 'list' }, el('button', { type: 'button', onclick: () => close('todo') }, '☑ To-do list')),
         el('div', { class: 'actions' }, el('button', { class: 'btn', type: 'button', onclick: () => close(undefined) }, 'Cancel')));
     });
     if (paper === undefined) return;
-    const p = await pages.create({ notebookId, sectionId, title: '', html: '', paper });
+    const p = paper === 'todo' ? await pages.create({ notebookId, sectionId, title: '', html: '<h3>Now</h3><ul></ul><h3>Today</h3><ul></ul>', ptype: 'todo' }) : await pages.create({ notebookId, sectionId, title: '', html: '', paper });
     state.expanded.add(notebookId); state.expanded.add(sectionId);
     onChanged(); state.focusNew = true; go('#page/' + p.id);
   }
@@ -1208,6 +1209,17 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
       await runApp(p, host, queueSave);
       return;
     }
+    if (p.ptype === 'todo' && !state.todoAsNote && window.NCTodo) {
+      view.classList.add('todo-view');
+      const drawBtn = crumbs.querySelector('#btn-draw'); if (drawBtn) drawBtn.remove();
+      const host = el('div', { class: 'todohost' });
+      view.append(host);
+      content.replaceChildren(view); syncNav();
+      if (state.focusNew) { state.focusNew = false; setTimeout(() => title.focus(), 50); }
+      state.appTeardown = NCTodo.render(host, p, { save: (html) => queueSave({ html }), toast, menu, ask, confirm }).destroy;
+      return;
+    }
+    state.todoAsNote = false;
     if (p.kind === 'pdf') {
       const host = el('div', { class: 'pdfhost' });
       view.append(host);
@@ -1286,7 +1298,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
       font_family_formats: 'Calibri=Calibri,Carlito,Segoe UI,-apple-system,system-ui,sans-serif; System=-apple-system,Segoe UI,system-ui,sans-serif; Serif=Iowan Old Style,Palatino Linotype,Georgia,serif; Arial=arial,helvetica,sans-serif; Mono=ui-monospace,Menlo,Consolas,monospace',
       block_formats: 'Paragraph=p; Heading 1=h1; Heading 2=h2; Heading 3=h3; Quote=blockquote; Code=pre',
       table_toolbar: 'tableprops tabledelete | tableinsertrowbefore tableinsertrowafter tabledeleterow | tableinsertcolbefore tableinsertcolafter tabledeletecol',
-      placeholder: 'Start writing… (type / for commands)', extended_valid_elements: 'li[data-todo|style|class],a[href|class|target|rel|title],audio[src|controls],div[class|style]',
+      placeholder: 'Start writing… (type / for commands)', extended_valid_elements: 'li[data-todo|data-due|data-pri|data-added|data-done|style|class],a[href|class|target|rel|title],audio[src|controls],div[class|style]',
       setup: (ed) => {
         ed.ui.registry.addButton('todo', { icon: 'checklist', tooltip: 'To-do item', onAction: () => toggleTodo(ed) });
         ed.ui.registry.addMenuButton('callout', { icon: 'info', tooltip: 'Callout', fetch: (cb) => cb(Object.entries(CALLOUTS).map(([k, v]) => ({ type: 'menuitem', text: v, onAction: () => { insertCallout(ed, k); scheduleSave(); } })).concat([{ type: 'menuitem', text: 'Remove callout', onAction: () => { const c = ed.dom.getParent(ed.selection.getNode(), '.callout'); if (c) { ed.dom.remove(c, true); ed.undoManager.add(); scheduleSave(); } } }])) });
@@ -1384,6 +1396,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
       (!PANE && !isNarrow()) ? { label: 'Open in split view', fn: () => openSplit('#page/' + p.id) } : null,
       { label: p.pinned ? 'Unpin' : 'Pin to top of section', fn: async () => { await pages.update(p.id, { pinned: p.pinned ? 0 : 1 }); onChanged(); renderPage(p.id); } },
       p.kind === 'pdf' ? null : { label: 'Paper: ' + (PAPERS[p.paper] || 'Plain') + '…', fn: () => menu('Paper', Object.entries(PAPERS).map(([k, v]) => ({ label: v + (k === (p.paper || 'plain') ? '  ✓' : ''), fn: async () => { p.paper = k; await pages.update(p.id, { paper: k }); S.schedule(); if (state.editor && state.pageId === p.id) applyPaper(state.editor, k); } }))) },
+      p.kind === 'pdf' || p.kind === 'app' ? null : (p.ptype === 'todo' ? { label: state.todoAsNote || !document.querySelector('.todohost') ? 'Open as to-do list' : 'Open as plain note', fn: () => { state.todoAsNote = !document.querySelector('.todohost'); renderPage(p.id); } } : { label: 'Turn into a to-do list', fn: async () => { await pages.update(p.id, { ptype: 'todo' }); S.schedule(); state.todoAsNote = false; renderPage(p.id); } }),
       p.kind === 'pdf' ? null : { label: 'History…', fn: () => historySheet(p) },
       ...inkItems,
       p.kind === 'pdf' ? { label: 'Export annotated PDF', fn: async () => { try { toast('Preparing PDF…'); const blob = await window.NCPDF.exportAnnotated(p); await deliver(blob, (p.title || 'document') + ' (annotated).pdf'); } catch (e) { toast(e.message); } } } : { label: 'Export as Markdown (.md)', fn: () => exportPage(p, 'md') },

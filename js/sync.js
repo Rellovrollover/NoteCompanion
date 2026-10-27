@@ -66,22 +66,25 @@
   // Ask for each file's download link too, so records can be fetched without a Graph call each; if this
   // tenant's Graph rejects that in a delta $select, remember and ask without.
   const deltaUrl = (noLinks) => '/me/drive/root:/' + encodeURIComponent(C.driveFolder) + ':/delta?$select=' + DELTA_SELECT + (noLinks ? '' : ',@microsoft.graph.downloadUrl') + '&$top=500';
+  // Resumable: each delta page is applied (records downloaded) before its continuation link is saved, so a sync
+  // that dies halfway — the phone locking, a lost signal, a rate-limit storm — carries on from that page next time
+  // instead of listing the whole folder again.
   async function pullChanges(progress) {
     let url = await meta.get('deltaLink', null);
     const first = !url;
     if (!url) url = deltaUrl(await meta.get('deltaNoLinks', false));
-    const changed = { notebooks: [], sections: [], pages: [], versions: [], assets: [], inbox: [] };
-    let deltaLink = null, seen = 0;
+    const totals = { seen: 0, failed: 0, why: '' };
     while (url) {
       let page;
       try { page = await G.json(url); }
       catch (e) {
         if (e.status === 410 || e.status === 404) { await meta.set('deltaLink', null); if (!first) return pullChanges(progress); }
-        if (e.status === 400 && first && !seen && !(await meta.get('deltaNoLinks', false))) { await meta.set('deltaNoLinks', true); return pullChanges(progress); }
+        if (e.status === 400 && first && !totals.seen && !(await meta.get('deltaNoLinks', false))) { await meta.set('deltaNoLinks', true); return pullChanges(progress); }
         throw e;
       }
+      const changed = { notebooks: [], sections: [], pages: [], versions: [], assets: [], inbox: [] };
       for (const it of page.value || []) {
-        seen++;
+        totals.seen++;
         if (it.deleted && it.name) {
           // A file removed on OneDrive (by a purge on another device): drop our own tombstone for it, never a live record.
           const parent = (it.parentReference && it.parentReference.path) || ''; const sub = decodeURIComponent(parent.split('/').pop() || '');
@@ -95,32 +98,33 @@
         const sub = decodeURIComponent(parent.split('/').pop() || '');
         if (changed[sub]) changed[sub].push(it);
       }
-      if (progress && seen) progress('Checking OneDrive… ' + seen + ' items');
+      if (progress) progress('Checking OneDrive… ' + totals.seen + ' items');
+      await applyChanges(changed, progress, totals);
       url = page['@odata.nextLink'] || null;
-      if (page['@odata.deltaLink']) deltaLink = page['@odata.deltaLink'];
+      const keep = page['@odata.deltaLink'] || url;
+      if (keep) await meta.set('deltaLink', keep);
     }
-    // Apply JSON records.
+    return totals;
+  }
+
+  async function applyChanges(changed, progress, totals) {
     for (const sub of ['notebooks', 'sections', 'pages', 'versions']) {
       const table = TABLE[sub];
-      // Only what we don't already have at this etag; several in flight at once, progress on every one.
+      // Only what we don't already have at this etag; a few in flight at once, progress on every one.
       const todo = [];
       for (const item of changed[sub]) { const loc = await table.get(item.name.replace(/\.json$/, '')); if (!(loc && loc.etag === item.eTag)) todo.push([item, loc]); }
       if (!todo.length) continue;
       let done = 0, failed = 0, why = ''; const total = todo.length;
       if (progress) progress('Downloading ' + sub + '… 0/' + total);
-      await pool(todo, 6, async ([item, loc]) => {
+      await pool(todo, 4, async ([item, loc]) => {
         try { await pullJSON(sub, item, table, loc); } catch (e) { failed++; if (!why) why = (e && e.message) || String(e); console.warn('pull failed', sub, item.name, e); }
         done++;
         if (progress) progress('Downloading ' + sub + '… ' + done + '/' + total + (failed ? ' (' + failed + ' failed: ' + why.slice(0, 120) + ')' : ''));
       });
-      if (failed) { changed.failed = (changed.failed || 0) + failed; changed.why = changed.why || why; }
+      if (failed) { totals.failed += failed; totals.why = totals.why || why; }
     }
-    // Apply assets.
     for (const item of changed.assets) await pullAsset(item);
-    // Inbox drops.
     for (const item of changed.inbox) await importDrop(item);
-    if (deltaLink) await meta.set('deltaLink', deltaLink);
-    return changed;
   }
 
   async function pullAsset(item) {
