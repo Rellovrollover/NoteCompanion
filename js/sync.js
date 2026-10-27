@@ -123,7 +123,9 @@
       });
       if (failed) { totals.failed += failed; totals.why = totals.why || why; }
     }
-    for (const item of changed.assets) await pullAsset(item);
+    // Files (images, PDFs) after the records, with progress — a page of the listing can be mostly these.
+    let n = 0;
+    for (const item of changed.assets) { n++; if (progress) progress('Downloading files… ' + n + '/' + changed.assets.length + (item.size ? ' (' + (item.size > 1048576 ? (item.size / 1048576).toFixed(1) + ' MB' : Math.round(item.size / 1024) + ' KB') + ')' : '')); await pullAsset(item); }
     for (const item of changed.inbox) await importDrop(item);
   }
 
