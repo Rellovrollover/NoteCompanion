@@ -117,9 +117,9 @@
       let done = 0, failed = 0, why = ''; const total = todo.length;
       if (progress) progress('Downloading ' + sub + '… 0/' + total);
       await pool(todo, 4, async ([item, loc]) => {
-        try { await pullJSON(sub, item, table, loc); } catch (e) { failed++; if (!why) why = (e && e.message) || String(e); console.warn('pull failed', sub, item.name, e); }
+        try { await pullJSON(sub, item, table, loc); } catch (e) { failed++; if (!why) why = ((e && e.name) || 'Error') + ': ' + ((e && e.message) || String(e)) + ' @ ' + String((e && e.stack) || '').split('\n').filter((l) => /\.js:\d+/.test(l)).slice(0, 3).map((l) => l.replace(/https?:\/\/[^ ]*\//, '').trim()).join(' < '); console.warn('pull failed', sub, item.name, e); }
         done++;
-        if (progress) progress('Downloading ' + sub + '… ' + done + '/' + total + (failed ? ' (' + failed + ' failed: ' + why.slice(0, 120) + ')' : ''));
+        if (progress) progress('Downloading ' + sub + '… ' + done + '/' + total + (failed ? ' (' + failed + ' failed: ' + why.slice(0, 260) + ')' : ''));
       });
       if (failed) { totals.failed += failed; totals.why = totals.why || why; }
     }
@@ -258,7 +258,7 @@
       for (const [sub, table] of KINDS) await pushKind(sub, table, prog);
       status.lastSync = Date.now();
       await meta.set('lastSync', status.lastSync);
-      if (pulled && pulled.failed) await setState('error', pulled.failed + ' items could not be downloaded (' + pulled.why.slice(0, 160) + '); will retry', new Error(pulled.why));
+      if (pulled && pulled.failed) await setState('error', pulled.failed + ' items could not be downloaded (' + pulled.why.slice(0, 300) + '); will retry', new Error(pulled.why));
       else await setState('ok', 'Synced');
     } catch (e) {
       console.warn('sync failed', e);
