@@ -24,6 +24,31 @@
     return n && printable / n > 0.95 ? 'text/plain' : 'application/octet-stream';
   }
   const escapeHtml = (t) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const textToHtml = (text) => text.split(/\n{2,}/).map((para) => '<p>' + escapeHtml(para).replace(/\n/g, '<br>') + '</p>').join('');
+
+  // A note described as JSON, filed straight into a notebook/section (created if missing). This is how a chat
+  // with Claude adds a trial, a pearl or a portfolio entry: it drops "<stamp>.page.json" in the relay.
+  //   { notebook, group?, section, title, html? | text?, props?: [{k,v}] | {k:v}, tags?, ptype?, pinned?, id?, created? }
+  // Without a notebook it lands in the Inbox. An array files several. An existing id is updated, not duplicated.
+  async function placePage(spec) {
+    const { notebooks, sections } = window.NCDB;
+    const props = Array.isArray(spec.props) ? spec.props : Object.entries(spec.props || {}).map(([k, v]) => ({ k, v: String(v) }));
+    const html = spec.html != null ? spec.html : textToHtml(String(spec.text || ''));
+    const fields = { title: spec.title || (spec.text || '').split('\n')[0].slice(0, 80) || 'Untitled', html, props, tags: spec.tags || [], pinned: spec.pinned ? 1 : 0 };
+    if (spec.ptype) fields.ptype = spec.ptype;
+    if (spec.notebook) {
+      let nb = (await notebooks.all()).find((n) => n.name.toLowerCase() === String(spec.notebook).toLowerCase());
+      if (!nb) nb = await notebooks.create(spec.notebook);
+      const group = spec.group || '';
+      let sec = (await sections.forNotebook(nb.id)).find((s) => (s.group || '') === group && s.name.toLowerCase() === String(spec.section || 'General').toLowerCase());
+      if (!sec) { sec = await sections.create(nb.id, spec.section || 'General'); if (group) await sections.update(sec.id, { group }); }
+      Object.assign(fields, { notebookId: nb.id, sectionId: sec.id, inbox: 0 });
+    } else fields.inbox = 1;
+    const have = spec.id ? await pages.get(spec.id) : null;
+    if (have) { await pages.update(spec.id, Object.assign({ deleted: 0 }, fields)); return spec.id; }
+    const p = await pages.create(Object.assign(spec.id ? { id: spec.id } : {}, fields, spec.created ? { created: Date.parse(spec.created) || Date.now() } : {}));
+    return p.id;
+  }
 
   async function pull() {
     const { repo, token } = await config();
@@ -46,6 +71,12 @@
         if (!del.ok) continue;
         if (!bytes.length) continue; // a test run of the Shortcut with no input uploads an empty file
         if (/\.job\.txt$/i.test(it.name)) { const text = new TextDecoder().decode(bytes).trim(); if (text && window.NCShift) { await window.NCShift.addQuick(text); n++; } continue; }
+        // "<stamp>.page.json": one note (or a list of them) filed straight into a notebook.
+        if (/\.pages?\.json$/i.test(it.name)) {
+          let spec; try { spec = JSON.parse(new TextDecoder().decode(bytes)); } catch (e) { console.warn('bad page.json', it.name); continue; }
+          for (const one of (Array.isArray(spec) ? spec : [spec])) { try { await placePage(one); n++; } catch (e) { console.warn('page.json failed', e); } }
+          continue;
+        }
         const mime = sniff(bytes, it.name);
         const base = it.name.replace(/\.\w+$/, '').replace(/^\d{8}-\d{6}-?/, '') || 'Capture';
         // "<Name>.app.html" installs straight into the Apps hub, replacing a tile of the same name.
@@ -87,5 +118,5 @@
     return j.full_name;
   }
 
-  window.NCDrop = { config, setConfig, pull, test };
+  window.NCDrop = { config, setConfig, pull, test, placePage };
 })();
