@@ -1159,8 +1159,28 @@
         el('li', {}, 'Tap a section name to open it; the chevron expands it in place. Any section can be shown as a table of its pages and their properties.'),
         el('li', {}, 'Set a notebook as the current rotation and filing offers it first.'),
         el('li', {}, 'Scan in the Inbox cleans up a photo of a document; straightening comes with the PDF phase.'))));
-    view.append(el('div', { class: 'panel help' }, el('h2', {}, 'Capture from the iPhone Share Sheet'),
-      el('p', {}, el('b', {}, 'Best way (no browser):'), ' in Shortcuts, make a shortcut that receives anything from the Share Sheet, then a ', el('b', {}, 'Save File'), ' action with "Ask Where to Save" off and the destination set to the OneDrive folder ', el('code', {}, 'NoteCompanion/inbox'), '. Text, links, photos and PDFs saved there appear in the Inbox the next time any device syncs, and the dropped file is cleared from OneDrive.'),
+    const gh = await window.NCDrop.config();
+    const ghRepo = el('input', { type: 'text', id: 'gh-repo', placeholder: 'owner/repo (private)', value: gh.repo, autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false' });
+    const ghToken = el('input', { type: 'password', id: 'gh-token', placeholder: 'GitHub token', value: gh.token, autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false' });
+    const ghStatus = el('p', { class: 'rule' }, gh.repo && gh.token ? 'Configured on this device. Captures are picked up on every sync.' : 'Not set up on this device.');
+    view.append(el('div', { class: 'panel help' }, el('h2', {}, 'Instant capture relay'),
+      el('p', {}, 'Fastest route from the iPhone Share Sheet: two taps, no browser. A Shortcut drops the item into a private GitHub repo and this app collects it on its next sync. Free; the repo is just a mailbox.'),
+      el('div', { class: 'formrow' }, ghRepo, ghToken, el('button', { class: 'btn', type: 'button', onclick: async (e) => {
+        await window.NCDrop.setConfig(ghRepo.value, ghToken.value);
+        e.target.disabled = true; ghStatus.textContent = 'Checking…';
+        try { const name = await window.NCDrop.test(); ghStatus.textContent = 'Connected to ' + name + '. Captures are picked up on every sync.'; S.schedule(300); } catch (err) { ghStatus.textContent = err.message; }
+        e.target.disabled = false;
+      } }, 'Save and test')),
+      ghStatus,
+      el('details', {}, el('summary', {}, 'Set-up steps (once)'),
+        el('ol', {},
+          el('li', {}, 'On github.com create a new ', el('b', {}, 'private'), ' repository, e.g. ', el('code', {}, 'notecompanion-drop'), ', ticking "Add a README".'),
+          el('li', {}, 'GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate. Repository access: only that repo. Permissions: Repository → Contents → Read and write. Expiry: 1 year. Copy the token.'),
+          el('li', {}, 'Paste ', el('code', {}, 'yourname/notecompanion-drop'), ' and the token above, then Save and test. Do this on the phone and the laptop (the token stays on each device).'),
+          el('li', {}, 'In Shortcuts on the iPhone make a new shortcut: ', el('b', {}, 'Receive'), ' Any input from Share Sheet → ', el('b', {}, 'Base64 Encode'), ' (Shortcut Input) → ', el('b', {}, 'Get Contents of URL'), ' with URL ', el('code', {}, 'https://api.github.com/repos/yourname/notecompanion-drop/contents/inbox/' + '[Current Date]' + '.bin'), ' (insert the Current Date variable, format Custom ', el('code', {}, 'yyyyMMdd-HHmmss'), '), Method PUT, Headers ', el('code', {}, 'Authorization: Bearer <token>'), ' and ', el('code', {}, 'Accept: application/vnd.github+json'), ', Request Body JSON with ', el('code', {}, 'message'), ' = capture and ', el('code', {}, 'content'), ' = the Base64 Encoded text.'),
+          el('li', {}, 'Tick "Show in Share Sheet" and name it NoteCompanion. The app works out whether each drop is text, a photo, a PDF or another file.')))));
+    view.append(el('div', { class: 'panel help' }, el('h2', {}, 'Other capture routes'),
+      el('p', {}, el('b', {}, 'OneDrive drop folder:'), ' in Shortcuts, make a shortcut that receives anything from the Share Sheet, then a ', el('b', {}, 'Save File'), ' action with "Ask Where to Save" off and the destination set to the OneDrive folder ', el('code', {}, 'NoteCompanion/inbox'), '. Text, links, photos and PDFs saved there appear in the Inbox the next time any device syncs, and the dropped file is cleared from OneDrive.'),
       el('p', {}, el('b', {}, 'Instant way (opens Safari):'), ' an "Open URLs" action set to ', el('code', {}, C.redirectUri + '?capture=1&text=[Shortcut Input]'), '. iOS always opens a URL in Safari rather than the home-screen app, so the note lands in the same shared inbox but the app itself does not come to the front.')));
     content.replaceChildren(view); syncNav();
   }
