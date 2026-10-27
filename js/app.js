@@ -850,22 +850,28 @@
     state.view = 'apps';
     const apps = await appPages();
     const view = el('div', { class: 'view' });
-    view.append(el('div', { class: 'view-head' }, el('h1', {}, 'Apps'), el('button', { class: 'btn small primary', type: 'button', onclick: async () => {
-      const name = await ask('App name', 'e.g. Portfolio Log'); if (!name) return;
-      const url = await ask('Link (optional)', 'https://…'); if (url === undefined) return;
-      const np = await pages.create({ kind: 'app', inbox: 0, title: name, url: url || '', html: '' }); S.schedule(); go('#page/' + np.id);
-    } }, '+ Add app')));
+    const fileIn = el('input', { type: 'file', accept: '.html,.htm,text/html', hidden: '' });
+    fileIn.addEventListener('change', async () => { const f = fileIn.files[0]; fileIn.value = ''; if (!f) return; const np = await addAppFromFile(f); toast('Added ' + np.title); go('#page/' + np.id); });
+    view.append(el('div', { class: 'view-head' }, el('h1', {}, 'Apps'), el('div', { class: 'toolrow' },
+      el('button', { class: 'btn small', type: 'button', onclick: () => fileIn.click() }, '+ From HTML file'),
+      el('button', { class: 'btn small primary', type: 'button', onclick: async () => {
+        const name = await ask('App name', 'e.g. Portfolio Log'); if (!name) return;
+        const url = await ask('Link (optional)', 'https://…'); if (url === undefined) return;
+        const np = await pages.create({ kind: 'app', inbox: 0, title: name, url: url || '', html: '' }); S.schedule(); go('#page/' + np.id);
+      } }, '+ Add link'))), fileIn);
     const grid = el('div', { class: 'appgrid' });
     for (const a of apps) {
       const tile = el('div', { class: 'apptile' + (a.pinned ? ' pinned' : '') },
         el('div', { class: 'apphead' }, el('span', { class: 'appico', html: appIcon }), el('b', {}, a.title)),
         el('div', { class: 'appdesc' }, textOf(a).slice(0, 120)),
         el('div', { class: 'actions' },
-          a.url ? el('a', { class: 'btn small primary', href: a.url, target: '_blank', rel: 'noopener' }, 'Open') : el('span', { class: 'sub' }, 'No link yet'),
-          el('button', { class: 'btn small', type: 'button', onclick: () => openPage(a.id) }, 'Notes'),
+          (a.assetId || a.embed) ? el('button', { class: 'btn small primary', type: 'button', onclick: () => openPage(a.id) }, 'Open') : a.url ? el('a', { class: 'btn small primary', href: a.url, target: '_blank', rel: 'noopener' }, 'Open') : el('span', { class: 'sub' }, 'No link yet'),
+          (a.assetId || a.embed) ? el('span', { class: 'sub' }, a.assetId ? 'runs inside' : 'embedded') : el('button', { class: 'btn small', type: 'button', onclick: () => openPage(a.id) }, 'Notes'),
           SEED_FILES[a.title] ? el('button', { class: 'btn small', type: 'button', onclick: async (e) => { e.target.disabled = true; toast('Importing…'); try { const r = await importSeed(SEED_FILES[a.title]); toast(r.added ? 'Imported ' + r.added + ' pages into ' + r.notebook.name : 'Already imported (' + r.total + ' pages)'); } catch (err) { toast(err.message); } e.target.disabled = false; } }, 'Import into NoteCompanion') : null));
       grid.append(gestures(tile, { onDelete: async () => { if (await confirm('Remove "' + a.title + '" from the hub?', null, 'Remove')) { await pages.remove(a.id); S.schedule(); renderApps(); } }, onLongPress: () => menu(a.title, [
-        { label: 'Open notes', fn: () => openPage(a.id) },
+        (a.assetId || a.embed) ? { label: 'Open', fn: () => openPage(a.id) } : { label: 'Open notes', fn: () => openPage(a.id) },
+        a.assetId ? { label: 'Replace HTML file…', fn: () => { const inp = el('input', { type: 'file', accept: '.html,.htm,text/html' }); inp.addEventListener('change', async () => { const f = inp.files[0]; if (!f) return; const na = await storeAsset(f, f.name); if (a.assetId) await assets.remove(a.assetId); await pages.update(a.id, { assetId: na.id }); S.schedule(); toast('Updated ' + a.title); renderApps(); }); inp.click(); } } : null,
+        a.url ? { label: a.embed ? 'Open in its own tab instead' : 'Open inside NoteCompanion (embed)', fn: async () => { await pages.update(a.id, { embed: a.embed ? 0 : 1 }); S.schedule(); renderApps(); } } : null,
         { label: 'Change link', fn: async () => { const u = await ask('Link', 'https://…', a.url || '', 'Save'); if (u !== undefined) { await pages.update(a.id, { url: u }); S.schedule(); renderApps(); } } },
         { label: a.pinned ? 'Unpin' : 'Pin', fn: async () => { await pages.update(a.id, { pinned: a.pinned ? 0 : 1 }); S.schedule(); renderApps(); } },
         { label: 'Remove from hub', danger: true, fn: async () => { if (await confirm('Remove "' + a.title + '"?', null, 'Remove')) { await pages.remove(a.id); S.schedule(); renderApps(); } } }
@@ -929,6 +935,7 @@
     if (state.pendingSave) { const ps = state.pendingSave; state.pendingSave = null; pages.update(ps.id, ps.patch).then(() => S.schedule()); }
     if (state.pdfTeardown) { try { state.pdfTeardown(); } catch (e) { /* ignore */ } state.pdfTeardown = null; }
     if (state.ink) { try { state.ink.destroy(); } catch (e) { /* ignore */ } state.ink = null; }
+    if (state.appTeardown) { try { state.appTeardown(); } catch (e) { /* ignore */ } state.appTeardown = null; }
     if (state.editor) { snapshotIfChanged().catch(() => {}); try { state.editor.remove(); } catch (e) { /* ignore */ } state.editor = null; }
     state.openedPage = null;
   }
@@ -987,6 +994,51 @@
     ed.insertContent('<div class="callout callout-' + kind + '"><p>' + (sel || '&nbsp;') + '</p></div><p>&nbsp;</p>');
   }
 
+  // ---------- apps that run inside NoteCompanion ----------
+  // A single-file HTML app is kept as an asset and run in an iframe. A small bridge script is prepended so
+  // everything the app writes to localStorage is mirrored into the page record (p.appData) and synced,
+  // and restored before the app's own code runs on another device.
+  const APP_BRIDGE = `<script>(function(){try{var P=window.parent;var init=null;var seed=JSON.parse(document.documentElement.getAttribute('data-nc-seed')||'{}');
+for(var k in seed){try{Storage.prototype.setItem.call(localStorage,k,seed[k]);}catch(e){}}
+var send=function(op,k,v){try{P.postMessage({nc:'app-storage',op:op,key:k,value:v},'*');}catch(e){}};
+var S=Storage.prototype,si=S.setItem,ri=S.removeItem,cl=S.clear;
+S.setItem=function(k,v){si.call(this,k,v);if(this===localStorage)send('set',String(k),String(v));};
+S.removeItem=function(k){ri.call(this,k);if(this===localStorage)send('remove',String(k));};
+S.clear=function(){cl.call(this);if(this===localStorage)send('clear');};
+window.NoteCompanion={back:function(){try{P.postMessage({nc:'app-back'},'*');}catch(e){}}};
+}catch(e){}})();</script>`;
+  async function runApp(p, host, queueSave) {
+    const frame = el('iframe', { class: 'appframe', title: p.title || 'App', allow: 'camera; microphone; clipboard-read; clipboard-write; fullscreen' });
+    host.append(frame);
+    const data = Object.assign({}, p.appData || {});
+    const onMsg = (e) => {
+      if (e.source !== frame.contentWindow || !e.data || !e.data.nc) return;
+      if (e.data.nc === 'app-back') { go('#apps'); return; }
+      if (e.data.nc !== 'app-storage') return;
+      if (e.data.op === 'set') data[e.data.key] = e.data.value;
+      else if (e.data.op === 'remove') delete data[e.data.key];
+      else if (e.data.op === 'clear') for (const k of Object.keys(data)) delete data[k];
+      queueSave({ appData: Object.assign({}, data) });
+    };
+    addEventListener('message', onMsg);
+    state.appTeardown = () => removeEventListener('message', onMsg);
+    if (p.assetId) {
+      const a = await assets.get(p.assetId);
+      if (!a || !a.blob) { host.append(el('p', { class: 'sub' }, 'This app\'s file has not reached this device yet — sync and try again.')); return; }
+      let html = await a.blob.text();
+      const seed = JSON.stringify(data).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+      // Seed goes on <html> so the bridge can read it; the bridge goes at the very top of <head>.
+      if (/<html[^>]*>/i.test(html)) html = html.replace(/<html([^>]*)>/i, '<html$1 data-nc-seed="' + seed + '">'); else html = '<html data-nc-seed="' + seed + '">' + html + '</html>';
+      if (/<head[^>]*>/i.test(html)) html = html.replace(/<head([^>]*)>/i, '<head$1>' + APP_BRIDGE); else html = html.replace(/<html([^>]*)>/i, '<html$1><head>' + APP_BRIDGE + '</head>');
+      frame.srcdoc = html;
+    } else frame.src = p.url;
+  }
+  async function addAppFromFile(file) {
+    const a = await storeAsset(file, file.name);
+    const title = file.name.replace(/\.html?$/i, '').replace(/[-_]+/g, ' ');
+    const np = await pages.create({ kind: 'app', inbox: 0, title, url: '', assetId: a.id, html: '<p>Runs inside NoteCompanion. Replace the file from ··· to update it.</p>' });
+    S.schedule(); return np;
+  }
   async function pageColumn(nb, sec, activeId) {
     const col = el('aside', { class: 'pagecol', 'data-sec': sec.id, 'data-nb': nb.id });
     const secPages = (await pages.forSection(sec.id)).sort(pinnedFirst);
@@ -1010,7 +1062,7 @@
     if (nb && sec && !PANE) view.append(await sectionTabs(nb, sec.id));
 
     const crumbs = el('div', { class: 'crumbs' });
-    if (p.kind === 'app') crumbs.append(el('a', { href: '#apps' }, 'Apps'), '›', p.url ? el('a', { href: p.url, target: '_blank', rel: 'noopener' }, 'Open app') : el('button', { type: 'button', onclick: async () => { const u = await ask('Link', 'https://…', '', 'Save'); if (u) { await pages.update(p.id, { url: u }); S.schedule(); renderPage(id); } } }, 'Add link'));
+    if (p.kind === 'app') crumbs.append(el('a', { href: '#apps' }, 'Apps'), '›', p.assetId ? el('span', {}, p.title || 'App') : p.url ? el('a', { href: p.url, target: '_blank', rel: 'noopener' }, p.embed ? 'Open in a tab' : 'Open app') : el('button', { type: 'button', onclick: async () => { const u = await ask('Link', 'https://…', '', 'Save'); if (u) { await pages.update(p.id, { url: u }); S.schedule(); renderPage(id); } } }, 'Add link'));
     else if (p.inbox) crumbs.append('Inbox', el('button', { type: 'button', onclick: async () => { if (await fileInto(p.id)) renderPage(id); } }, 'File to…'));
     else crumbs.append(el('a', { href: nb ? '#nb/' + nb.id : '#notes' }, nb ? nb.name : '—'), '›', el('a', { href: sec ? '#section/' + sec.id : '#notes' }, sec ? sec.name : '—'));
     crumbs.append(el('span', { class: 'spacer' }));
@@ -1025,6 +1077,14 @@
     title.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); if (state.editor) state.editor.focus(); } });
     view.append(title);
 
+    if (p.kind === 'app' && (p.assetId || p.embed)) {
+      view.classList.add('app-view');
+      const host = el('div', { class: 'apphost' });
+      view.append(host);
+      content.replaceChildren(view); syncNav();
+      await runApp(p, host, queueSave);
+      return;
+    }
     if (p.kind === 'pdf') {
       const host = el('div', { class: 'pdfhost' });
       view.append(host);

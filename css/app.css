@@ -572,3 +572,9 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 700; letter-spacing: 0; tex
 /* PDF text boxes */
 .pdftext { position: absolute; z-index: 4; min-height: 1.4em; padding: 1px 2px; margin: -1px -2px; border: 1px dashed var(--accent); border-radius: 3px; background: rgba(255,255,255,.75); font-family: Calibri, Carlito, "Segoe UI", system-ui, sans-serif; font-weight: 500; resize: none; overflow: hidden; outline: none; }
 .pdfpage { position: relative; }
+
+/* Apps running inside */
+.view.app-view { max-width: none !important; gap: 8px; }
+.apphost { height: calc(100vh - var(--topbar) - 120px - env(safe-area-inset-top, 0px)); min-height: 420px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #fff; }
+.appframe { width: 100%; height: 100%; border: 0; display: block; }
+@media (max-width: 899px) { .apphost { height: calc(100vh - var(--topbar) - var(--tabbar) - 130px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); } .view.app-view .title-input { display: none; } }
