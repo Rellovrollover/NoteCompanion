@@ -45,6 +45,15 @@
         if (!bytes.length) continue; // a test run of the Shortcut with no input uploads an empty file
         const mime = sniff(bytes, it.name);
         const base = it.name.replace(/\.\w+$/, '').replace(/^\d{8}-\d{6}-?/, '') || 'Capture';
+        // "<Name>.app.html" installs straight into the Apps hub, replacing a tile of the same name.
+        if (/\.app\.html?$/i.test(it.name)) {
+          const title = it.name.replace(/\.app\.html?$/i, '').replace(/^\d{8}-\d{6}-?/, '');
+          const a = await assets.create(new File([bytes], title + '.html', { type: 'text/html' }), title + '.html');
+          const existing = (await pages.live()).find((q) => q.kind === 'app' && !q.deleted && (q.title || '').toLowerCase() === title.toLowerCase());
+          if (existing) { if (existing.assetId) await assets.remove(existing.assetId); await pages.update(existing.id, { assetId: a.id, url: '' }); }
+          else await pages.create({ kind: 'app', inbox: 0, title, url: '', assetId: a.id, html: '<p>Runs inside NoteCompanion.</p>' });
+          n++; continue;
+        }
         if (mime === 'text/plain') {
           const text = new TextDecoder().decode(bytes).trim();
           if (text) await pages.create({ inbox: 1, kind: 'text', title: text.split('\n')[0].slice(0, 60), html: text.split(/\n{2,}/).map((para) => '<p>' + escapeHtml(para).replace(/\n/g, '<br>') + '</p>').join('') });
