@@ -1161,10 +1161,16 @@
     // Offline OneNote route: Word exports of sections.
     const docxStatus = el('p', { class: 'rule' }, '');
     const docxBar = el('div', { class: 'progress', hidden: '' }, el('div', { class: 'progress-fill' }));
-    const docxInput = el('input', { type: 'file', accept: '.docx,.mht,.mhtml,application/vnd.openxmlformats-officedocument.wordprocessingml.document,message/rfc822,multipart/related', multiple: '', hidden: '' });
-    const docxDrop = el('div', { class: 'dropzone', onclick: () => docxInput.click() }, el('b', {}, 'Drop OneNote exports here'), el('span', {}, ' or click to choose .mht or .docx files'));
+    const docxInput = el('input', { type: 'file', accept: '.docx,.mht,.mhtml,.zip,application/vnd.openxmlformats-officedocument.wordprocessingml.document,message/rfc822,multipart/related,application/zip', multiple: '', hidden: '' });
+    const docxDrop = el('div', { class: 'dropzone', onclick: () => docxInput.click() }, el('b', {}, 'Drop OneNote exports here'), el('span', {}, ' or click to choose .mht or .docx files, or a zip of them'));
     const runDocx = async (files) => {
-      files = [...files].filter((f) => /\.(docx|mht|mhtml)$/i.test(f.name)); if (!files.length) { toast('Choose .mht or .docx files exported from OneNote'); return; }
+      const picked = [];
+      for (const f of files) {
+        if (/\.zip$/i.test(f.name)) { try { picked.push(...await window.NCOneNote.unzip(f)); } catch (e) { toast('Could not open ' + f.name + ': ' + e.message); } }
+        else picked.push(f);
+      }
+      files = picked.filter((f) => /\.(docx|mht|mhtml)$/i.test(f.name)).sort((a, b) => a.name.localeCompare(b.name));
+      if (!files.length) { toast('Choose .mht or .docx files exported from OneNote (or a zip of them)'); return; }
       const nbs = await notebooks.all();
       const target = await sheet((box, close) => {
         box.append(el('h2', {}, 'Import ' + files.length + ' section' + (files.length === 1 ? '' : 's') + ' into'), el('div', { class: 'list' },

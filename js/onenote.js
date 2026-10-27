@@ -301,5 +301,30 @@
     return { section: sec, count: n, skipped };
   }
 
-  window.NCOneNote = { cancel, listNotebooks, importNotebook, importDocxSection, importMht };
+  // Minimal .zip reader (stored or deflated entries) so a folder of exports can be dropped in as one file.
+  async function unzip(file) {
+    const buf = await file.arrayBuffer(); const dv = new DataView(buf); const u8 = new Uint8Array(buf);
+    // Find the end-of-central-directory record.
+    let eocd = -1;
+    for (let i = buf.byteLength - 22; i >= Math.max(0, buf.byteLength - 70000); i--) if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+    if (eocd < 0) throw new Error('Not a zip file');
+    const count = dv.getUint16(eocd + 10, true); let off = dv.getUint32(eocd + 16, true);
+    const out = [];
+    for (let k = 0; k < count; k++) {
+      if (dv.getUint32(off, true) !== 0x02014b50) break;
+      const method = dv.getUint16(off + 10, true), csize = dv.getUint32(off + 20, true), nlen = dv.getUint16(off + 28, true), elen = dv.getUint16(off + 30, true), clen = dv.getUint16(off + 32, true), lho = dv.getUint32(off + 42, true);
+      const name = new TextDecoder().decode(u8.subarray(off + 46, off + 46 + nlen));
+      off += 46 + nlen + elen + clen;
+      if (name.endsWith('/') || /(^|\/)(__MACOSX|\.)/.test(name)) continue;
+      const lnlen = dv.getUint16(lho + 26, true), lelen = dv.getUint16(lho + 28, true);
+      const start = lho + 30 + lnlen + lelen;
+      let data = u8.slice(start, start + csize);
+      if (method === 8) data = new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
+      else if (method !== 0) continue;
+      out.push(new File([data], name.split('/').pop()));
+    }
+    return out;
+  }
+
+  window.NCOneNote = { cancel, listNotebooks, importNotebook, importDocxSection, importMht, unzip };
 })();
