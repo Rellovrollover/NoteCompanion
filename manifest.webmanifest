@@ -1,6 +1,6 @@
 {
-  "name": "NoteCompanion",
-  "short_name": "NoteCompanion",
+  "name": "2nd Brain",
+  "short_name": "2nd Brain",
   "description": "Notes, captures and PDFs across all your devices, offline first, synced through your own OneDrive.",
   "start_url": "./",
   "scope": "./",

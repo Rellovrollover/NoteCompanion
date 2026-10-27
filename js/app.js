@@ -876,7 +876,7 @@
     { title: 'Shopping List Manager', url: 'https://claude.ai/artifact/18W6PdBdb3tftdqSi75fVC', desc: 'Shared Lidl list, with an Elsewhere list' },
     { title: 'Brick Viewer', url: 'https://rellovrollover.github.io/brick-viewer/', desc: 'Stud.io and LDraw file viewer' },
     { title: 'Brick Locator', url: '', desc: 'Which drawer a LEGO part lives in (local file on the PC)' },
-    { title: 'Portfolio Log', url: '', desc: 'Portfolio evidence and teaching hours (moving into NoteCompanion)' }
+    { title: 'Portfolio Log', url: '', desc: 'Portfolio evidence and teaching hours (now inside the app)' }
   ];
   async function appPages() {
     let apps = (await pages.live()).filter((q) => q.kind === 'app');
@@ -941,11 +941,11 @@
         el('div', { class: 'actions' },
           a.app === 'shop' ? el('a', { class: 'btn small primary', href: '#shop' }, 'Open') : a.app === 'tp' ? el('a', { class: 'btn small primary', href: '#tp' }, 'Open') : a.app === 'portfolio' ? el('a', { class: 'btn small primary', href: '#portfolio' }, 'Open') : (a.assetId || a.embed) ? el('button', { class: 'btn small primary', type: 'button', onclick: () => openPage(a.id) }, 'Open') : a.url ? el('a', { class: 'btn small primary', href: a.url, target: '_blank', rel: 'noopener' }, 'Open') : el('span', { class: 'sub' }, 'No link yet'),
           (a.app === 'shop' || a.app === 'tp' || a.app === 'portfolio') ? el('span', { class: 'sub' }, a.app === 'shop' ? 'a view of a note' : 'a view of a notebook') : (a.assetId || a.embed) ? el('span', { class: 'sub' }, a.assetId ? 'runs inside' : 'embedded') : el('button', { class: 'btn small', type: 'button', onclick: () => openPage(a.id) }, 'Notes'),
-          SEED_FILES[a.title] && a.app !== 'tp' ? el('button', { class: 'btn small', type: 'button', onclick: async (e) => { e.target.disabled = true; toast('Importing…'); try { const r = await importSeed(SEED_FILES[a.title]); toast(r.added ? 'Imported ' + r.added + ' pages into ' + r.notebook.name : 'Already imported (' + r.total + ' pages)'); } catch (err) { toast(err.message); } e.target.disabled = false; } }, 'Import into NoteCompanion') : null));
+          SEED_FILES[a.title] && a.app !== 'tp' ? el('button', { class: 'btn small', type: 'button', onclick: async (e) => { e.target.disabled = true; toast('Importing…'); try { const r = await importSeed(SEED_FILES[a.title]); toast(r.added ? 'Imported ' + r.added + ' pages into ' + r.notebook.name : 'Already imported (' + r.total + ' pages)'); } catch (err) { toast(err.message); } e.target.disabled = false; } }, 'Import into 2nd Brain') : null));
       grid.append(gestures(tile, { onDelete: async () => { if (await confirm('Remove "' + a.title + '" from the hub?', null, 'Remove')) { await pages.remove(a.id); S.schedule(); renderApps(); } }, onLongPress: () => menu(a.title, [
         (a.assetId || a.embed) ? { label: 'Open', fn: () => openPage(a.id) } : { label: 'Open notes', fn: () => openPage(a.id) },
         a.assetId ? { label: 'Replace HTML file…', fn: () => { const inp = el('input', { type: 'file', accept: '.html,.htm,text/html' }); inp.addEventListener('change', async () => { const f = inp.files[0]; if (!f) return; const na = await storeAsset(f, f.name); if (a.assetId) await assets.remove(a.assetId); await pages.update(a.id, { assetId: na.id }); S.schedule(); toast('Updated ' + a.title); renderApps(); }); inp.click(); } } : null,
-        a.url ? { label: a.embed ? 'Open in its own tab instead' : 'Open inside NoteCompanion (embed)', fn: async () => { await pages.update(a.id, { embed: a.embed ? 0 : 1 }); S.schedule(); renderApps(); } } : null,
+        a.url ? { label: a.embed ? 'Open in its own tab instead' : 'Open inside 2nd Brain (embed)', fn: async () => { await pages.update(a.id, { embed: a.embed ? 0 : 1 }); S.schedule(); renderApps(); } } : null,
         { label: 'Change link', fn: async () => { const u = await ask('Link', 'https://…', a.url || '', 'Save'); if (u !== undefined) { await pages.update(a.id, { url: u }); S.schedule(); renderApps(); } } },
         { label: a.pinned ? 'Unpin' : 'Pin', fn: async () => { await pages.update(a.id, { pinned: a.pinned ? 0 : 1 }); S.schedule(); renderApps(); } },
         { label: 'Remove from hub', danger: true, fn: async () => { if (await confirm('Remove "' + a.title + '"?', null, 'Remove')) { await pages.remove(a.id); S.schedule(); renderApps(); } } }
@@ -1593,7 +1593,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
     if (navigator.storage && navigator.storage.persisted) navigator.storage.persisted().then((p) => { kvPersist.textContent = p ? 'Yes' : 'Not promised by the browser'; });
     if (g.signedIn) {
       const on = el('div', { class: 'panel' }, el('h2', {}, 'Import from OneNote'),
-        el('p', { class: 'rule' }, 'Copies a OneNote notebook into NoteCompanion: sections (section groups become "Group / Section"), pages, images and attachments. Ink comes across as pictures. Safe to run again; pages already imported are skipped.'),
+        el('p', { class: 'rule' }, 'Copies a OneNote notebook into 2nd Brain: sections (section groups become "Group / Section"), pages, images and attachments. Ink comes across as pictures. Safe to run again; pages already imported are skipped.'),
         el('div', { id: 'onenote-list' }, el('button', { class: 'btn', type: 'button', onclick: async (e) => {
           e.target.disabled = true; e.target.textContent = 'Loading notebooks…';
           try {
@@ -1889,7 +1889,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
       reg.addEventListener('updatefound', () => {
         const w = reg.installing;
         w && w.addEventListener('statechange', () => {
-          if (w.state === 'installed' && navigator.serviceWorker.controller) toast('NoteCompanion updated', { label: 'Reload', fn: () => location.reload(), sticky: true });
+          if (w.state === 'installed' && navigator.serviceWorker.controller) toast('2nd Brain updated', { label: 'Reload', fn: () => location.reload(), sticky: true });
         });
       });
     }).catch((e) => console.warn('SW failed', e));

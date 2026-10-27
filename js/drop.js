@@ -85,7 +85,7 @@
           const a = await assets.create(new File([bytes], title + '.html', { type: 'text/html' }), title + '.html');
           const existing = (await pages.live()).find((q) => q.kind === 'app' && !q.deleted && (q.title || '').toLowerCase() === title.toLowerCase());
           if (existing) { if (existing.assetId) await assets.remove(existing.assetId); await pages.update(existing.id, { assetId: a.id, url: '' }); }
-          else await pages.create({ kind: 'app', inbox: 0, title, url: '', assetId: a.id, html: '<p>Runs inside NoteCompanion.</p>' });
+          else await pages.create({ kind: 'app', inbox: 0, title, url: '', assetId: a.id, html: '<p>Runs inside 2nd Brain.</p>' });
           n++; continue;
         }
         if (mime === 'text/plain') {
