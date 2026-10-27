@@ -1161,24 +1161,25 @@
     // Offline OneNote route: Word exports of sections.
     const docxStatus = el('p', { class: 'rule' }, '');
     const docxBar = el('div', { class: 'progress', hidden: '' }, el('div', { class: 'progress-fill' }));
-    const docxInput = el('input', { type: 'file', accept: '.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document', multiple: '', hidden: '' });
-    const docxDrop = el('div', { class: 'dropzone', onclick: () => docxInput.click() }, el('b', {}, 'Drop OneNote Word exports here'), el('span', {}, ' or click to choose .docx files (one per section)'));
+    const docxInput = el('input', { type: 'file', accept: '.docx,.mht,.mhtml,application/vnd.openxmlformats-officedocument.wordprocessingml.document,message/rfc822,multipart/related', multiple: '', hidden: '' });
+    const docxDrop = el('div', { class: 'dropzone', onclick: () => docxInput.click() }, el('b', {}, 'Drop OneNote exports here'), el('span', {}, ' or click to choose .mht or .docx files'));
     const runDocx = async (files) => {
-      files = [...files].filter((f) => /\.docx$/i.test(f.name)); if (!files.length) { toast('Choose .docx files exported from OneNote'); return; }
+      files = [...files].filter((f) => /\.(docx|mht|mhtml)$/i.test(f.name)); if (!files.length) { toast('Choose .mht or .docx files exported from OneNote'); return; }
       const nbs = await notebooks.all();
       const target = await sheet((box, close) => {
         box.append(el('h2', {}, 'Import ' + files.length + ' section' + (files.length === 1 ? '' : 's') + ' into'), el('div', { class: 'list' },
           ...nbs.map((nb) => el('button', { type: 'button', onclick: () => close(nb) }, nb.name)),
-          el('button', { type: 'button', style: 'color: var(--accent)', onclick: async () => { const name = await ask('New notebook', 'Notebook name', files.length === 1 ? '' : files[0].name.replace(/\.docx$/i, '').split(/ - | – /)[0]); if (name) { const nb = await notebooks.create(name); close(nb); } } }, '+ New notebook')),
+          el('button', { type: 'button', style: 'color: var(--accent)', onclick: async () => { const name = await ask('New notebook', 'Notebook name', files.length === 1 ? '' : files[0].name.replace(/\.(docx|mht|mhtml)$/i, '').split(/ - | – /)[0]); if (name) { const nb = await notebooks.create(name); close(nb); } } }, '+ New notebook')),
           el('div', { class: 'actions' }, el('button', { class: 'btn', type: 'button', onclick: () => close(undefined) }, 'Cancel')));
       });
       if (!target) return;
       docxBar.hidden = false; let total = 0;
       for (const [i, f] of files.entries()) {
-        const secName = f.name.replace(/\.docx$/i, '');
+        const secName = f.name.replace(/\.(docx|mht|mhtml)$/i, '');
         docxStatus.textContent = 'Reading ' + secName + '… (' + (i + 1) + ' of ' + files.length + ')';
         try {
-          const r = await window.NCOneNote.importDocxSection(f, target.id, secName, (n, of) => { docxBar.firstChild.style.width = Math.round(((i + n / of) / files.length) * 100) + '%'; });
+          const prog = (n, of) => { docxBar.firstChild.style.width = Math.round(((i + n / of) / files.length) * 100) + '%'; docxStatus.textContent = secName + ': ' + n + ' / ' + of + ' pages'; };
+          const r = /\.docx$/i.test(f.name) ? await window.NCOneNote.importDocxSection(f, target.id, secName, prog) : await window.NCOneNote.importMht(f, target.id, secName, prog);
           total += r.count;
         } catch (err) { console.warn(err); toast('Failed on ' + f.name + ': ' + err.message); }
       }
@@ -1191,7 +1192,7 @@
     docxDrop.addEventListener('dragleave', () => docxDrop.classList.remove('over'));
     docxDrop.addEventListener('drop', (e) => { e.preventDefault(); docxDrop.classList.remove('over'); runDocx(e.dataTransfer.files); });
     view.append(el('div', { class: 'panel help' }, el('h2', {}, 'Import from OneNote without the API'),
-      el('p', {}, 'If Microsoft is rate-limiting, or a notebook is broken in the cloud, export it from the OneNote desktop app instead: open the section, ', el('b', {}, 'File → Export → Section → Word Document (*.docx)'), '. One file per section; drop them all here at once. Pages, formatting, tables and images come across; ink becomes pictures.'),
+      el('p', {}, 'If Microsoft is rate-limiting, export from the OneNote desktop app instead. Best: ', el('b', {}, 'File → Export → Section → Single File Web Page (*.mht)'), ' — one file per section, drop them all here at once and each becomes a section of that name. A whole-notebook .mht works too but OneNote drops the section boundaries, so it lands in one section to sort afterwards. Word (.docx) exports are accepted as well. Pages, formatting, tables and images come across; ink and PDF printouts become pictures; attached files are not in the export.'),
       docxDrop, docxInput, docxBar, docxStatus));
     view.append(el('div', { class: 'panel' }, el('h2', {}, 'Backup'),
       el('p', { class: 'rule' }, 'Everything is in your OneDrive folder as plain JSON and files. This also downloads a single JSON file of all notes from this device.'),

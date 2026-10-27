@@ -172,5 +172,128 @@
     return { section: sec, count: n };
   }
 
-  window.NCOneNote = { cancel, listNotebooks, importNotebook, importDocxSection };
+  // ---- Offline route 2: OneNote's File → Export → Notebook or Section → Single File Web Page (.mht) ----
+  // One MIME archive: the page HTML (quoted-printable) plus every image (base64). A notebook export is
+  // one long stream of pages with no section markers, so it lands in one section to be sorted afterwards.
+  function parseMht(bytes) {
+    const latin = new TextDecoder('latin1').decode(bytes);
+    const bm = /boundary="?([^"\r\n]+)"?/i.exec(latin.slice(0, 2000));
+    if (!bm) throw new Error('Not a .mht file');
+    const parts = latin.split('--' + bm[1]).slice(1).filter((x) => !/^--\s*$/.test(x.trim()));
+    const out = [];
+    for (const part of parts) {
+      const sep = part.indexOf('\r\n\r\n') >= 0 ? '\r\n\r\n' : '\n\n';
+      const i = part.indexOf(sep); if (i < 0) continue;
+      const head = part.slice(0, i), body = part.slice(i + sep.length);
+      const h = (name) => { const m = new RegExp('^' + name + ':\\s*(.+)$', 'im').exec(head); return m ? m[1].trim() : ''; };
+      out.push({ location: h('Content-Location'), type: h('Content-Type'), encoding: h('Content-Transfer-Encoding').toLowerCase(), body });
+    }
+    return out;
+  }
+  function decodeQP(text) {
+    const bin = text.replace(/=\r?\n/g, '').replace(/=([0-9A-F]{2})/gi, (_, hx) => String.fromCharCode(parseInt(hx, 16)));
+    const bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new TextDecoder('utf-8').decode(bytes);
+  }
+  function decodeB64(text) {
+    const bin = atob(text.replace(/[^A-Za-z0-9+/=]/g, ''));
+    const bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  }
+  const MONTHS = { january: 0, february: 1, march: 2, april: 3, may: 4, june: 5, july: 6, august: 7, september: 8, october: 9, november: 10, december: 11 };
+  function parseOneNoteDate(dateText, timeText) {
+    const m = /(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})/.exec(dateText || ''); if (!m || !(m[2].toLowerCase() in MONTHS)) return null;
+    const t = /(\d{1,2}):(\d{2})/.exec(timeText || '');
+    return new Date(+m[3], MONTHS[m[2].toLowerCase()], +m[1], t ? +t[1] : 12, t ? +t[2] : 0).getTime();
+  }
+  // Tidy one page's OneNote HTML: images → assets, positioned boxes → flow, bold/italic spans → real tags.
+  async function cleanMhtPage(root, doc, imageFor) {
+    for (const img of [...root.querySelectorAll('img')]) {
+      const src = img.getAttribute('src') || '';
+      const a = await imageFor(src);
+      if (!a) { img.remove(); continue; }
+      img.setAttribute('src', 'asset/' + a.id);
+      for (const attr of ['width', 'height', 'style', 'border', 'alt']) img.removeAttribute(attr);
+    }
+    for (const el of [...root.querySelectorAll('*')]) {
+      const style = el.getAttribute('style') || '';
+      if (el.tagName === 'SPAN') {
+        // Wrap in the real tag for each inline style, then drop the span.
+        let node = doc.createDocumentFragment(); node.append(...el.childNodes);
+        const wrap = (tag) => { const w = doc.createElement(tag); w.append(node); node = w; };
+        if (/font-weight:\s*bold/i.test(style)) wrap('strong');
+        if (/font-style:\s*italic/i.test(style)) wrap('em');
+        if (/text-decoration:\s*underline/i.test(style)) wrap('u');
+        if (/text-decoration:\s*line-through/i.test(style)) wrap('s');
+        const keep = style.split(';').map((x) => x.trim()).filter((x) => /^(color|background(-color)?)\s*:/i.test(x) && !/:\s*(black|#000000|white|#ffffff|transparent)\s*$/i.test(x));
+        if (keep.length) { const w = doc.createElement('span'); w.setAttribute('style', keep.join('; ')); w.append(node); node = w; }
+        el.replaceWith(node);
+        continue;
+      }
+      for (const attr of [...el.attributes]) if (!/^(style|href|src|colspan|rowspan|type|start)$/i.test(attr.name)) el.removeAttribute(attr.name);
+      const keep = [];
+      for (const d of style.split(';').map((x) => x.trim())) {
+        const m = /^([\w-]+)\s*:\s*(.+)$/.exec(d); if (!m) continue;
+        const k = m[1].toLowerCase(), v = m[2].trim();
+        if (k === 'color' && !/^(black|#000000)$/i.test(v)) keep.push('color: ' + v);
+        else if ((k === 'background' || k === 'background-color') && !/^(white|#ffffff|transparent)$/i.test(v)) keep.push(k + ': ' + v);
+        else if (k === 'font-weight' && /bold|[6-9]00/.test(v) && el.tagName === 'P') keep.push('font-weight: bold');
+        else if (k === 'font-size' && el.tagName === 'P') { const pt = parseFloat(v); if (pt >= 14) keep.push('font-size: ' + pt + 'pt'); }
+        else if (k === 'margin-left' && el.tagName === 'P') { const inch = /in$/.test(v) ? parseFloat(v) : parseFloat(v) / 72; if (inch >= 0.2) keep.push('margin-left: ' + Math.round(inch * 48) + 'px'); }
+        else if (k === 'text-decoration' && /underline|line-through/.test(v) && el.tagName === 'P') keep.push('text-decoration: ' + v);
+        else if (k === 'text-align' && el.tagName === 'P') keep.push('text-align: ' + v);
+      }
+      if (keep.length) el.setAttribute('style', keep.join('; ')); else el.removeAttribute('style');
+      if (el.tagName === 'TABLE') el.setAttribute('border', '1');
+    }
+    // OneNote's layout boxes become flow; their contents keep their order.
+    for (const div of [...root.querySelectorAll('div')].reverse()) div.replaceWith(...div.childNodes);
+    // Empty spacer paragraphs between boxes add nothing on a page that already has a grid.
+    for (const pEl of [...root.querySelectorAll('p')]) if (!pEl.textContent.replace(/ /g, '').trim() && !pEl.querySelector('img')) pEl.remove();
+    return root.innerHTML.trim();
+  }
+  async function importMht(file, notebookId, sectionName, onProgress) {
+    const parts = parseMht(new Uint8Array(await file.arrayBuffer()));
+    const htmlPart = parts.find((x) => /text\/html/i.test(x.type));
+    if (!htmlPart) throw new Error('No page content found in ' + file.name);
+    const html = htmlPart.encoding === 'quoted-printable' ? decodeQP(htmlPart.body) : htmlPart.encoding === 'base64' ? new TextDecoder().decode(decodeB64(htmlPart.body)) : htmlPart.body;
+    const imageParts = new Map(parts.filter((x) => /^image\//i.test(x.type)).map((x) => [x.location.split('/').pop().toLowerCase(), x]));
+    const assetCache = new Map();
+    const imageFor = async (src) => {
+      const key = decodeURIComponent(src.split('/').pop()).toLowerCase();
+      if (assetCache.has(key)) return assetCache.get(key);
+      const part = imageParts.get(key); if (!part) return null;
+      const blob = new Blob([decodeB64(part.body)], { type: part.type.split(';')[0].trim() });
+      const a = await assets.create(blob, key); assetCache.set(key, a); return a;
+    };
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    // Each page is a top-level box: <div style='direction:ltr;border-width:100%'>.
+    const pageDivs = [...doc.body.children].filter((el) => el.tagName === 'DIV');
+    if (!pageDivs.length) throw new Error('No pages found in ' + file.name);
+    const existing = await sections.forNotebook(notebookId);
+    let sec = existing.find((x) => x.name === sectionName);
+    if (!sec) sec = await sections.create(notebookId, sectionName);
+    const already = new Set((await window.NCDB.db.pages.toArray()).filter((q) => q.onenoteId && q.onenoteId.startsWith('mht:') && !q.deleted).map((q) => q.onenoteId));
+    let n = 0, skipped = 0;
+    for (const pd of pageDivs) {
+      // Title: the first 20pt paragraph. Date and time: the grey paragraphs that follow it.
+      let title = '';
+      const tp = [...pd.querySelectorAll('p')].find((pEl) => /font-size:\s*20(\.0)?pt/i.test(pEl.getAttribute('style') || ''));
+      if (tp) { title = tp.textContent.replace(/\s+/g, ' ').trim(); tp.remove(); }
+      let created = null;
+      const grey = [...pd.querySelectorAll('p')].filter((pEl) => /#767676/i.test(pEl.getAttribute('style') || '')).slice(0, 2);
+      if (grey.length) { created = parseOneNoteDate(grey[0].textContent, grey[1] ? grey[1].textContent : ''); grey.forEach((g) => g.remove()); }
+      if (!title) { const first = [...pd.querySelectorAll('p')].find((pEl) => pEl.textContent.trim()); title = first ? first.textContent.replace(/\s+/g, ' ').trim().slice(0, 120) : 'Untitled'; }
+      const key = 'mht:' + sectionName + ':' + title + ':' + (created || '');
+      if (already.has(key)) { skipped++; if (onProgress) onProgress(n + skipped, pageDivs.length); continue; }
+      const body = await cleanMhtPage(pd, doc, imageFor);
+      await pages.create({ notebookId, sectionId: sec.id, title, html: body, onenoteId: key, created: created || Date.now(), updated: created || Date.now() });
+      already.add(key);
+      n++; if (onProgress) onProgress(n + skipped, pageDivs.length);
+    }
+    S.schedule();
+    return { section: sec, count: n, skipped };
+  }
+
+  window.NCOneNote = { cancel, listNotebooks, importNotebook, importDocxSection, importMht };
 })();
