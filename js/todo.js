@@ -1,6 +1,6 @@
 // To-do list page type: a focused view over an ordinary note. The page HTML is plain lists under headings
 // (<h3>Now</h3><ul><li data-todo>…</li></ul>), so the same page still opens and edits as a normal note.
-// Buckets: Now (the three that matter), Today, Next, Someday, Done. Items carry due/priority/added/done dates.
+// Buckets: Now, Today, Next, Someday, Done. Items carry due/priority/added/done dates.
 (function () {
   const el = (tag, attrs, ...kids) => {
     const n = document.createElement(tag);
@@ -14,7 +14,7 @@
     return n;
   };
   const BUCKETS = ['Now', 'Today', 'Next', 'Someday'];
-  const HINT = { Now: 'The three that matter. Everything else waits.', Today: 'Clear this before you stop.', Next: 'This week, roughly.', Someday: 'Parked. Pull one up when there is slack.' };
+  const HINT = { Now: 'What you are on right now. Everything else waits.', Today: 'Clear this before you stop.', Next: 'This week, roughly.', Someday: 'Parked. Pull one up when there is slack.' };
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const iso = (d) => { const z = new Date(d.getTime() - d.getTimezoneOffset() * 60000); return z.toISOString().slice(0, 10); };
   const today = () => iso(new Date());
@@ -66,7 +66,7 @@
     host.innerHTML = '';
     let items = parse(page.html);
     const save = () => ui.save(serialise(items));
-    // House rules, applied on every open: anything due by today comes up into Today; Now holds three.
+    // House rules, applied on every open: anything due by today comes up into Today.
     const t0 = today(); let moved = 0;
     for (const i of items) if (!i.done && (i.bucket === 'Next' || i.bucket === 'Someday') && i.due && i.due <= t0) { i.bucket = 'Today'; moved++; }
     if (moved) save();
@@ -120,7 +120,6 @@
       const chips = el('div', { class: 'tagchips' }, ...BUCKETS.map((b) => el('button', { class: 'chip' + (bucketForNew === b ? ' on' : ''), type: 'button', onclick: () => { bucketForNew = b; [...chips.children].forEach((c, k) => c.classList.toggle('on', BUCKETS[k] === b)); input.focus(); } }, b)));
       const add = () => {
         const q = parseQuick(input.value); if (!q.text) return;
-        if (bucketForNew === 'Now' && open.filter((i) => i.bucket === 'Now').length >= 3) { ui.toast('Now holds three. Finish one or move one down first.'); return; }
         items.unshift({ text: q.text, bucket: bucketForNew, done: false, due: q.due, pri: q.pri, added: t0, doneOn: '' });
         save(); draw(); const again = wrap.querySelector('.todo-add'); if (again) again.focus();
       };
@@ -131,7 +130,7 @@
         const list = open.filter((i) => i.bucket === b).sort((x, y) => sortKey(x).localeCompare(sortKey(y)));
         if (!list.length && b !== 'Now' && b !== 'Today') continue;
         const sec = el('section', { class: 'todo-bucket todo-' + b.toLowerCase() });
-        sec.append(el('h3', {}, b, el('span', { class: 'sec-count' }, b === 'Now' ? list.length + '/3' : String(list.length)), b === 'Now' && list.length < 3 && open.some((i) => i.bucket === 'Today') ? el('button', { class: 'btn small', type: 'button', onclick: () => { const cand = open.filter((i) => i.bucket === 'Today').sort((x, y) => sortKey(x).localeCompare(sortKey(y)))[0]; if (cand) { cand.bucket = 'Now'; save(); draw(); } } }, 'Pull the top one up') : null));
+        sec.append(el('h3', {}, b, el('span', { class: 'sec-count' }, String(list.length)), b === 'Now' && open.some((i) => i.bucket === 'Today') ? el('button', { class: 'btn small', type: 'button', onclick: () => { const cand = open.filter((i) => i.bucket === 'Today').sort((x, y) => sortKey(x).localeCompare(sortKey(y)))[0]; if (cand) { cand.bucket = 'Now'; save(); draw(); } } }, 'Pull the top one up') : null));
         if (!list.length) sec.append(el('p', { class: 'sub' }, HINT[b]));
         else { const ul = el('div', { class: 'todo-list' }); for (const i of list) ul.append(row(i)); sec.append(ul); }
         wrap.append(sec);
