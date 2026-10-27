@@ -274,9 +274,10 @@
       if (add) list.splice(a.index == null ? list.length : a.index, 0, a.stroke); else { const k = list.indexOf(a.stroke); if (k >= 0) list.splice(k, 1); }
       paintOverlay(a.page);
     }
+    window.NCPDF.active = { undo: doUndo, redo: doRedo };
     document.addEventListener('keydown', keyHandler);
     function keyHandler(e) { if ((e.metaKey || e.ctrlKey) && e.key === 'z') { e.preventDefault(); e.shiftKey ? doRedo() : doUndo(); } }
-    return () => { removeEventListener('resize', onResize); document.removeEventListener('keydown', keyHandler); io.disconnect(); visIo.disconnect(); doc.destroy(); };
+    return () => { window.NCPDF.active = null; removeEventListener('resize', onResize); document.removeEventListener('keydown', keyHandler); io.disconnect(); visIo.disconnect(); doc.destroy(); };
   }
 
   // ---------- export ----------

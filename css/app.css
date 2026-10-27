@@ -48,6 +48,10 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 700; letter-spacing: 0; tex
 .iconbtn { width: 40px; height: 40px; border: 0; background: transparent; border-radius: 8px; font-size: 1.2rem; cursor: pointer; }
 .iconbtn:hover { background: var(--raised); }
 .navbtns { display: flex; gap: 0; }
+.navbtns.edit { margin-left: 6px; padding-left: 6px; border-left: 1px solid var(--line); }
+.iconbtn.nav:disabled { opacity: .35; cursor: default; }
+/* Installed on a desktop, the window title already says NoteCompanion. */
+@media (display-mode: standalone) and (min-width: 900px) { .brand { display: none; } .navbtns.edit { border-left: 0; margin-left: 0; } }
 .iconbtn.nav { width: 34px; color: var(--muted); display: inline-flex; align-items: center; justify-content: center; }
 .iconbtn.nav:hover { color: var(--fg); }
 .syncpill { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--line); background: var(--paper); border-radius: 999px; padding: 5px 11px 5px 9px; font-size: .8rem; color: var(--muted); cursor: pointer; max-width: 46vw; }

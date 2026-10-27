@@ -1136,6 +1136,12 @@
   $('#btn-menu').addEventListener('click', () => { sidebar.classList.toggle('open'); scrim.classList.toggle('open'); });
   $('#btn-back').addEventListener('click', () => history.back());
   $('#btn-fwd').addEventListener('click', () => history.forward());
+  $('#btn-reload').addEventListener('click', () => location.reload());
+  const undoTarget = () => state.editor ? { undo: () => state.editor.execCommand('Undo'), redo: () => state.editor.execCommand('Redo') } : (window.NCPDF && window.NCPDF.active) || null;
+  $('#btn-undo').addEventListener('click', () => { const t = undoTarget(); if (t) t.undo(); });
+  $('#btn-redo').addEventListener('click', () => { const t = undoTarget(); if (t) t.redo(); });
+  const refreshUndoButtons = () => { const on = !!undoTarget(); $('#btn-undo').disabled = !on; $('#btn-redo').disabled = !on; };
+  setInterval(refreshUndoButtons, 600);
   scrim.addEventListener('click', closeSidebar);
   $('#btn-new-notebook').addEventListener('click', async () => { const n = await ask('New notebook', 'Notebook name'); if (n) { const nb = await notebooks.create(n); await sections.create(nb.id, 'General'); state.expanded.add(nb.id); onChanged(); } });
   document.addEventListener('keydown', (e) => {
