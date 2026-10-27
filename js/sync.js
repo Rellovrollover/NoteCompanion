@@ -109,19 +109,54 @@
   }
 
   // ---- Push: only records flagged dirty ----
-  async function pushKind(sub, table) {
-    const dirty = await table.where('dirty').equals(1).toArray();
-    for (const rec of dirty) {
-      if (rec.deleted && !rec.etag) { await table.update(rec.id, { dirty: 0 }); continue; } // never reached OneDrive
-      try {
-        const item = await G.upload(sub, rec.id + '.json', JSON.stringify(strip(rec)), 'application/json');
-        await table.update(rec.id, { etag: item ? item.eTag : null, dirty: 0 });
-      } catch (e) { console.warn('push failed', sub, rec.id, e); throw e; }
+  // Small JSON records go up twenty at a time through Graph's $batch; big ones one by one.
+  const BATCH_MAX = 20, BATCH_BYTES = 3 * 1024 * 1024;
+  async function pushKind(sub, table, progress) {
+    const dirty = (await table.where('dirty').equals(1).toArray()).filter((rec) => { if (rec.deleted && !rec.etag) { table.update(rec.id, { dirty: 0 }); return false; } return true; });
+    if (!dirty.length) return;
+    let done = 0; const total = dirty.length;
+    const report = () => { if (progress && total > 3) progress('Uploading ' + sub + '… ' + done + '/' + total); };
+    report();
+    const enc = (s) => encodeURIComponent(s);
+    let i = 0;
+    while (i < dirty.length) {
+      // Gather a batch under the size cap.
+      const group = []; let bytes = 0;
+      while (i < dirty.length && group.length < BATCH_MAX) {
+        const rec = dirty[i]; const body = JSON.stringify(strip(rec)); const size = body.length;
+        if (group.length && bytes + size > BATCH_BYTES) break;
+        group.push({ rec, body }); bytes += size; i++;
+        if (size > BATCH_BYTES) break;
+      }
+      let batched = false;
+      if (group.length > 1) {
+        try {
+          const res = await G.call('/$batch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requests: group.map((g, k) => ({ id: String(k), method: 'PUT', url: '/me/drive/root:/' + enc(C.driveFolder) + '/' + enc(sub) + '/' + enc(g.rec.id + '.json') + ':/content', headers: { 'Content-Type': 'application/json' }, body: JSON.parse(g.body) })) }) });
+          if (res.ok) {
+            const out = await res.json(); const byId = new Map((out.responses || []).map((r) => [r.id, r]));
+            const failed = [];
+            for (const [k, g] of group.entries()) { const r = byId.get(String(k)); if (r && r.status >= 200 && r.status < 300) { await table.update(g.rec.id, { etag: r.body && r.body.eTag || null, dirty: 0 }); done++; } else failed.push(g); }
+            report();
+            if (failed.length) { for (const g of failed) { const item = await G.upload(sub, g.rec.id + '.json', g.body, 'application/json'); await table.update(g.rec.id, { etag: item ? item.eTag : null, dirty: 0 }); done++; report(); } }
+            batched = true;
+          }
+        } catch (e) { console.warn('batch push failed, falling back', e); }
+      }
+      if (!batched) {
+        for (const g of group) {
+          try {
+            const item = await G.upload(sub, g.rec.id + '.json', g.body, 'application/json');
+            await table.update(g.rec.id, { etag: item ? item.eTag : null, dirty: 0 }); done++; report();
+          } catch (e) { console.warn('push failed', sub, g.rec.id, e); throw e; }
+        }
+      }
     }
   }
-  async function pushAssets() {
+  async function pushAssets(progress) {
     const dirty = await db.assets.where('dirty').equals(1).toArray();
+    let done = 0;
     for (const rec of dirty) {
+      if (progress && dirty.length > 1) progress('Uploading files… ' + done + '/' + dirty.length); done++;
       try {
         if (rec.deleted) { if (rec.etag) { try { await G.remove('assets', assetName(rec)); } catch (e) { /* may already be gone */ } } await db.assets.update(rec.id, { dirty: 0 }); }
         else if (rec.blob) { const item = await G.upload('assets', assetName(rec), rec.blob, rec.mime); await db.assets.update(rec.id, { etag: item ? item.eTag : null, dirty: 0 }); }
@@ -167,12 +202,13 @@
         await meta.set('foldersReady', 'v3');
       }
       // Push first so our edits are on OneDrive before we read the delta (which then echoes them back with matching etags).
-      for (const [sub, table] of KINDS) await pushKind(sub, table);
-      await pushAssets();
-      await pullChanges((m) => { status.message = m; emit(); });
+      const prog = (m) => { status.message = m; emit(); };
+      for (const [sub, table] of KINDS) await pushKind(sub, table, prog);
+      await pushAssets(prog);
+      await pullChanges(prog);
       try { if (window.NCDrop) { status.message = 'Checking capture relay…'; emit(); const n = await window.NCDrop.pull(); if (n) { status.message = 'Captured ' + n + ' from the relay'; emit(); listeners.forEach((fn) => fn(Object.assign({ dropped: n }, status))); } } } catch (e) { console.warn('drop pull failed', e); }
       // Anything that arrived while pushing/pulling.
-      for (const [sub, table] of KINDS) await pushKind(sub, table);
+      for (const [sub, table] of KINDS) await pushKind(sub, table, prog);
       status.lastSync = Date.now();
       await meta.set('lastSync', status.lastSync);
       await setState('ok', 'Synced');
