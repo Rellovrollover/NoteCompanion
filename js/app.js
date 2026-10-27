@@ -990,7 +990,7 @@
   // ---------- Trials & Pearls (a view over its notebook) ----------
   async function renderTP() {
     state.view = 'tp';
-    const view = el('div', { class: 'view' });
+    const view = el('div', { class: 'view tp-view' });
     view.append(el('div', { class: 'view-head' }, el('h1', {}, 'Trials & Pearls'), el('div', { class: 'toolrow' }, el('a', { class: 'btn small', href: '#apps' }, 'Apps'))));
     const host = el('div', {});
     view.append(host);
