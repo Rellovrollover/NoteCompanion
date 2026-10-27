@@ -228,6 +228,8 @@
       const norm = (e) => { const r = overlay.getBoundingClientRect(); return [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height, e.pointerType === 'pen' ? (e.pressure || 0.5) : 0.5]; };
       overlay.addEventListener('pointerdown', (e) => {
         if (prefs.tool === 'pan') return;
+        if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+        const sel = window.getSelection && window.getSelection(); if (sel && sel.removeAllRanges) sel.removeAllRanges();
         if (e.pointerType === 'touch' && !prefs.fingerDraws) return;
         if (e.pointerType === 'mouse' && e.button !== 0) return;
         e.preventDefault();
