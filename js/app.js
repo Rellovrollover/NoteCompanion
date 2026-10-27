@@ -208,6 +208,47 @@
     const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.82));
     return new File([blob], 'scan-' + isoDay(new Date()) + '.jpg', { type: 'image/jpeg' });
   }
+  // Straighten a photographed page: show the photo with four corner handles (guessed automatically), then warp.
+  async function straighten(file) {
+    if (!window.NCScan) return null;
+    let bmp; try { bmp = await createImageBitmap(file); } catch (e) { return null; }
+    const guess = NCScan.detectCorners(bmp) || [[0.06, 0.06], [0.94, 0.06], [0.94, 0.94], [0.06, 0.94]];
+    const corners = guess.map((c) => c.slice());
+    return sheet((box, close) => {
+      const stage = el('div', { class: 'scanstage' });
+      const cv = el('canvas', { class: 'scanpreview' });
+      const maxW = Math.min(innerWidth - 48, 680), maxH = Math.max(240, innerHeight * 0.62);
+      const sc = Math.min(maxW / bmp.width, maxH / bmp.height);
+      cv.width = Math.round(bmp.width * sc); cv.height = Math.round(bmp.height * sc);
+      cv.getContext('2d').drawImage(bmp, 0, 0, cv.width, cv.height);
+      const svg = el('svg', { class: 'scanlines' }); svg.setAttribute('viewBox', '0 0 ' + cv.width + ' ' + cv.height);
+      const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon'); svg.append(poly);
+      const handles = corners.map((c, i) => el('div', { class: 'scanhandle', 'data-i': String(i) }));
+      stage.style.width = cv.width + 'px'; stage.style.height = cv.height + 'px';
+      stage.append(cv, svg, ...handles);
+      const place = () => { poly.setAttribute('points', corners.map(([x, y]) => (x * cv.width) + ',' + (y * cv.height)).join(' ')); handles.forEach((h, i) => { h.style.left = (corners[i][0] * cv.width) + 'px'; h.style.top = (corners[i][1] * cv.height) + 'px'; }); };
+      place();
+      let drag = null;
+      const at = (e) => { const r = cv.getBoundingClientRect(); return [Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)), Math.max(0, Math.min(1, (e.clientY - r.top) / r.height))]; };
+      for (const h of handles) {
+        h.addEventListener('pointerdown', (e) => { e.preventDefault(); drag = +h.dataset.i; h.setPointerCapture(e.pointerId); h.classList.add('on'); });
+        h.addEventListener('pointermove', (e) => { if (drag === null) return; e.preventDefault(); corners[drag] = at(e); place(); });
+        const up = () => { drag = null; h.classList.remove('on'); };
+        h.addEventListener('pointerup', up); h.addEventListener('pointercancel', up);
+      }
+      box.append(el('h2', {}, 'Straighten'), el('p', { class: 'rule' }, 'Drag the corners onto the page edges.'), stage,
+        el('div', { class: 'actions' },
+          el('button', { class: 'btn', type: 'button', onclick: () => close(null) }, 'Keep as taken'),
+          el('button', { class: 'btn', type: 'button', onclick: () => { [[0, 0], [1, 0], [1, 1], [0, 1]].forEach((c, i) => corners[i] = c); place(); } }, 'Whole photo'),
+          el('button', { class: 'btn primary', type: 'button', onclick: async () => {
+            try {
+              const out = NCScan.warp(bmp, corners, 2000);
+              const blob = await new Promise((r) => out.toBlob(r, 'image/jpeg', 0.9));
+              close(new File([blob], (file.name || 'scan').replace(/\.\w+$/, '') + '.jpg', { type: 'image/jpeg' }));
+            } catch (e) { toast('Could not straighten: ' + e.message); close(null); }
+          } }, 'Straighten')));
+    }, { centre: true });
+  }
   async function storeAsset(file, name) {
     const blob = file.type && file.type.startsWith('image/') ? await downscale(file) : file;
     return assets.create(blob, name || file.name || 'file');
@@ -392,7 +433,7 @@
   }
 
   $('#file-scan').addEventListener('change', async (e) => {
-    for (const f of [...e.target.files]) { try { await captureImage(await scanify(f), 'scan'); } catch (err) { await captureImage(f, 'scan'); } }
+    for (const f of [...e.target.files]) { try { const flat = await straighten(f); await captureImage(await scanify(flat || f), 'scan'); } catch (err) { await captureImage(f, 'scan'); } }
     e.target.value = ''; if (state.view === 'inbox') renderInbox(); toast('Scan added to inbox');
   });
   $('#file-any').addEventListener('change', async (e) => {
@@ -516,8 +557,7 @@
     const pick = () => { if (selected) { state.nbCollapsed = !state.nbCollapsed; } else { setNotebook(nb.id); state.nbCollapsed = false; } refreshTree(); };
     const head = el('div', { class: 'nb-head', role: 'button', tabindex: '0', title: selected ? (open ? 'Collapse' : 'Expand') : 'Open ' + nb.name, onclick: pick, onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } } },
       el('span', { class: 'spine' }), selected ? chevron(open) : null,
-      el('span', { class: 'nb-name' }, nb.name), nb.current ? el('span', { class: 'badge-current' }, 'current') : null,
-      el('span', { class: 'nb-meta' }, secs.length + ' · ' + nPages),
+      el('span', { class: 'nb-text' }, el('span', { class: 'nb-name' }, nb.name), el('span', { class: 'nb-sub' }, nb.current ? el('span', { class: 'badge-current' }, 'current') : null, el('span', { class: 'nb-meta' }, secs.length + (secs.length === 1 ? ' section' : ' sections') + ' · ' + nPages + (nPages === 1 ? ' page' : ' pages')))),
       el('button', { class: 'more', type: 'button', 'aria-label': 'Notebook options', onclick: (e) => { e.stopPropagation(); notebookMenu(nb); } }));
     nbEl.append(head);
     if (!open) { wrap.append(nbEl); continue; }

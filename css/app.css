@@ -98,7 +98,10 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 700; letter-spacing: 0; tex
 .tree .spine { width: 5px; align-self: stretch; margin: -11px 2px -11px 0; background: var(--nb); border-radius: 0; flex: none; }
 .tree .chev { width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; color: var(--faint); flex: none; transition: transform .18s ease; }
 .tree .chev.open { transform: rotate(90deg); color: var(--muted); }
-.tree .nb-name { font-family: var(--serif); font-weight: 600; font-size: 1.05rem; flex: 1; min-width: 0; white-space: normal; line-height: 1.2; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.tree .nb-text { flex: 1; min-width: 0; display: grid; gap: 3px; }
+.tree .nb-name { font-family: var(--serif); font-weight: 600; font-size: 1.05rem; min-width: 0; white-space: normal; line-height: 1.2; overflow-wrap: anywhere; }
+.tree .nb-sub { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.tree .nb:not(.selected) .nb-sub { display: none; }
 .tree .nb-meta { font-size: .72rem; color: var(--faint); white-space: nowrap; }
 .tree .more { width: 30px; height: 28px; border: 0; background: transparent; color: var(--muted); border-radius: 7px; cursor: pointer; flex: none; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
 .tree .more::before { content: ""; width: 18px; height: 18px; background: currentColor; -webkit-mask: radial-gradient(circle, #000 1.6px, transparent 1.9px) 0 0 / 6px 18px repeat-x; mask: radial-gradient(circle, #000 1.6px, transparent 1.9px) 0 0 / 6px 18px repeat-x; }
@@ -481,8 +484,8 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 700; letter-spacing: 0; tex
 .tree .nb.selected { margin: 8px 0 8px 4px; border-radius: 12px !important; border-top-width: 1px; box-shadow: 0 6px 18px rgba(20,30,45,.12); transform: translateX(2px); }
 .tree .nb.selected + .nb { border-top-width: 1px; border-radius: 10px 10px 0 0; }
 .tree .nb.selected .nb-head .chev { margin-left: 2px; }
-.tree .nb-head .nb-meta { display: inline; }
-.sidebar .tree .nb-meta { display: inline; font-size: .7rem; }
+.tree .nb-head .nb-meta { display: inline; white-space: nowrap; }
+.sidebar .tree .nb-meta { display: inline; font-size: .72rem; }
 .tree .archived-link { margin-top: 8px; color: var(--faint); }
 .tree .sec.here > .sec-head { background: color-mix(in srgb, var(--nb) 12%, var(--paper)); }
 .tree .sec.here > .sec-head .sec-name { color: var(--nb); font-weight: 600; }
@@ -578,3 +581,12 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 700; letter-spacing: 0; tex
 .apphost { height: calc(100vh - var(--topbar) - 120px - env(safe-area-inset-top, 0px)); min-height: 420px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #fff; }
 .appframe { width: 100%; height: 100%; border: 0; display: block; }
 @media (max-width: 899px) { .apphost { height: calc(100vh - var(--topbar) - var(--tabbar) - 130px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); } .view.app-view .title-input { display: none; } }
+
+/* Scan straightening */
+.scanstage { position: relative; margin: 0 auto; max-width: 100%; touch-action: none; -webkit-user-select: none; user-select: none; }
+.scanpreview { display: block; border-radius: 8px; max-width: 100%; }
+.scanlines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.scanlines polygon { fill: rgba(47,93,138,.14); stroke: var(--accent); stroke-width: 2; }
+.scanhandle { position: absolute; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%; background: rgba(255,255,255,.85); border: 3px solid var(--accent); box-shadow: 0 2px 8px rgba(0,0,0,.25); cursor: grab; touch-action: none; }
+.scanhandle.on { background: var(--accent); }
+.sheet-host.centre .sheet:has(.scanstage) { width: min(100% - 24px, 46rem); }
