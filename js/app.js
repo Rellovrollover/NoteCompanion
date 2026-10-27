@@ -150,6 +150,7 @@
   }
 
   const ICONS = {
+    job: '<path d="M12 3v3M8.5 4.5l1 2.5M15.5 4.5l-1 2.5"/><rect x="5" y="8" width="14" height="12" rx="2.5"/><path d="M9 13h6M9 16.5h4"/>',
     scan: '<path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16"/><path d="M7 12h10"/>',
     mic: '<rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M6 11.5a6 6 0 0 0 12 0M12 17.5V21M9 21h6"/>',
     stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
@@ -359,7 +360,8 @@
     const scanBtn = el('button', { class: 'btn', type: 'button', onclick: () => $('#file-scan').click() }, icon('scan'), el('span', {}, 'Scan'));
     const recBtn = el('button', { class: 'btn', type: 'button', onclick: () => toggleRecording(recBtn) }, icon('mic'), el('span', {}, 'Record'));
     const fileBtn = el('button', { class: 'btn', type: 'button', onclick: () => $('#file-any').click() }, icon('file'), el('span', {}, 'File'));
-    const composer = el('div', { class: 'composer' }, ta, el('div', { class: 'bar' }, fileBtn, scanBtn, recBtn, el('span', { class: 'spacer' }), saveBtn));
+    const jobBtn = el('button', { class: 'btn jobbtn', type: 'button', title: 'Shift Companion: add a job', onclick: () => { if (window.NCShift) NCShift.quickSheet({ toast, sheet, confirm, pickSection, createPage: async (f) => { const np = await pages.create(f); onChanged(); return np; } }, () => {}); } }, icon('job'), el('span', {}, 'Job'));
+    const composer = el('div', { class: 'composer' }, ta, el('div', { class: 'bar' }, fileBtn, scanBtn, recBtn, jobBtn, el('span', { class: 'spacer' }), saveBtn));
     composer.addEventListener('dragover', (e) => { e.preventDefault(); });
     composer.addEventListener('drop', async (e) => {
       e.preventDefault();
