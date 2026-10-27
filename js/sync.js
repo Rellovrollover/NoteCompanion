@@ -60,6 +60,14 @@
       catch (e) { if (e.status === 410 || e.status === 404) { await meta.set('deltaLink', null); if (!first) return pullChanges(progress); } throw e; }
       for (const it of page.value || []) {
         seen++;
+        if (it.deleted && it.name) {
+          // A file removed on OneDrive (by a purge on another device): drop our own tombstone for it, never a live record.
+          const parent = (it.parentReference && it.parentReference.path) || ''; const sub = decodeURIComponent(parent.split('/').pop() || '');
+          const kind = KINDS.find(([k]) => k === sub); const id = it.name.replace(/\.json$/, '').split('__')[0];
+          if (kind) { const loc = await kind[1].get(id); if (loc && loc.deleted) await kind[1].delete(id); }
+          else if (sub === 'assets') { const loc = await db.assets.get(id); if (loc && loc.deleted) await db.assets.delete(id); }
+          continue;
+        }
         if (!it.file || it.deleted) continue;
         const parent = (it.parentReference && it.parentReference.path) || '';
         const sub = decodeURIComponent(parent.split('/').pop() || '');
@@ -222,6 +230,37 @@
     }
   }
 
+  // Remove every deleted record from OneDrive and this device. Other devices drop their copies on their next pull.
+  async function purgeDeleted(progress) {
+    if (!navigator.onLine) throw new Error('Offline');
+    if (!G.state().signedIn) throw new Error('Not signed in');
+    const enc = encodeURIComponent;
+    let removed = 0;
+    const livePages = new Set((await db.pages.where('deleted').equals(0).toArray()).map((p) => p.id));
+    for (const [sub, table] of KINDS) {
+      let gone = await table.where('deleted').equals(1).toArray();
+      if (sub === 'versions') gone = gone.concat((await table.where('deleted').equals(0).toArray()).filter((v) => !livePages.has(v.pageId)));
+      for (let i = 0; i < gone.length; i += 20) {
+        const group = gone.slice(i, i + 20);
+        if (progress) progress('Purging ' + sub + '… ' + Math.min(i + group.length, gone.length) + '/' + gone.length);
+        const withFile = group.filter((r) => r.etag);
+        if (withFile.length) {
+          const res = await G.call('/$batch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requests: withFile.map((r, k) => ({ id: String(k), method: 'DELETE', url: '/me/drive/root:/' + enc(C.driveFolder) + '/' + enc(sub) + '/' + enc(r.id + '.json') })) }) });
+          if (!res.ok) throw new Error('Purge failed (' + res.status + ')');
+        }
+        for (const r of group) { await table.delete(r.id); removed++; }
+      }
+    }
+    const goneAssets = await db.assets.where('deleted').equals(1).toArray();
+    for (const [i, a] of goneAssets.entries()) {
+      if (progress) progress('Purging files… ' + (i + 1) + '/' + goneAssets.length);
+      if (a.etag) { try { await G.remove('assets', assetName(a)); } catch (e) { /* already gone */ } }
+      await db.assets.delete(a.id); removed++;
+    }
+    status.pending = await window.NCDB.pendingCount(); emit();
+    return removed;
+  }
+
   function schedule(delay) {
     clearTimeout(timer);
     timer = setTimeout(run, delay == null ? 4000 : delay);
@@ -238,5 +277,5 @@
   }
 
   async function resetDelta() { await meta.set('deltaLink', null); }
-  window.NCSync = { init, run, schedule, resetDelta, onChange: (fn) => listeners.add(fn), status: () => Object.assign({}, status) };
+  window.NCSync = { init, run, schedule, resetDelta, purgeDeleted, onChange: (fn) => listeners.add(fn), status: () => Object.assign({}, status) };
 })();

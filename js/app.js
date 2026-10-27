@@ -1648,6 +1648,21 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
     view.append(el('div', { class: 'panel help' }, el('h2', {}, 'Import from OneNote without the API'),
       el('p', {}, 'If Microsoft is rate-limiting, export from the OneNote desktop app instead. Best: ', el('b', {}, 'File → Export → Section → Single File Web Page (*.mht)'), ' — one file per section, drop them all here at once and each becomes a section of that name. A whole-notebook .mht works too but OneNote drops the section boundaries, so it lands in one section to sort afterwards. Word (.docx) exports are accepted as well. Pages, formatting, tables and images come across; ink and PDF printouts become pictures; attached files are not in the export.'),
       docxDrop, docxInput, docxBar, docxStatus));
+    // Clean-up: deleted records linger as tombstones so every device learns of the deletion; purge them when done.
+    const purgeStatus = el('p', { class: 'rule' }, '');
+    const purgeBtn = el('button', { class: 'btn', type: 'button', onclick: async () => {
+      const counts = await Promise.all([window.NCDB.db.pages.where('deleted').equals(1).count(), window.NCDB.db.sections.where('deleted').equals(1).count(), window.NCDB.db.notebooks.where('deleted').equals(1).count(), window.NCDB.db.assets.where('deleted').equals(1).count()]);
+      const n = counts.reduce((a, b) => a + b, 0);
+      if (!n) { toast('Nothing to purge'); return; }
+      if (!(await confirm('Purge ' + n + ' deleted item' + (n === 1 ? '' : 's') + '?', 'They are removed from OneDrive and from every device on its next sync. This cannot be undone.', 'Purge'))) return;
+      purgeBtn.disabled = true;
+      try { const removed = await S.purgeDeleted((m) => { purgeStatus.textContent = m; }); purgeStatus.textContent = 'Purged ' + removed + ' record' + (removed === 1 ? '' : 's') + '.'; toast('Purged'); onChanged(); }
+      catch (err) { purgeStatus.textContent = 'Purge failed: ' + (err.message || err); }
+      purgeBtn.disabled = false;
+    } }, 'Purge deleted items');
+    view.append(el('div', { class: 'panel' }, el('h2', {}, 'Clean up'),
+      el('p', { class: 'rule' }, 'Deleted pages, sections and files stay in OneDrive as markers so your other devices delete them too. Once everything has synced, purge them to keep the folder small and syncs quick.'),
+      el('div', { class: 'formrow' }, purgeBtn), purgeStatus));
     view.append(el('div', { class: 'panel' }, el('h2', {}, 'Backup'),
       el('p', { class: 'rule' }, 'Everything is in your OneDrive folder as plain JSON and files. This also downloads a single JSON file of all notes from this device.'),
       el('div', {}, el('button', { class: 'btn', type: 'button', onclick: async () => { const data = await window.NCDB.exportAll(); await deliver(new Blob([JSON.stringify(data)], { type: 'application/json' }), 'notecompanion-backup-' + isoDay(new Date()) + '.json'); } }, 'Download backup'))));
