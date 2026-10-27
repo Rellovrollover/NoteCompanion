@@ -893,14 +893,17 @@
     const seed = await res.json();
     let nb = (await window.NCDB.db.notebooks.where('deleted').equals(0).toArray()).find((n) => n.name === seed.notebook);
     if (!nb) nb = await notebooks.create(seed.notebook);
-    const secs = new Map((await sections.forNotebook(nb.id)).map((sc) => [sc.name, sc]));
+    const secs = new Map();
     const existing = new Set((await window.NCDB.db.pages.toArray()).map((q) => q.id));
     let n = 0;
     for (const pg of seed.pages) {
       if (existing.has(pg.id)) continue;
-      let sc = secs.get(pg.section);
-      if (!sc) { sc = await sections.create(nb.id, pg.section); await sections.update(sc.id, { view: 'table' }); sc.view = 'table'; secs.set(pg.section, sc); }
-      await pages.create({ id: pg.id, notebookId: nb.id, sectionId: sc.id, title: pg.title, html: pg.html, props: pg.props || [], tags: pg.tags || [], pinned: pg.pinned || 0, created: pg.created ? Date.parse(pg.created) || Date.now() : Date.now() });
+      const isPearl = pg.section === 'Pearls';
+      const secName = isPearl ? ((pg.props || []).find((x) => x.k === 'Category') || {}).v || 'General' : pg.section;
+      const key = (isPearl ? 'Pearls/' : 'Trials/') + secName;
+      let sc = secs.get(key);
+      if (!sc) { sc = (await sections.forNotebook(nb.id)).find((x) => x.name === secName && x.group === (isPearl ? 'Pearls' : 'Trials')); if (!sc) { sc = await sections.create(nb.id, secName); await sections.update(sc.id, { group: isPearl ? 'Pearls' : 'Trials', view: isPearl ? 'list' : 'table' }); } secs.set(key, sc); }
+      await pages.create({ id: pg.id, notebookId: nb.id, sectionId: sc.id, title: pg.title, html: pg.html, props: pg.props || [], tags: pg.tags || [], pinned: pg.pinned || 0, ptype: isPearl ? 'pearl' : 'trial', created: pg.created ? Date.parse(pg.created) || Date.now() : Date.now() });
       n++;
     }
     state.expanded.add(nb.id); onChanged();
@@ -931,9 +934,9 @@
         el('div', { class: 'apphead' }, el('span', { class: 'appico', html: appIcon }), el('b', {}, a.title)),
         el('div', { class: 'appdesc' }, textOf(a).slice(0, 120)),
         el('div', { class: 'actions' },
-          a.app === 'shop' ? el('a', { class: 'btn small primary', href: '#shop' }, 'Open') : (a.assetId || a.embed) ? el('button', { class: 'btn small primary', type: 'button', onclick: () => openPage(a.id) }, 'Open') : a.url ? el('a', { class: 'btn small primary', href: a.url, target: '_blank', rel: 'noopener' }, 'Open') : el('span', { class: 'sub' }, 'No link yet'),
-          a.app === 'shop' ? el('span', { class: 'sub' }, 'a view of a note') : (a.assetId || a.embed) ? el('span', { class: 'sub' }, a.assetId ? 'runs inside' : 'embedded') : el('button', { class: 'btn small', type: 'button', onclick: () => openPage(a.id) }, 'Notes'),
-          SEED_FILES[a.title] ? el('button', { class: 'btn small', type: 'button', onclick: async (e) => { e.target.disabled = true; toast('Importing…'); try { const r = await importSeed(SEED_FILES[a.title]); toast(r.added ? 'Imported ' + r.added + ' pages into ' + r.notebook.name : 'Already imported (' + r.total + ' pages)'); } catch (err) { toast(err.message); } e.target.disabled = false; } }, 'Import into NoteCompanion') : null));
+          a.app === 'shop' ? el('a', { class: 'btn small primary', href: '#shop' }, 'Open') : a.app === 'tp' ? el('a', { class: 'btn small primary', href: '#tp' }, 'Open') : (a.assetId || a.embed) ? el('button', { class: 'btn small primary', type: 'button', onclick: () => openPage(a.id) }, 'Open') : a.url ? el('a', { class: 'btn small primary', href: a.url, target: '_blank', rel: 'noopener' }, 'Open') : el('span', { class: 'sub' }, 'No link yet'),
+          (a.app === 'shop' || a.app === 'tp') ? el('span', { class: 'sub' }, a.app === 'tp' ? 'a view of a notebook' : 'a view of a note') : (a.assetId || a.embed) ? el('span', { class: 'sub' }, a.assetId ? 'runs inside' : 'embedded') : el('button', { class: 'btn small', type: 'button', onclick: () => openPage(a.id) }, 'Notes'),
+          SEED_FILES[a.title] && a.app !== 'tp' ? el('button', { class: 'btn small', type: 'button', onclick: async (e) => { e.target.disabled = true; toast('Importing…'); try { const r = await importSeed(SEED_FILES[a.title]); toast(r.added ? 'Imported ' + r.added + ' pages into ' + r.notebook.name : 'Already imported (' + r.total + ' pages)'); } catch (err) { toast(err.message); } e.target.disabled = false; } }, 'Import into NoteCompanion') : null));
       grid.append(gestures(tile, { onDelete: async () => { if (await confirm('Remove "' + a.title + '" from the hub?', null, 'Remove')) { await pages.remove(a.id); S.schedule(); renderApps(); } }, onLongPress: () => menu(a.title, [
         (a.assetId || a.embed) ? { label: 'Open', fn: () => openPage(a.id) } : { label: 'Open notes', fn: () => openPage(a.id) },
         a.assetId ? { label: 'Replace HTML file…', fn: () => { const inp = el('input', { type: 'file', accept: '.html,.htm,text/html' }); inp.addEventListener('change', async () => { const f = inp.files[0]; if (!f) return; const na = await storeAsset(f, f.name); if (a.assetId) await assets.remove(a.assetId); await pages.update(a.id, { assetId: na.id }); S.schedule(); toast('Updated ' + a.title); renderApps(); }); inp.click(); } } : null,
@@ -977,6 +980,25 @@
     }
     if (!window.NCShop) { host.append(el('p', { class: 'sub' }, 'Not loaded.')); return; }
     await NCShop.render(host, { toast, sheet, confirm, pickSection, changed: onChanged });
+  }
+
+  // ---------- Trials & Pearls (a view over its notebook) ----------
+  async function renderTP() {
+    state.view = 'tp';
+    const view = el('div', { class: 'view' });
+    view.append(el('div', { class: 'view-head' }, el('h1', {}, 'Trials & Pearls'), el('div', { class: 'toolrow' }, el('a', { class: 'btn small', href: '#apps' }, 'Apps'))));
+    const host = el('div', {});
+    view.append(host);
+    content.replaceChildren(view); syncNav();
+    let tile = (await pages.live()).find((q) => q.kind === 'app' && q.app === 'tp');
+    if (!tile) {
+      const old = (await pages.live()).find((q) => q.kind === 'app' && /trials/i.test(q.title || ''));
+      if (old) await pages.update(old.id, { app: 'tp', url: '', assetId: null, embed: 0, html: '<p>A view over the Trials & Pearls notebook.</p>' });
+      else await pages.create({ kind: 'app', inbox: 0, title: 'Trials & Pearls', app: 'tp', url: '', html: '<p>A view over the Trials & Pearls notebook.</p>' });
+      onChanged();
+    }
+    if (!window.NCTP) { host.append(el('p', { class: 'sub' }, 'Not loaded.')); return; }
+    await NCTP.render(host, { toast, sheet, confirm, ask, menu, go, changed: onChanged, importSeed: () => importSeed(SEED_FILES['Trials & Pearls']) });
   }
 
   // ---------- new page ----------
@@ -1152,6 +1174,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
     view.append(title);
 
     if (p.kind === 'app' && p.app === 'shop') { go('#shop'); return; }
+    if (p.kind === 'app' && p.app === 'tp') { go('#tp'); return; }
     if (p.kind === 'app' && (p.assetId || p.embed)) {
       view.classList.add('app-view');
       const host = el('div', { class: 'apphost' });
@@ -1656,7 +1679,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
 
   // ---------- navigation ----------
   function syncNav() {
-    document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === state.view || ((state.view === 'page' || state.view === 'section' || state.view === 'notebook' || ((state.view === 'pdfs' || state.view === 'apps' || state.view === 'shift' || state.view === 'shop') && a.closest('.tabbar'))) && a.dataset.nav === 'notes')));
+    document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === state.view || ((state.view === 'page' || state.view === 'section' || state.view === 'notebook' || ((state.view === 'pdfs' || state.view === 'apps' || state.view === 'shift' || state.view === 'shop' || state.view === 'tp') && a.closest('.tabbar'))) && a.dataset.nav === 'notes')));
     if (typeof PANE !== 'undefined' && !PANE && document.documentElement.classList.contains('sidebar-collapsed')) sidebar.classList.remove('peek');
     closeSidebar();
   }
@@ -1671,6 +1694,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
     if (h.startsWith('#nb/')) return renderNotebook(h.slice(4));
     if (h === '#shift') return renderShift();
     if (h === '#shop') return renderShop();
+    if (h === '#tp') return renderTP();
     if (h === '#notes') return renderNotes();
     if (h === '#pdfs') { state.query = 'is:pdf'; return renderSearch(); }
     if (h === '#apps') return renderApps();
