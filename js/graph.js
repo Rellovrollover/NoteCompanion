@@ -109,7 +109,19 @@
     return out;
   }
 
+  // Fetch a file's bytes. Ask for its pre-authorised download link and fetch that plainly (no bearer token),
+  // rather than following /content's cross-origin redirect: Safari carries the Authorization header through
+  // the redirect and the download host refuses it, so on iPhone every /content download failed.
   async function download(sub, name) {
+    let url = null;
+    try {
+      const meta = await json(itemPath(sub, name) + '?$select=id,size,@microsoft.graph.downloadUrl');
+      url = meta && meta['@microsoft.graph.downloadUrl'];
+    } catch (e) { if (e.status === 404) throw Object.assign(new Error('Download failed 404'), { status: 404 }); }
+    if (url) {
+      const r = await fetch(url);
+      if (r.ok) return r;
+    }
     const res = await call(itemPath(sub, name) + ':/content');
     if (!res.ok) throw Object.assign(new Error('Download failed ' + res.status), { status: res.status });
     return res;

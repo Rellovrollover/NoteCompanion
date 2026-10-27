@@ -22,7 +22,7 @@
   // (no Graph round-trip, no throttling), otherwise through Graph.
   async function fetchRecord(sub, item) {
     const direct = item['@microsoft.graph.downloadUrl'];
-    if (direct) { try { const r = await fetch(direct); if (r.ok) return r.json(); } catch (e) { /* fall through */ } }
+    if (direct) { try { const r = await fetch(direct); if (r.ok) return await r.json(); } catch (e) { /* fall through */ } }
     const res = await G.download(sub, item.name);
     return res.json();
   }
@@ -106,13 +106,14 @@
       const todo = [];
       for (const item of changed[sub]) { const loc = await table.get(item.name.replace(/\.json$/, '')); if (!(loc && loc.etag === item.eTag)) todo.push([item, loc]); }
       if (!todo.length) continue;
-      let done = 0, failed = 0; const total = todo.length;
+      let done = 0, failed = 0, why = ''; const total = todo.length;
       if (progress) progress('Downloading ' + sub + '… 0/' + total);
       await pool(todo, 6, async ([item, loc]) => {
-        try { await pullJSON(sub, item, table, loc); } catch (e) { failed++; console.warn('pull failed', sub, item.name, e); }
+        try { await pullJSON(sub, item, table, loc); } catch (e) { failed++; if (!why) why = (e && e.message) || String(e); console.warn('pull failed', sub, item.name, e); }
         done++;
-        if (progress) progress('Downloading ' + sub + '… ' + done + '/' + total + (failed ? ' (' + failed + ' failed, will retry next sync)' : ''));
+        if (progress) progress('Downloading ' + sub + '… ' + done + '/' + total + (failed ? ' (' + failed + ' failed: ' + why.slice(0, 120) + ')' : ''));
       });
+      if (failed) { changed.failed = (changed.failed || 0) + failed; changed.why = changed.why || why; }
     }
     // Apply assets.
     for (const item of changed.assets) await pullAsset(item);
@@ -238,7 +239,7 @@
         await meta.set('foldersReady', 'v3');
       }
       // Push first so our edits are on OneDrive before we read the delta (which then echoes them back with matching etags).
-      let base = 'Syncing with OneDrive';
+      let base = 'Syncing with OneDrive', pulled = null;
       const prog = (m) => { base = m; status.message = m; emit(); };
       // While Microsoft rate-limits us, say so in the pill instead of looking stuck.
       const prevThrottle = G.onThrottle;
@@ -246,14 +247,15 @@
       try {
       for (const [sub, table] of KINDS) await pushKind(sub, table, prog);
       await pushAssets(prog);
-      await pullChanges(prog);
+      pulled = await pullChanges(prog);
       } finally { G.onThrottle = prevThrottle; }
       try { if (window.NCDrop) { status.message = 'Checking capture relay…'; emit(); const n = await window.NCDrop.pull(); if (n) { status.message = 'Captured ' + n + ' from the relay'; emit(); listeners.forEach((fn) => fn(Object.assign({ dropped: n }, status))); } } } catch (e) { console.warn('drop pull failed', e); }
       // Anything that arrived while pushing/pulling.
       for (const [sub, table] of KINDS) await pushKind(sub, table, prog);
       status.lastSync = Date.now();
       await meta.set('lastSync', status.lastSync);
-      await setState('ok', 'Synced');
+      if (pulled && pulled.failed) await setState('error', pulled.failed + ' items could not be downloaded (' + pulled.why.slice(0, 160) + '); will retry', new Error(pulled.why));
+      else await setState('ok', 'Synced');
     } catch (e) {
       console.warn('sync failed', e);
       const msg = e && e.status === 401 ? 'Sign-in expired; sign in again' : (e && e.message) || 'Sync failed';
