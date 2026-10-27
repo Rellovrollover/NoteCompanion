@@ -312,7 +312,7 @@
       ? await pages.create(Object.assign(base, { kind: 'pdf', title: (file.name || 'Document').replace(/\.pdf$/i, ''), html: '', assetId: a.id, annots: {} }))
       : await pages.create(Object.assign(base, { kind: 'file', title: file.name || 'File', html: '<p><a href="' + assetUrl(a.id) + '">📎 ' + esc(file.name || 'file') + '</a></p>', assetId: a.id }));
     onChanged();
-    if (isPdf) window.NCPDF.enrich(p.id, a.id).then(() => { if (state.view === 'pdfs') renderLibrary(); refreshTree(); });
+    if (isPdf) window.NCPDF.enrich(p.id, a.id).then(() => { refreshTree(); });
     return p;
   }
   async function captureAudio(blob, seconds) {
@@ -705,7 +705,7 @@
     const allSecs = await window.NCDB.db.sections.where('deleted').equals(0).toArray();
     const livePages = await pages.live();
     view.append(el('div', { class: 'view-head' }, el('h1', {}, 'Notebooks'), el('div', { class: 'toolrow' },
-      el('a', { class: 'btn small', href: '#pdfs' }, 'PDFs'), el('a', { class: 'btn small', href: '#apps' }, 'Apps'),
+      el('a', { class: 'btn small', href: '#apps' }, 'Apps'),
       el('button', { class: 'btn small primary', type: 'button', onclick: async () => { const n = await ask('New notebook', 'Notebook name'); if (n) { const nb = await notebooks.create(n); await sections.create(nb.id, 'General'); setNotebook(nb.id); onChanged(); go('#nb/' + nb.id); } } }, '+ Notebook'))));
     const grid = el('div', { class: 'nbgrid' });
     for (const [i, nb] of nbs.entries()) {
@@ -958,35 +958,6 @@
     if (!window.NCShift) { host.append(el('p', { class: 'sub' }, 'Not loaded.')); return; }
     await NCShift.render(host, { toast, sheet, confirm, pickSection, createPage: async (f) => { const np = await pages.create(f); onChanged(); return np; } });
   }
-
-  // ---------- PDF library ----------
-  async function renderLibrary() {
-    state.view = 'pdfs';
-    const all = (await pages.live()).filter((p) => p.kind === 'pdf').sort((a, b) => (b.pinned || 0) - (a.pinned || 0) || (b.updated || 0) - (a.updated || 0));
-    const view = el('div', { class: 'view' });
-    view.append(el('div', { class: 'view-head' }, el('h1', {}, 'PDF library'), el('button', { class: 'btn small primary', type: 'button', onclick: () => $('#file-pdf').click() }, '+ Add PDF')));
-    const filter = el('input', { class: 'searchbox', type: 'search', placeholder: 'Filter PDFs…', id: 'pdf-filter' });
-    const grid = el('div', { class: 'pdfgrid' });
-    const draw = async () => {
-      const q = filter.value.trim().toLowerCase(); grid.innerHTML = '';
-      const rows = all.filter((p) => !q || (p.title || '').toLowerCase().includes(q) || (p.tags || []).join(' ').includes(q));
-      if (!rows.length) grid.append(el('p', { class: 'sub' }, all.length ? 'Nothing matched.' : 'No PDFs yet. Add one here or through the Inbox File button.'));
-      for (const p of rows) {
-        const where = p.inbox ? 'Inbox' : await whereIs(p);
-        const nAnn = Object.values(p.annots || {}).reduce((n, l) => n + l.length, 0);
-        grid.append(gestures(el('a', { class: 'pdftile', href: '#page/' + p.id }, p.thumb ? el('img', { src: p.thumb, alt: '' }) : el('div', { class: 'pdfglyph big' }, 'PDF'),
-          el('div', { class: 'pdftitle' }, (p.pinned ? '📌 ' : '') + p.title), el('div', { class: 'pdfmeta' }, (p.pdfPages ? p.pdfPages + ' pp' : '') + (nAnn ? ' · ' + nAnn + ' marks' : '') + ' · ' + where)),
-          { onDelete: async () => { if (await confirm('Delete "' + p.title + '"?')) { await pages.remove(p.id); onChanged(); renderLibrary(); } }, onLongPress: () => pageQuickMenu(p, () => renderLibrary()) }));
-      }
-    };
-    filter.addEventListener('input', draw);
-    view.append(filter, grid); draw();
-    content.replaceChildren(view); syncNav();
-  }
-  $('#file-pdf').addEventListener('change', async (e) => {
-    for (const f of [...e.target.files]) await captureFile(f);
-    e.target.value = ''; toast('PDF added to the Inbox'); if (state.view === 'pdfs') renderLibrary(); else if (state.view === 'inbox') renderInbox();
-  });
 
   // ---------- new page ----------
   async function newPage(notebookId, sectionId) {
@@ -1453,16 +1424,21 @@ window.NoteCompanion={back:function(){try{P.postMessage({nc:'app-back'},'*');}ca
     const results = el('div', { class: 'results' });
     const tagbar = el('div', { class: 'tagchips' });
     const tags = await pages.tags();
+    const nPdf = (await pages.live()).filter((q) => q.kind === 'pdf').length;
+    tagbar.append(el('button', { class: 'chip', type: 'button', onclick: () => { inp.value = 'is:pdf'; run(); } }, 'PDFs ' + nPdf));
     for (const t of tags.slice(0, 20)) tagbar.append(el('button', { class: 'chip', type: 'button', onclick: () => { inp.value = '#' + t.tag; run(); } }, '#' + t.tag + ' ' + t.n));
     let timer = null;
     const run = async () => {
       state.query = inp.value; const q = inp.value.trim().toLowerCase(); results.innerHTML = '';
       if (!q) return;
-      const all = await pages.live();
+      let all = await pages.live();
       const tagQ = q.startsWith('#') ? q.slice(1) : null;
-      const terms = q.split(/\s+/).filter(Boolean);
+      const pdfOnly = /\bis:pdf\b/.test(q);
+      if (pdfOnly) { all = all.filter((x) => x.kind === 'pdf'); results.append(el('div', { class: 'formrow' }, el('button', { class: 'btn small primary', type: 'button', onclick: () => $('#file-pdf').click() }, '+ Add PDFs'), el('span', { class: 'sub' }, all.length + ' PDF' + (all.length === 1 ? '' : 's') + ' · they live in their sections like any other page'))); }
+      const terms = q.replace(/\bis:pdf\b/, '').trim().split(/\s+/).filter(Boolean);
       const scored = [];
       for (const p of all) {
+        if (pdfOnly && !terms.length && !tagQ) { scored.push({ p, raw: textOf(p), score: p.updated || 0, idx: -1 }); continue; }
         const title = (p.title || '').toLowerCase(), raw = textOf(p), body = raw.toLowerCase(), tgs = (p.tags || []).join(' ');
         if (tagQ) { if (!(p.tags || []).includes(tagQ)) continue; scored.push({ p, raw, score: p.updated, idx: -1 }); continue; }
         let score = 0, idx = -1;
@@ -1671,7 +1647,7 @@ window.NoteCompanion={back:function(){try{P.postMessage({nc:'app-back'},'*');}ca
     if (h.startsWith('#nb/')) return renderNotebook(h.slice(4));
     if (h === '#shift') return renderShift();
     if (h === '#notes') return renderNotes();
-    if (h === '#pdfs') return renderLibrary();
+    if (h === '#pdfs') { state.query = 'is:pdf'; return renderSearch(); }
     if (h === '#apps') return renderApps();
     if (h === '#search') return renderSearch();
     if (h === '#settings') return renderSettings();
