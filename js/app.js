@@ -357,9 +357,9 @@
       renderInbox(); toast('Added to inbox');
     });
     const saveBtn = el('button', { class: 'btn primary', type: 'button', onclick: async () => { if (await captureText(ta.value)) { ta.value = ''; ta.style.height = ''; renderInbox(); } } }, 'Save');
-    const scanBtn = el('button', { class: 'btn', type: 'button', onclick: () => $('#file-scan').click() }, icon('scan'), el('span', {}, 'Scan'));
-    const recBtn = el('button', { class: 'btn', type: 'button', onclick: () => toggleRecording(recBtn) }, icon('mic'), el('span', {}, 'Record'));
-    const fileBtn = el('button', { class: 'btn', type: 'button', onclick: () => $('#file-any').click() }, icon('file'), el('span', {}, 'File'));
+    const scanBtn = el('button', { class: 'btn', type: 'button', title: 'Scan a page', 'aria-label': 'Scan', onclick: () => $('#file-scan').click() }, icon('scan'), el('span', {}, 'Scan'));
+    const recBtn = el('button', { class: 'btn', type: 'button', title: 'Record a voice note', 'aria-label': 'Record', onclick: () => toggleRecording(recBtn) }, icon('mic'), el('span', {}, 'Record'));
+    const fileBtn = el('button', { class: 'btn', type: 'button', title: 'Add a file or photo', 'aria-label': 'File', onclick: () => $('#file-any').click() }, icon('file'), el('span', {}, 'File'));
     const jobBtn = el('button', { class: 'btn jobbtn', type: 'button', title: 'Shift Companion: add a job', onclick: () => { if (window.NCShift) NCShift.quickSheet({ toast, sheet, confirm, pickSection, createPage: async (f) => { const np = await pages.create(f); onChanged(); return np; } }, () => {}); } }, icon('job'), el('span', {}, 'Job'));
     const composer = el('div', { class: 'composer' }, ta, el('div', { class: 'bar' }, fileBtn, scanBtn, recBtn, jobBtn, el('span', { class: 'spacer' }), saveBtn));
     composer.addEventListener('dragover', (e) => { e.preventDefault(); });

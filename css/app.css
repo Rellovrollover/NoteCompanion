@@ -644,7 +644,14 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 700; letter-spacing: 0; tex
 .apptile.builtin { border-color: var(--accent); }
 
 
-@media (max-width: 899px) { .composer .bar .btn.primary { flex: 1 1 100%; } .composer .bar .btn { padding: 8px 10px; } }
+@media (max-width: 899px) {
+  /* Capture buttons go icon-only so Save keeps its place on the right. */
+  .composer .bar { flex-wrap: nowrap; }
+  .composer .bar .btn:not(.primary) { padding: 9px 11px; }
+  .composer .bar .btn:not(.primary) span:not(.ic) { display: none; }
+  .composer .bar .btn:not(.primary) .ic { margin: 0; }
+  .composer .bar .btn.primary { padding: 9px 16px; }
+}
 
 /* Sync panel */
 .syncpanel-title { display: flex; align-items: center; gap: 8px; }
