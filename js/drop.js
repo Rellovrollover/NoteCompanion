@@ -42,6 +42,7 @@
         // Delete first so two devices can't both import it; whoever deletes wins.
         const del = await fetch(API + '/repos/' + repo + '/contents/' + encodeURIComponent('inbox/' + it.name).replace(/%2F/g, '/'), { method: 'DELETE', headers: Object.assign({ 'Content-Type': 'application/json' }, hdrs(token)), body: JSON.stringify({ message: 'captured', sha: it.sha }) });
         if (!del.ok) continue;
+        if (!bytes.length) continue; // a test run of the Shortcut with no input uploads an empty file
         const mime = sniff(bytes, it.name);
         const base = it.name.replace(/\.\w+$/, '').replace(/^\d{8}-\d{6}-?/, '') || 'Capture';
         if (mime === 'text/plain') {
