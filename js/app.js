@@ -1055,6 +1055,7 @@ S.setItem=function(k,v){si.call(this,k,v);if(this===localStorage)send('set',Stri
 S.removeItem=function(k){ri.call(this,k);if(this===localStorage)send('remove',String(k));};
 S.clear=function(){cl.call(this);if(this===localStorage)send('clear');};
 window.NoteCompanion={back:function(){try{P.postMessage({nc:'app-back'},'*');}catch(e){}}};
+if(!window.claude){window.claude={use:function(){return Promise.reject({code:'not_granted'});}};}
 }catch(e){}})();</script>`;
   async function runApp(p, host, queueSave) {
     const frame = el('iframe', { class: 'appframe', title: p.title || 'App', allow: 'camera; microphone; clipboard-read; clipboard-write; fullscreen' });
