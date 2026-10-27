@@ -382,6 +382,7 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 700; letter-spacing: 0; tex
 .appmenu a, .appmenu button { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px; text-decoration: none; color: var(--fg); border: 0; background: transparent; font: inherit; text-align: left; cursor: pointer; }
 .appmenu a:hover, .appmenu button:hover { background: var(--accent-soft); color: var(--accent); }
 .appmenu a.active { font-weight: 600; color: var(--accent); }
+.appmenu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 6px; }
 .desktop-only { display: none !important; }
 @media (min-width: 900px) { .desktop-only { display: inline-flex !important; } .appmenu { left: 8px; } }
 @media (max-width: 899px) { .appmenu { display: none !important; } #menu-split, #menu-sidebar { display: none; } }
