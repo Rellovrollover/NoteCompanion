@@ -17,7 +17,8 @@
   const NB = 'Portfolio';
   const TYPES = [
     ['Teaching', 'Core or non-core hours'], ['CBD', 'Case-based discussion'], ['Mini-CEX', 'Observed encounter'], ['DOPS', 'Observed procedure'],
-    ['Reflection', 'Reflective entry'], ['Audit/QI', 'Project work or data'], ['Other', 'Anything worth keeping']];
+    ['DCT', 'Developing the Clinical Teacher'], ['TAB', 'Team assessment of behaviour'], ['PSG', 'Placement supervision group'],
+    ['Reflection', 'Reflective entry'], ['Audit/QI', 'Project work or data'], ['Other', 'Meetings, PDP, anything else']];
   const QUICK = [0.5, 1, 1.5, 2, 3, 7];
   const prop = (p, k) => { const f = (p.props || []).find((x) => x.k === k); return f ? f.v : ''; };
   const textOf = (html) => { const d = document.createElement('div'); d.innerHTML = html || ''; return (d.textContent || '').replace(/\s+/g, ' ').trim(); };
@@ -48,9 +49,9 @@
     for (const p of (await pages.live()).filter((q) => q.notebookId === nb.id && q.kind !== 'app')) {
       const sec = secById.get(p.sectionId); if (!sec) continue;
       const type = sec.name;
-      out.push({ id: p.id, type, date: prop(p, 'Date') || new Date(p.created || 0).toISOString().slice(0, 10), kind: prop(p, 'Kind') || 'Core', hours: Number(prop(p, 'Hours')) || 0, speaker: prop(p, 'Speaker'), with: prop(p, 'With'), title: p.title || '', note: type === 'Teaching' ? '' : textOf(p.html), created: p.created || 0 });
+      out.push({ id: p.id, type, date: prop(p, 'Date') || '', kind: prop(p, 'Kind') || 'Core', hours: Number(prop(p, 'Hours')) || 0, speaker: prop(p, 'Speaker'), with: prop(p, 'With'), title: p.title || '', note: type === 'Teaching' ? '' : textOf(p.html), created: p.created || 0 });
     }
-    return out.sort((a, b) => (a.date !== b.date ? (a.date < b.date ? 1 : -1) : b.created - a.created));
+    return out.sort((a, b) => (a.date !== b.date ? ((a.date || '0') < (b.date || '0') ? 1 : -1) : b.created - a.created));
   }
 
   async function render(host, ui) {
