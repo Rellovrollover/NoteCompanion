@@ -803,3 +803,16 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 700; letter-spacing: 0; tex
 .todo-toggle { background: none; border: 0; padding: 0; font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit; cursor: pointer; display: inline-flex; gap: 8px; align-items: center; }
 .todo-view .pagedates { display: none; }
 .content > .view.todo-view { max-width: 720px; }
+
+/* Shift Companion: per-type bits */
+.shift-three { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+.shift-typebits { display: grid; gap: 10px; }
+.shift-stages { flex-wrap: wrap; }
+.shift-stages button { font-size: .78rem; padding: 6px 9px; }
+.shift-what { font-weight: 600; }
+.shift-ref { font-size: .78rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.shift-flags { display: flex; flex-wrap: wrap; gap: 4px; }
+.shift-filter { padding: 2px 0; }
+.chip.crit.on { background: var(--bad); border-color: var(--bad); color: #fff; }
+.shift-job-actions { flex-wrap: wrap; }
+.shift-stage { color: var(--accent); border-color: var(--accent); }
