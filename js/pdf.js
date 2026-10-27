@@ -221,6 +221,10 @@
     // Ink input
     function attachPointer(i, overlay) {
       let active = null; // { id, stroke }
+      // Safari scrolls on Pencil touches as well as fingers. Block scrolling for stylus touches only, so the finger still pans.
+      const blockStylus = (e) => { if (prefs.tool === 'pan') return; for (const t of e.touches) if (t.touchType === 'stylus' || prefs.fingerDraws) { e.preventDefault(); return; } };
+      overlay.addEventListener('touchstart', blockStylus, { passive: false });
+      overlay.addEventListener('touchmove', blockStylus, { passive: false });
       const norm = (e) => { const r = overlay.getBoundingClientRect(); return [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height, e.pointerType === 'pen' ? (e.pressure || 0.5) : 0.5]; };
       overlay.addEventListener('pointerdown', (e) => {
         if (prefs.tool === 'pan') return;

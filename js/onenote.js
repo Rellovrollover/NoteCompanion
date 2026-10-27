@@ -92,25 +92,29 @@
     const existingNb = (await notebooks.all()).find((n) => n.onenoteId === nb.id) || (await notebooks.archived()).find((n) => n.onenoteId === nb.id);
     const target = existingNb || await notebooks.create(nb.displayName);
     if (!existingNb) await notebooks.update(target.id, { onenoteId: nb.id });
-    const done = new Set((await window.NCDB.db.pages.toArray()).filter((q) => q.onenoteId).map((q) => q.onenoteId));
+    const doneIds = new Set((await window.NCDB.db.pages.toArray()).filter((q) => q.onenoteId).map((q) => q.onenoteId));
     const secs = await sectionsOf(nb.id);
-    let count = 0, skipped = 0, failed = 0;
-    for (const sec of secs) {
-      log(nb.displayName + ' › ' + sec.name);
+    // Count first so the progress bar means something.
+    const plan = [];
+    for (const sec of secs) { try { plan.push({ sec, pgs: await pagesOf(sec.id) }); } catch (e) { plan.push({ sec, pgs: [], failed: true }); } }
+    const total = plan.reduce((n, x) => n + x.pgs.length, 0);
+    let count = 0, skipped = 0, failed = 0, done = 0;
+    log('0 / ' + total + ' pages', 0, total);
+    for (const { sec, pgs, failed: secFailed } of plan) {
+      if (secFailed) { failed++; continue; }
       const existingSecs = await sections.forNotebook(target.id);
       let tsec = existingSecs.find((x) => x.onenoteId === sec.id) || existingSecs.find((x) => x.name === sec.name);
       if (!tsec) { tsec = await sections.create(target.id, sec.name); await sections.update(tsec.id, { onenoteId: sec.id }); }
-      let pgs = [];
-      try { pgs = await pagesOf(sec.id); } catch (e) { failed++; continue; }
       for (const pg of pgs) {
-        if (done.has(pg.id)) { skipped++; continue; }
+        done++;
+        if (doneIds.has(pg.id)) { skipped++; log(done + ' / ' + total + ' · ' + sec.name, done, total); continue; }
         try {
           const res = await G.call('/me/onenote/pages/' + pg.id + '/content?includeIDs=false');
           if (!res.ok) throw new Error('content ' + res.status);
           const html = await convertPage(await res.text(), pg.title);
           await pages.create({ notebookId: target.id, sectionId: tsec.id, title: pg.title || 'Untitled', html, onenoteId: pg.id, created: Date.parse(pg.createdDateTime) || Date.now(), props: [{ k: 'Imported from', v: 'OneNote' }] });
-          count++; if (count % 5 === 0) log(nb.displayName + ' › ' + sec.name + ' · ' + count + ' pages');
-        } catch (e) { console.warn('page import failed', pg.title, e); failed++; }
+          count++; log(done + ' / ' + total + ' · ' + sec.name + ' · ' + (pg.title || 'Untitled'), done, total);
+        } catch (e) { console.warn('page import failed', pg.title, e); failed++; log(done + ' / ' + total + ' · ' + sec.name, done, total); }
       }
     }
     S.schedule();

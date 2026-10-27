@@ -1069,10 +1069,15 @@
               const row = el('button', { type: 'button' }, nb.displayName);
               row.addEventListener('click', async () => {
                 if (!(await confirm('Import "' + nb.displayName + '"?', 'This can take a few minutes for a big notebook. Keep this screen open.', 'Import'))) return;
-                row.disabled = true; const status = el('p', { class: 'rule' }, 'Starting…'); row.after(status);
+                row.disabled = true;
+                const bar = el('div', { class: 'progress' }, el('div', { class: 'progress-fill' }));
+                const status = el('p', { class: 'rule' }, 'Counting pages…');
+                row.after(bar, status);
                 try {
-                  const r = await window.NCOneNote.importNotebook(nb, (m) => { status.textContent = m; });
+                  const r = await window.NCOneNote.importNotebook(nb, (m, done, total) => { status.textContent = m; if (total) bar.firstChild.style.width = Math.round(done / total * 100) + '%'; });
+                  bar.firstChild.style.width = '100%';
                   status.textContent = 'Done: ' + r.count + ' pages imported into "' + r.notebook.name + '" (' + r.sections + ' sections' + (r.skipped ? ', ' + r.skipped + ' already there' : '') + (r.failed ? ', ' + r.failed + ' failed' : '') + ').';
+                  toast('Notebook added: ' + r.notebook.name, { label: 'Open', fn: () => { state.expanded.add(r.notebook.id); go('#notes'); } });
                   onChanged();
                 } catch (err) { status.textContent = 'Import failed: ' + (err.message || err); console.warn(err); }
                 row.disabled = false;
@@ -1139,7 +1144,7 @@
   function showStatus(st) {
     pill.dataset.state = st.state;
     const n = st.pending ? ' · ' + st.pending + ' pending' : '';
-    const label = st.state === 'ok' ? 'Synced' + n : st.state === 'syncing' ? 'Syncing…' : st.state === 'offline' ? 'Offline' + n : st.state === 'signedout' ? 'Not signed in' + n : st.state === 'error' ? 'Sync problem' + n : 'Ready' + n;
+    const label = st.state === 'ok' ? 'Synced' + n : st.state === 'syncing' ? (st.message && st.message !== 'Syncing with OneDrive' ? st.message : 'Syncing…') : st.state === 'offline' ? 'Offline' + n : st.state === 'signedout' ? 'Not signed in' + n : st.state === 'error' ? 'Sync problem' + n : 'Ready' + n;
     pill.querySelector('.label').textContent = label;
     pill.title = st.message || label;
     const kp = $('#kv-pending'), ks = $('#kv-status'), kl = $('#kv-last');
