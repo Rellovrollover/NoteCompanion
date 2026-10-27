@@ -281,7 +281,7 @@
     const sec = await sectionNamed(notebookId, sectionName);
     const already = new Set((await window.NCDB.db.pages.toArray()).filter((q) => q.onenoteId && q.onenoteId.startsWith('mht:') && !q.deleted).map((q) => q.onenoteId));
     let n = 0, skipped = 0;
-    for (const pd of pageDivs) {
+    for (const [idx, pd] of pageDivs.entries()) {
       // Title: the first 20pt paragraph. Date and time: the grey paragraphs that follow it.
       let title = '';
       const tp = [...pd.querySelectorAll('p')].find((pEl) => /font-size:\s*20(\.0)?pt/i.test(pEl.getAttribute('style') || ''));
@@ -290,7 +290,8 @@
       const grey = [...pd.querySelectorAll('p')].filter((pEl) => /#767676/i.test(pEl.getAttribute('style') || '')).slice(0, 2);
       if (grey.length) { created = parseOneNoteDate(grey[0].textContent, grey[1] ? grey[1].textContent : ''); grey.forEach((g) => g.remove()); }
       if (!title) { const first = [...pd.querySelectorAll('p')].find((pEl) => pEl.textContent.trim()); title = first ? first.textContent.replace(/\s+/g, ' ').trim().slice(0, 120) : 'Untitled'; }
-      const key = 'mht:' + sectionName + ':' + title + ':' + (created || '');
+      // Position is part of the key: two pages can share a title and a timestamp (a template and its copy).
+      const key = 'mht:' + sectionName + ':' + idx + ':' + title + ':' + (created || '');
       if (already.has(key)) { skipped++; if (onProgress) onProgress(n + skipped, pageDivs.length); continue; }
       const body = await cleanMhtPage(pd, doc, imageFor);
       await pages.create({ notebookId, sectionId: sec.id, title, html: body, onenoteId: key, created: created || Date.now(), updated: created || Date.now() });
