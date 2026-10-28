@@ -1170,6 +1170,16 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
     col.append(pl);
     return col;
   }
+  // Files this page needs that sync left on OneDrive (too big for this device's auto-download): fetch them now.
+  const assetRefs = (p) => { const ids = new Set(); if (p.assetId) ids.add(p.assetId); for (const m of String(p.html || '').matchAll(/asset\/([0-9a-f-]{36})/g)) ids.add(m[1]); return [...ids]; };
+  async function ensureAssets(p, onEach) {
+    if (!window.NCSync || !NCSync.fetchAsset) return;
+    for (const id of assetRefs(p)) {
+      const a = await assets.get(id);
+      if (!a || a.blob || a.deleted) continue;
+      if (await NCSync.fetchAsset(id)) onEach && onEach(id);
+    }
+  }
   async function renderPage(id) {
     destroyEditor();
     const p = await pages.get(id);
@@ -1224,6 +1234,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
       const host = el('div', { class: 'pdfhost' });
       view.append(host);
       content.replaceChildren(view); syncNav();
+      if (p.assetId) { const a = await assets.get(p.assetId); if (a && !a.blob && !a.deleted) { host.append(el('p', { class: 'sub' }, 'Downloading this file from OneDrive…')); const ok = await NCSync.fetchAsset(p.assetId); host.innerHTML = ''; if (!ok) { host.append(el('p', { class: 'sub' }, 'Not on this device yet — it downloads when you are online and signed in.')); return; } } }
       state.pdfTeardown = await window.NCPDF.render(p, host, { queueSave: (patch) => queueSave(patch) });
       return;
     }
@@ -1329,7 +1340,8 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
         });
         // Pasted HTML with pictures hosted elsewhere: copy them into the note so it works offline.
         ed.on('PastePostProcess', () => setTimeout(() => localiseImages(ed, scheduleSave), 0));
-        ed.on('init', () => { ed.setContent(initial); applyPaper(ed, p.paper); ed.undoManager.clear(); ed.setDirty(false); if (focusNew && !p.title) setTimeout(() => title.focus(), 60); });
+        ed.on('init', () => { ed.setContent(initial); applyPaper(ed, p.paper); ed.undoManager.clear(); ed.setDirty(false); if (focusNew && !p.title) setTimeout(() => title.focus(), 60);
+          ensureAssets(p, (aid) => { try { for (const img of ed.getDoc().querySelectorAll('img[src*="asset/' + aid + '"]')) img.src = img.src.split('?')[0] + '?v=' + Date.now(); } catch (e) { /* editor gone */ } }); });
       }
     });
     state.editor = editors && editors[0];

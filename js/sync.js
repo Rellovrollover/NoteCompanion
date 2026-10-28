@@ -124,20 +124,26 @@
       if (failed) { totals.failed += failed; totals.why = totals.why || why; }
     }
     // Files (images, PDFs) after the records, with progress — a page of the listing can be mostly these.
-    let n = 0;
-    for (const item of changed.assets) { n++; if (progress) progress('Downloading files… ' + n + '/' + changed.assets.length + (item.size ? ' (' + (item.size > 1048576 ? (item.size / 1048576).toFixed(1) + ' MB' : Math.round(item.size / 1024) + ' KB') + ')' : '')); await pullAsset(item); }
+    if (changed.assets.length) {
+      let n = 0; const total = changed.assets.length;
+      if (progress) progress('Downloading files… 0/' + total);
+      await pool(changed.assets, 4, async (item) => { await pullAsset(item); n++; if (progress) progress('Downloading files… ' + n + '/' + total); });
+    }
     for (const item of changed.inbox) await importDrop(item);
   }
 
+  // Phones fetch small files during sync and the rest when a page that needs them is opened.
+  const PHONE = /iPhone|iPad|Android/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const autoLimit = () => (PHONE ? 1.5 * 1024 * 1024 : C.autoDownloadLimit);
   async function pullAsset(item) {
     const id = item.name.split('__')[0];
     const loc = await db.assets.get(id);
     if (loc && loc.deleted) return;
-    if (loc && loc.etag === item.eTag && (loc.downloaded || item.size > C.autoDownloadLimit)) return;
+    if (loc && loc.etag === item.eTag && (loc.downloaded || item.size > autoLimit())) return;
     const name = item.name.split('__').slice(1).join('__') || 'file';
     const mime = (item.file && item.file.mimeType) || 'application/octet-stream';
     const when = Date.parse(item.lastModifiedDateTime) || Date.now();
-    if (item.size > C.autoDownloadLimit) {
+    if (item.size > autoLimit()) {
       await db.assets.put({ id, name, mime, size: item.size, blob: (loc && loc.blob) || null, created: (loc && loc.created) || when, updated: when, deleted: 0, dirty: 0, etag: item.eTag, downloaded: loc && loc.blob ? 1 : 0 });
       return;
     }
@@ -303,6 +309,26 @@
     return removed;
   }
 
+  // Fetch one file that sync skipped (too big for this device's auto-download). Returns true when it is now local.
+  const fetching = new Map();
+  async function fetchAsset(id) {
+    const a = await db.assets.get(id);
+    if (!a || a.deleted) return false;
+    if (a.blob) return true;
+    if (!navigator.onLine || !G.state().signedIn) return false;
+    if (fetching.has(id)) return fetching.get(id);
+    const job = (async () => {
+      try {
+        const res = await G.download('assets', assetName(a));
+        const blob = await res.blob();
+        await db.assets.update(id, { blob, size: blob.size, mime: blob.type || a.mime, downloaded: 1 });
+        return true;
+      } catch (e) { console.warn('asset fetch failed', id, e); return false; } finally { fetching.delete(id); }
+    })();
+    fetching.set(id, job);
+    return job;
+  }
+
   function schedule(delay) {
     clearTimeout(timer);
     timer = setTimeout(run, delay == null ? 4000 : delay);
@@ -319,5 +345,5 @@
   }
 
   async function resetDelta() { await meta.set('deltaLink', null); }
-  window.NCSync = { init, run, schedule, resetDelta, purgeDeleted, onChange: (fn) => listeners.add(fn), status: () => Object.assign({}, status) };
+  window.NCSync = { init, run, schedule, resetDelta, purgeDeleted, fetchAsset, onChange: (fn) => listeners.add(fn), status: () => Object.assign({}, status) };
 })();
