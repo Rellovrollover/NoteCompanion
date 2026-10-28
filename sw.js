@@ -2,7 +2,7 @@
 // 1. Caches the app shell so it opens with no connection.
 // 2. Serves local assets (images, audio, files) from IndexedDB at ./asset/<id>,
 //    so markdown can reference them with a plain relative URL on every device.
-const VERSION = 'nc-2026-10-30b';
+const VERSION = 'nc-2026-10-30c';
 const SHELL = [
   './', './index.html', './manifest.webmanifest',
   './css/app.css',
@@ -14,7 +14,7 @@ const SHELL = [
   './vendor/tinymce/skins/ui/oxide/skin.min.css', './vendor/tinymce/skins/ui/oxide/content.min.css', './vendor/tinymce/skins/ui/oxide-dark/skin.min.css', './vendor/tinymce/skins/ui/oxide-dark/content.min.css',
   './vendor/tinymce/skins/content/default/content.min.css', './vendor/tinymce/skins/content/dark/content.min.css',
   ...['lists', 'advlist', 'table', 'link', 'image', 'autolink', 'autoresize', 'searchreplace', 'codesample', 'quickbars', 'accordion'].map((p) => './vendor/tinymce/plugins/' + p + '/plugin.min.js'),
-  './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png'
+  './icons/brain-180.png', './icons/brain-192.png', './icons/brain-512.png'
 ];
 const BASE = new URL('./', self.location).pathname;
 
