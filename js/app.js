@@ -1985,6 +1985,12 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
       topSearch.addEventListener('keydown', (e) => { if (e.key === 'Enter') { clearTimeout(t); state.query = topSearch.value; if (state.view === 'search') { const inp = $('#search-input'); if (inp) { inp.value = topSearch.value; inp.dispatchEvent(new Event('input')); } } else go('#search'); } if (e.key === 'Escape') { topSearch.value = ''; topSearch.blur(); } });
       document.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); topSearch.focus(); topSearch.select(); } });
     }
+    // iOS can leave the page's fixed bars anchored to a keyboard-sized viewport after the keyboard goes; nudge it back.
+    if (window.visualViewport) {
+      let was = visualViewport.height;
+      visualViewport.addEventListener('resize', () => { const now = visualViewport.height; if (now > was + 120) setTimeout(() => { window.scrollTo(0, Math.max(0, window.scrollY)); document.documentElement.style.height = ''; }, 50); was = now; });
+    }
+    document.addEventListener('focusout', () => { setTimeout(() => { if (!document.activeElement || document.activeElement === document.body) window.scrollTo(0, Math.max(0, window.scrollY)); }, 80); });
     await G.init();
     await S.init();
     if (G.state().signedIn) S.schedule(600);
