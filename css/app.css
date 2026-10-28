@@ -827,3 +827,24 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 700; letter-spacing: 0; tex
 .topsearch:focus { outline: none; border-color: var(--accent); background: var(--paper); box-shadow: 0 0 0 3px var(--accent-soft); }
 input.topsearch.desktop-only { display: none !important; }
 @media (min-width: 900px) { input.topsearch.desktop-only { display: inline-block !important; } }
+
+/* Sidebar, calmer: every notebook row the same height; the open one is tinted and its sections step in beneath it. */
+.tree .nb.selected { margin: 0; border-radius: 0 !important; box-shadow: none; transform: none; border-top-width: 0; }
+.tree .nb.selected:first-child { border-top-width: 1px; border-radius: 10px 10px 0 0 !important; }
+.tree .nb.selected:last-of-type { border-radius: 0 0 10px 10px !important; }
+.tree .nb.selected:first-child:last-of-type { border-radius: 10px !important; }
+.tree .nb.selected + .nb { border-top-width: 0; border-radius: 0; }
+.tree .nb + .nb .nb-head { border-top: 1px solid var(--line); }
+.tree .nb .nb-head, .tree .nb:not(.open) .nb-head { padding: 10px 8px 10px 0; }
+.tree .nb .nb-head .nb-name, .tree .nb:not(.open) .nb-head .nb-name { font-size: 1rem; color: color-mix(in srgb, var(--nb) 45%, var(--fg)); }
+.tree .nb.selected .nb-head { background: color-mix(in srgb, var(--nb) 20%, var(--paper)); }
+.tree .nb.selected .nb-head .nb-name { font-weight: 700; color: color-mix(in srgb, var(--nb) 70%, var(--fg)); }
+.tree .nb .spine, .tree .nb:not(.open) .spine { width: 4px; margin: -10px 2px -10px 0; }
+.tree .nb-sub, .sidebar .tree .nb-meta { display: none !important; }
+.tree .nb-body { margin: 6px 6px 8px 20px; border: 0; border-left: 2px solid color-mix(in srgb, var(--nb) 45%, var(--line)); background: transparent; padding: 0 0 0 4px; }
+.tree .nb-body .sec-head { border-top: 0; padding: 3px 4px; }
+.tree .nb-body .sec-name { font-size: .93rem; padding: 5px 8px; }
+.tree .nb-body .secgroup { border-top: 0; margin-top: 4px; }
+.tree .nb-body .group-head { background: transparent; padding: 5px 4px 3px; }
+.tree .nb-body .group-body { margin-left: 10px; border-left-width: 2px; }
+.tree .nb-body .addsec { margin: 6px 0 2px 8px; }
