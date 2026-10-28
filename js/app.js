@@ -893,6 +893,8 @@
       if (!a.app && re.test(a.title || '')) { await pages.update(a.id, { app: key, url: '', assetId: null, embed: 0, html: '<p>' + esc(desc) + '</p>' }); a.app = key; a.url = ''; a.assetId = null; a.html = '<p>' + esc(desc) + '</p>'; }
       else if (a.app === key && /moving into|NoteCompanion/i.test(a.html || '')) { await pages.update(a.id, { html: '<p>' + esc(desc) + '</p>' }); a.html = '<p>' + esc(desc) + '</p>'; }
     }
+    // Built-in views always have a tile.
+    if (!apps.some((a) => a.app === 'logbook')) { const t = await pages.create({ kind: 'app', inbox: 0, title: 'Logbook', app: 'logbook', url: '', html: '<p>Your own procedure and experience log — a view over the Logbook notebook.</p>' }); apps.push(t); S.schedule(); }
     return apps.sort((a, b) => (b.pinned || 0) - (a.pinned || 0) || (a.title || '').localeCompare(b.title || ''));
   }
   // Import a seed file (a notebook of pages) into NoteCompanion; idempotent by page id.
