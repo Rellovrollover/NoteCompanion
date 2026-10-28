@@ -70,6 +70,7 @@
     const t0 = today(); let moved = 0;
     for (const i of items) if (!i.done && (i.bucket === 'Next' || i.bucket === 'Someday') && i.due && i.due <= t0) { i.bucket = 'Today'; moved++; }
     if (moved) save();
+    if (window.NCGCal) { const cal = el('div', {}); host.append(cal); NCGCal.strip(cal).catch(() => {}); }
     const wrap = el('div', { class: 'todo' }); host.append(wrap);
     let bucketForNew = 'Today', showDone = false;
 
@@ -81,6 +82,7 @@
       ui.menu(i.text.length > 50 ? i.text.slice(0, 50) + '…' : i.text, [
         ...BUCKETS.filter((b) => b !== i.bucket).map((b) => ({ label: 'Move to ' + b, fn: () => { i.bucket = b; i.done = false; i.doneOn = ''; save(); draw(); } })),
         { label: i.pri ? 'Clear priority' : 'Make it a priority ⚡', fn: () => { i.pri = !i.pri; save(); draw(); } },
+        window.NCGCal && NCGCal.state().signedIn ? { label: 'Put in Google Calendar' + (i.due ? ' (' + fmtDue(i.due) + ')' : ' (today)'), fn: async () => { try { await NCGCal.createEvent({ title: i.text, date: i.due || t0 }); ui.toast('Added to your calendar'); } catch (e) { ui.toast(e.message); } } } : null,
         { label: i.due ? 'Change due date (' + fmtDue(i.due) + ')' : 'Set due date', fn: async () => { const v = await ui.ask('Due', 'today, tomorrow, fri, 3/11 or 2026-11-03', i.due); if (v === undefined) return; const q = parseQuick('x @' + (v || 'none')); i.due = v ? (q.due || '') : ''; save(); draw(); } },
         { label: 'Edit text', fn: async () => { const v = await ui.ask('Edit', '', i.text, 'Save'); if (v) { i.text = v; save(); draw(); } } },
         { label: 'Delete', danger: true, fn: () => { items.splice(idx, 1); save(); draw(); } }

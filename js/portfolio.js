@@ -49,7 +49,7 @@
     for (const p of (await pages.live()).filter((q) => q.notebookId === nb.id && q.kind !== 'app')) {
       const sec = secById.get(p.sectionId); if (!sec) continue;
       const type = sec.name;
-      out.push({ id: p.id, type, date: prop(p, 'Date') || '', kind: prop(p, 'Kind') || 'Core', hours: Number(prop(p, 'Hours')) || 0, speaker: prop(p, 'Speaker'), with: prop(p, 'With'), title: p.title || '', note: type === 'Teaching' ? '' : textOf(p.html), created: p.created || 0 });
+      out.push({ id: p.id, type, date: prop(p, 'Date') || '', kind: prop(p, 'Kind') || 'Core', hours: Number(prop(p, 'Hours')) || 0, speaker: prop(p, 'Speaker'), with: prop(p, 'With'), title: p.title || '', note: type === 'Teaching' ? '' : textOf(p.html), created: p.created || 0, eventId: prop(p, 'EventId') });
     }
     return out.sort((a, b) => (a.date !== b.date ? ((a.date || '0') < (b.date || '0') ? 1 : -1) : b.created - a.created));
   }
@@ -81,6 +81,18 @@
         body.append(el('div', { class: 'pf-types' }, ...TYPES.map(([name, desc]) => el('button', { type: 'button', class: 'pf-type' + (name === 'Teaching' ? ' teach' : ''), onclick: () => form(name) },
           el('span', { class: 'pf-tl' }, el('b', {}, name === 'Audit/QI' ? 'Audit / QI' : name), el('span', {}, desc)),
           name === 'Teaching' ? el('span', { class: 'pf-mini', 'aria-hidden': 'true' }, ...Array.from({ length: 10 }, (_, i) => { const lo = i * Math.max(1, targets.total / 10); return el('i', { class: t.core > lo ? 'f' : t.total > lo ? 'n' : '' }); })) : null))));
+        if (window.NCGCal && NCGCal.state().signedIn) {
+          const sug = el('div', { class: 'pf-sug' }); body.append(sug);
+          NCGCal.teachingCandidates(60).then((evs) => {
+            const logged = new Set(list.map((e) => e.eventId).filter(Boolean));
+            const open = evs.filter((ev) => !logged.has(ev.id)).reverse().slice(0, 8);
+            if (!open.length) return;
+            sug.append(el('h3', { class: 'pf-sub' }, 'From your calendar'), el('p', { class: 'sub' }, 'Sessions that look like teaching and are not logged yet.'));
+            const ul = el('div', { class: 'pf-list' });
+            for (const ev of open) ul.append(el('div', { class: 'pf-entry' }, el('span', { class: 'pf-main' }, el('span', { class: 'pf-date' }, el('b', {}, String(parseInt(ev.start.slice(8, 10), 10))), new Date(ev.start.slice(0, 10) + 'T00:00').toLocaleDateString('en-GB', { month: 'short' })), el('span', { class: 'pf-body' }, el('span', { class: 'pf-title' }, ev.title), el('span', { class: 'sub' }, ev.cal + (ev.allDay ? ' · all day' : ''))), el('span', { class: 'pf-hrs' }, hrs(ev.hours))), el('button', { class: 'btn small primary', type: 'button', onclick: () => form('Teaching', { date: ev.start.slice(0, 10), hours: ev.hours, topic: ev.title, eventId: ev.id }) }, 'Log this')));
+            sug.append(ul);
+          }).catch((e) => console.warn('calendar suggestions failed', e));
+        }
         const recent = list.slice(0, 3);
         if (recent.length) body.append(el('h3', { class: 'pf-sub' }, 'Recent'), el('div', { class: 'pf-list' }, ...recent.map(row)));
       } else if (tab === 'teaching') {
@@ -129,17 +141,17 @@
     };
 
     // The entry form, as a sheet.
-    function form(type) {
+    function form(type, prefill = {}) {
       const teach = type === 'Teaching';
-      let kind = 'Core';
+      let kind = prefill.kind || 'Core';
       return ui.sheet((box, close) => {
-        const date = el('input', { type: 'date', value: todayISO() });
-        const hours = el('input', { type: 'number', step: '0.25', min: '0.25', value: '1', inputmode: 'decimal', class: 'pf-hours' });
+        const date = el('input', { type: 'date', value: prefill.date || todayISO() });
+        const hours = el('input', { type: 'number', step: '0.25', min: '0.25', value: prefill.hours ? fh(prefill.hours) : '1', inputmode: 'decimal', class: 'pf-hours' });
         const quick = el('div', { class: 'tagchips' });
         const syncQuick = () => { quick.innerHTML = ''; for (const q of QUICK) quick.append(el('button', { class: 'chip' + (Number(hours.value) === q ? ' on' : ''), type: 'button', onclick: () => { hours.value = fh(q); syncQuick(); } }, fh(q) + (q === 7 ? ' (day)' : ''))); };
         syncQuick(); hours.addEventListener('input', syncQuick);
         const seg = el('div', { class: 'seg' }, ...['Core', 'Non-core'].map((k) => el('button', { type: 'button', class: k === kind ? 'on' : '', onclick: (e) => { kind = k; [...seg.children].forEach((b) => b.classList.toggle('on', b === e.currentTarget)); } }, k)));
-        const topic = el('input', { type: 'text', placeholder: 'e.g. Sepsis update', autocomplete: 'off' });
+        const topic = el('input', { type: 'text', placeholder: 'e.g. Sepsis update', autocomplete: 'off', value: prefill.topic || '' });
         const speaker = el('input', { type: 'text', placeholder: 'optional', autocomplete: 'off' });
         const note = el('textarea', { rows: '5', placeholder: 'What happened, and what you took from it' });
         const withEl = el('input', { type: 'text', placeholder: 'optional', autocomplete: 'off' });
@@ -154,7 +166,7 @@
             const h = Math.round((Number(hours.value) || 0) * 100) / 100, t = topic.value.trim();
             if (!(h > 0)) { err.textContent = 'Enter the hours, for example 1.5.'; return; }
             if (!t) { err.textContent = 'Add a topic so you can find this session later.'; return; }
-            fields = { title: t, html: speaker.value.trim() ? '<p>Speaker: ' + esc(speaker.value.trim()) + '</p>' : '<p></p>', props: [{ k: 'Date', v: d }, { k: 'Kind', v: kind }, { k: 'Hours', v: fh(h) }].concat(speaker.value.trim() ? [{ k: 'Speaker', v: speaker.value.trim() }] : []) };
+            fields = { title: t, html: speaker.value.trim() ? '<p>Speaker: ' + esc(speaker.value.trim()) + '</p>' : '<p></p>', props: [{ k: 'Date', v: d }, { k: 'Kind', v: kind }, { k: 'Hours', v: fh(h) }].concat(speaker.value.trim() ? [{ k: 'Speaker', v: speaker.value.trim() }] : []).concat(prefill.eventId ? [{ k: 'EventId', v: prefill.eventId }] : []) };
           } else {
             const n = note.value.trim();
             if (!n) { err.textContent = 'Add a short note before saving.'; return; }
@@ -164,7 +176,7 @@
           const p = await pages.create(Object.assign({ notebookId: nb.id, sectionId: sec.id, tags: [], ptype: 'portfolio' }, fields));
           close();
           ui.changed && ui.changed();
-          const e = { id: p.id, type, date: d, kind, hours: Number(prop(p, 'Hours')) || 0, speaker: prop(p, 'Speaker'), with: prop(p, 'With'), title: p.title, note: teach ? '' : textOf(p.html), created: p.created };
+          const e = { id: p.id, type, date: d, kind, hours: Number(prop(p, 'Hours')) || 0, speaker: prop(p, 'Speaker'), with: prop(p, 'With'), title: p.title, note: teach ? '' : textOf(p.html), created: p.created, eventId: prefill.eventId || '' };
           list.unshift(e); list.sort((a, b) => (a.date !== b.date ? (a.date < b.date ? 1 : -1) : b.created - a.created));
           ui.toast('Saved', { label: 'Copy for ePortfolio', fn: () => navigator.clipboard.writeText(line(e)).then(() => ui.toast('Copied')) });
           draw();

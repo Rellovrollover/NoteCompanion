@@ -371,7 +371,9 @@
       renderInbox();
     });
     const cur = (await allNotebooks()).find((n) => n.current);
-    view.append(el('div', { class: 'view-head' }, el('h1', {}, 'Inbox')), composer);
+    view.append(el('div', { class: 'view-head' }, el('h1', {}, 'Inbox')));
+    if (window.NCGCal) { const cal = el('div', {}); view.append(cal); NCGCal.strip(cal).catch(() => {}); }
+    view.append(composer);
     state.suggestIndex = await buildSuggestIndex();
     const cards = el('div', { class: 'cards' });
     for (const p of list) cards.append(inboxCard(p));
@@ -1763,6 +1765,35 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
     const ghRepo = el('input', { type: 'text', id: 'gh-repo', placeholder: 'owner/repo (private)', value: gh.repo, autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false' });
     const ghToken = el('input', { type: 'password', id: 'gh-token', placeholder: 'GitHub token', value: gh.token, autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false' });
     const ghStatus = el('p', { class: 'rule' }, gh.repo && gh.token ? 'Configured on this device. Captures are picked up on every sync.' : 'Not set up on this device.');
+    // Google Calendar
+    if (window.NCGCal) {
+      const gc = await NCGCal.config();
+      const gid = el('input', { type: 'text', placeholder: 'Client ID (…apps.googleusercontent.com)', value: gc.clientId, autocomplete: 'off', spellcheck: 'false' });
+      const gsec = el('input', { type: 'password', placeholder: 'Client secret', value: gc.secret, autocomplete: 'off' });
+      const gwords = el('input', { type: 'text', placeholder: 'teaching, grand round, sim…', value: gc.words, autocomplete: 'off' });
+      const gstrip = el('input', { type: 'checkbox', checked: gc.strip ? '' : null });
+      const gstatus = el('p', { class: 'rule' }, '');
+      const gstate = () => { const st = NCGCal.state(); const err = (JSON.parse(localStorage.getItem('nc-gcal') || '{}') || {}).lastError; gstatus.textContent = st.signedIn ? 'Connected' + (st.email ? ' as ' + st.email : '') + '.' : (err ? 'Sign-in failed: ' + err : (gc.clientId ? 'Not signed in.' : 'Paste the Client ID and secret, save, then sign in.')); };
+      gstate(); NCGCal.onChange(gstate);
+      const gsave = async () => { await meta.set('gcalClientId', gid.value.trim()); await meta.set('gcalSecret', gsec.value.trim()); await meta.set('gcalTeachWords', gwords.value.trim()); await meta.set('gcalStrip', gstrip.checked); };
+      view.append(el('div', { class: 'panel help' }, el('h2', {}, 'Google Calendar'),
+        el('p', {}, 'Shows today and tomorrow at the top of the Inbox and to-do lists, offers calendar sessions that look like teaching to the Portfolio log, and can put a to-do in your calendar. Needs a Google Cloud OAuth client of your own (one-off, on the laptop).'),
+        el('div', { class: 'formrow' }, gid, gsec),
+        el('label', { class: 'shift-field' }, el('span', {}, 'Words that mean teaching'), gwords),
+        el('label', { class: 'shift-toggle' }, gstrip, ' Show the Today strip'),
+        el('div', { class: 'formrow' },
+          el('button', { class: 'btn', type: 'button', onclick: async () => { await gsave(); toast('Saved'); gstate(); } }, 'Save'),
+          el('button', { class: 'btn primary', type: 'button', onclick: async () => { await gsave(); try { await NCGCal.signIn(); } catch (err) { toast(err.message); } } }, NCGCal.state().signedIn ? 'Sign in again' : 'Sign in with Google'),
+          NCGCal.state().signedIn ? el('button', { class: 'btn', type: 'button', onclick: () => { NCGCal.signOut(); gstate(); toast('Signed out of Google'); } }, 'Sign out') : null),
+        gstatus,
+        el('details', {}, el('summary', {}, 'Set-up steps (once)'),
+          el('ol', {},
+            el('li', {}, 'Go to console.cloud.google.com, create a project called 2nd Brain.'),
+            el('li', {}, 'APIs & Services → Library → enable ', el('b', {}, 'Google Calendar API'), '.'),
+            el('li', {}, 'APIs & Services → OAuth consent screen: External, app name 2nd Brain, your email for both contacts; add yourself under Test users; then ', el('b', {}, 'Publish app'), ' (so the sign-in does not expire weekly — Google shows an "unverified app" screen the first time; choose Advanced → continue).'),
+            el('li', {}, 'Credentials → Create credentials → OAuth client ID → Web application. Authorised JavaScript origin: ', el('code', {}, location.origin), '. Authorised redirect URI: ', el('code', {}, C.redirectUri), '.'),
+            el('li', {}, 'Copy the Client ID and Client secret here, Save, Sign in with Google. Repeat the paste on each device (they stay on the device, not in OneDrive).')))));
+    }
     view.append(el('div', { class: 'panel help' }, el('h2', {}, 'Instant capture relay'),
       el('p', {}, 'Fastest route from the iPhone Share Sheet: two taps, no browser. A Shortcut drops the item into a private GitHub repo and this app collects it on its next sync. Free; the repo is just a mailbox.'),
       el('div', { class: 'formrow' }, ghRepo, ghToken, el('button', { class: 'btn', type: 'button', onclick: async (e) => {
@@ -1994,6 +2025,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
     }
     document.addEventListener('focusout', () => { setTimeout(() => { if (!document.activeElement || document.activeElement === document.body) window.scrollTo(0, Math.max(0, window.scrollY)); }, 80); });
     await G.init();
+    if (window.NCGCal) { try { if (await NCGCal.init()) toast('Google Calendar connected'); } catch (e) { console.warn('google sign-in', e); } }
     await S.init();
     if (G.state().signedIn) S.schedule(600);
     else { const seen = await meta.get('introSeen'); if (!seen) { await meta.set('introSeen', true); toast('Sign in to sync with OneDrive', { label: 'Open settings', fn: () => go('#settings') }); } }
