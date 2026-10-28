@@ -852,3 +852,13 @@ input.topsearch.desktop-only { display: none !important; }
 .shift-del { color: var(--bad); }
 .shift-settype { margin: 2px 0 4px; align-items: center; }
 .shift-settype .chip { font-size: .78rem; }
+
+/* Logbook */
+.lb { display: grid; gap: 14px; }
+.pf-tabs-row { display: flex; align-items: center; gap: 8px; }
+.lb-table { table-layout: fixed; }
+.lb-table th, .lb-table td { white-space: normal; overflow-wrap: anywhere; vertical-align: top; }
+.lb-table th:nth-child(1), .lb-table td:nth-child(1) { width: 34%; }
+.lb-table tbody tr { cursor: pointer; }
+.pf-field select { font: inherit; padding: 9px 11px; border: 1px solid var(--line-strong); border-radius: 9px; background: var(--bg); color: var(--fg); font-weight: 400; width: 100%; }
+@media (max-width: 640px) { .lb-table th:nth-child(n+4), .lb-table td:nth-child(n+4) { display: none; } .lb-table th:nth-child(1), .lb-table td:nth-child(1) { width: 56%; } }

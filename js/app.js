@@ -888,7 +888,7 @@
       apps = (await pages.live()).filter((q) => q.kind === 'app');
     }
     // Tiles that have become built-in views take over their old link tiles by name.
-    const builtin = [[/shopping list/i, 'shop', 'A view over the "Shopping list" page in your notebook.'], [/trials/i, 'tp', 'A view over the Trials & Pearls notebook.'], [/portfolio/i, 'portfolio', 'Portfolio evidence and teaching hours — a view over the Portfolio notebook.']];
+    const builtin = [[/shopping list/i, 'shop', 'A view over the "Shopping list" page in your notebook.'], [/trials/i, 'tp', 'A view over the Trials & Pearls notebook.'], [/portfolio/i, 'portfolio', 'Portfolio evidence and teaching hours — a view over the Portfolio notebook.'], [/logbook/i, 'logbook', 'Your own procedure and experience log — a view over the Logbook notebook.']];
     for (const a of apps) for (const [re, key, desc] of builtin) {
       if (!a.app && re.test(a.title || '')) { await pages.update(a.id, { app: key, url: '', assetId: null, embed: 0, html: '<p>' + esc(desc) + '</p>' }); a.app = key; a.url = ''; a.assetId = null; a.html = '<p>' + esc(desc) + '</p>'; }
       else if (a.app === key && /moving into|NoteCompanion/i.test(a.html || '')) { await pages.update(a.id, { html: '<p>' + esc(desc) + '</p>' }); a.html = '<p>' + esc(desc) + '</p>'; }
@@ -944,8 +944,8 @@
         el('div', { class: 'apphead' }, el('span', { class: 'appico', html: appIcon }), el('b', {}, a.title)),
         el('div', { class: 'appdesc' }, textOf(a).slice(0, 120)),
         el('div', { class: 'actions' },
-          a.app === 'shop' ? el('a', { class: 'btn small primary', href: '#shop' }, 'Open') : a.app === 'tp' ? el('a', { class: 'btn small primary', href: '#tp' }, 'Open') : a.app === 'portfolio' ? el('a', { class: 'btn small primary', href: '#portfolio' }, 'Open') : (a.assetId || a.embed) ? el('button', { class: 'btn small primary', type: 'button', onclick: () => openPage(a.id) }, 'Open') : a.url ? el('a', { class: 'btn small primary', href: a.url, target: '_blank', rel: 'noopener' }, 'Open') : el('span', { class: 'sub' }, 'No link yet'),
-          (a.app === 'shop' || a.app === 'tp' || a.app === 'portfolio') ? el('span', { class: 'sub' }, a.app === 'shop' ? 'a view of a note' : 'a view of a notebook') : (a.assetId || a.embed) ? el('span', { class: 'sub' }, a.assetId ? 'runs inside' : 'embedded') : el('button', { class: 'btn small', type: 'button', onclick: () => openPage(a.id) }, 'Notes'),
+          a.app === 'shop' ? el('a', { class: 'btn small primary', href: '#shop' }, 'Open') : a.app === 'tp' ? el('a', { class: 'btn small primary', href: '#tp' }, 'Open') : a.app === 'portfolio' ? el('a', { class: 'btn small primary', href: '#portfolio' }, 'Open') : a.app === 'logbook' ? el('a', { class: 'btn small primary', href: '#logbook' }, 'Open') : (a.assetId || a.embed) ? el('button', { class: 'btn small primary', type: 'button', onclick: () => openPage(a.id) }, 'Open') : a.url ? el('a', { class: 'btn small primary', href: a.url, target: '_blank', rel: 'noopener' }, 'Open') : el('span', { class: 'sub' }, 'No link yet'),
+          (a.app === 'shop' || a.app === 'tp' || a.app === 'portfolio' || a.app === 'logbook') ? el('span', { class: 'sub' }, a.app === 'shop' ? 'a view of a note' : 'a view of a notebook') : (a.assetId || a.embed) ? el('span', { class: 'sub' }, a.assetId ? 'runs inside' : 'embedded') : el('button', { class: 'btn small', type: 'button', onclick: () => openPage(a.id) }, 'Notes'),
           SEED_FILES[a.title] && a.app !== 'tp' ? el('button', { class: 'btn small', type: 'button', onclick: async (e) => { e.target.disabled = true; toast('Importing…'); try { const r = await importSeed(SEED_FILES[a.title]); toast(r.added ? 'Imported ' + r.added + ' pages into ' + r.notebook.name : 'Already imported (' + r.total + ' pages)'); } catch (err) { toast(err.message); } e.target.disabled = false; } }, 'Import into 2nd Brain') : null));
       grid.append(gestures(tile, { onDelete: async () => { if (await confirm('Remove "' + a.title + '" from the hub?', null, 'Remove')) { await pages.remove(a.id); S.schedule(); renderApps(); } }, onLongPress: () => menu(a.title, [
         (a.assetId || a.embed) ? { label: 'Open', fn: () => openPage(a.id) } : { label: 'Open notes', fn: () => openPage(a.id) },
@@ -1028,6 +1028,20 @@
     }
     if (!window.NCPortfolio) { host.append(el('p', { class: 'sub' }, 'Not loaded.')); return; }
     await NCPortfolio.render(host, { toast, sheet, confirm, ask, menu, go, changed: onChanged });
+  }
+
+  // ---------- Logbook (a view over its notebook) ----------
+  async function renderLogbook() {
+    state.view = 'logbook';
+    const view = el('div', { class: 'view pf-view' });
+    view.append(el('div', { class: 'view-head' }, el('h1', {}, 'Logbook'), el('div', { class: 'toolrow' }, el('a', { class: 'btn small', href: '#apps' }, 'Apps'))));
+    const host = el('div', {});
+    view.append(host);
+    content.replaceChildren(view); syncNav();
+    let tile = (await pages.live()).find((q) => q.kind === 'app' && q.app === 'logbook');
+    if (!tile) { await pages.create({ kind: 'app', inbox: 0, title: 'Logbook', app: 'logbook', url: '', html: '<p>Your own procedure and experience log — a view over the Logbook notebook.</p>' }); onChanged(); }
+    if (!window.NCLogbook) { host.append(el('p', { class: 'sub' }, 'Not loaded.')); return; }
+    await NCLogbook.render(host, { toast, sheet, confirm, ask, menu, go, changed: onChanged });
   }
 
   // ---------- new page ----------
@@ -1216,6 +1230,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
     if (p.kind === 'app' && p.app === 'shop') { go('#shop'); return; }
     if (p.kind === 'app' && p.app === 'tp') { go('#tp'); return; }
     if (p.kind === 'app' && p.app === 'portfolio') { go('#portfolio'); return; }
+    if (p.kind === 'app' && p.app === 'logbook') { go('#logbook'); return; }
     if (p.kind === 'app' && (p.assetId || p.embed)) {
       view.classList.add('app-view');
       const host = el('div', { class: 'apphost' });
@@ -1770,7 +1785,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
 
   // ---------- navigation ----------
   function syncNav() {
-    document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === state.view || ((state.view === 'page' || state.view === 'section' || state.view === 'notebook' || ((state.view === 'pdfs' || state.view === 'apps' || state.view === 'shift' || state.view === 'shop' || state.view === 'tp' || state.view === 'portfolio') && a.closest('.tabbar'))) && a.dataset.nav === 'notes')));
+    document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === state.view || ((state.view === 'page' || state.view === 'section' || state.view === 'notebook' || ((state.view === 'pdfs' || state.view === 'apps' || state.view === 'shift' || state.view === 'shop' || state.view === 'tp' || state.view === 'portfolio' || state.view === 'logbook') && a.closest('.tabbar'))) && a.dataset.nav === 'notes')));
     if (typeof PANE !== 'undefined' && !PANE && document.documentElement.classList.contains('sidebar-collapsed')) sidebar.classList.remove('peek');
     closeSidebar();
   }
@@ -1787,6 +1802,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
     if (h === '#shop') return renderShop();
     if (h === '#tp') return renderTP();
     if (h === '#portfolio') return renderPortfolio();
+    if (h === '#logbook') return renderLogbook();
     if (h === '#notes') return renderNotes();
     if (h === '#pdfs') { state.query = 'is:pdf'; return renderSearch(); }
     if (h === '#apps') return renderApps();
