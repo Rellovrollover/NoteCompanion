@@ -349,7 +349,6 @@
       await pushAssets(prog);
       pulled = await pullChanges(prog);
       } finally { G.onThrottle = prevThrottle; }
-      try { const got = await pullMail(prog); if (got) { listeners.forEach((fn) => fn(Object.assign({ dropped: got }, status))); } } catch (e) { console.warn('mail pull failed', e); status.mailNote = e && e.status === 403 ? 'Mail access not granted yet' : ('Mail check failed: ' + (e.message || e)); }
       try { if (window.NCDrop) { status.message = 'Checking capture relay…'; emit(); const n = await window.NCDrop.pull(); if (n) { status.message = 'Captured ' + n + ' from the relay'; emit(); listeners.forEach((fn) => fn(Object.assign({ dropped: n }, status))); } } } catch (e) { console.warn('drop pull failed', e); }
       // Anything that arrived while pushing/pulling.
       for (const [sub, table] of KINDS) await pushKind(sub, table, prog);
@@ -421,35 +420,6 @@
     return job;
   }
 
-  // ---- Email → to-do: unread messages in the Outlook folder "2nd Brain" become items on the to-do list ----
-  const MAIL_FOLDER = '2nd Brain';
-  async function pullMail(progress) {
-    if (!(await meta.get('mailTodos', false))) return 0;
-    if (!G.hasScope('Mail.ReadWrite')) return 0;
-    let folderId = await meta.get('mailFolderId', '');
-    if (!folderId) {
-      const res = await G.json('/me/mailFolders?$top=200&$select=id,displayName');
-      const f = (res.value || []).find((x) => (x.displayName || '').toLowerCase() === MAIL_FOLDER.toLowerCase());
-      if (!f) { status.mailNote = 'No "' + MAIL_FOLDER + '" folder in your Outlook yet'; return 0; }
-      folderId = f.id; await meta.set('mailFolderId', folderId);
-    }
-    let res;
-    try { res = await G.json('/me/mailFolders/' + folderId + '/messages?$filter=isRead eq false&$top=50&$select=id,subject,from,webLink,receivedDateTime,bodyPreview'); }
-    catch (e) { if (e.status === 404) { await meta.set('mailFolderId', ''); return 0; } throw e; }
-    const msgs = res.value || [];
-    if (!msgs.length) { status.mailNote = ''; return 0; }
-    if (progress) progress('Adding ' + msgs.length + ' email' + (msgs.length === 1 ? '' : 's') + ' to the to-do list…');
-    let n = 0;
-    for (const m of msgs) {
-      const who = m.from && m.from.emailAddress ? (m.from.emailAddress.name || m.from.emailAddress.address) : '';
-      const text = (m.subject || '(no subject)').replace(/^(re|fw|fwd):\s*/i, '') + (who ? ' — ' + who : '');
-      const ok = window.NCDrop && await window.NCDrop.addTodo(text, { link: m.webLink || '' });
-      if (ok) { n++; try { await G.call('/me/messages/' + m.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ isRead: true }) }); } catch (e) { console.warn('could not mark read', e); } }
-    }
-    status.mailNote = '';
-    return n;
-  }
-
   function schedule(delay) {
     clearTimeout(timer);
     timer = setTimeout(run, delay == null ? 4000 : delay);
@@ -466,5 +436,5 @@
   }
 
   async function resetDelta() { await meta.set('deltaLink', null); }
-  window.NCSync = { init, run, schedule, resetDelta, purgeDeleted, fetchAsset, buildPack, reuploadAll, pullMail, onChange: (fn) => listeners.add(fn), status: () => Object.assign({}, status) };
+  window.NCSync = { init, run, schedule, resetDelta, purgeDeleted, fetchAsset, buildPack, reuploadAll, onChange: (fn) => listeners.add(fn), status: () => Object.assign({}, status) };
 })();
