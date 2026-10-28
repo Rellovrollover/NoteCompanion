@@ -32,10 +32,21 @@
     return state();
   }
 
+  // Scopes added later (mail access, when the user turns it on) are remembered so silent token renewals include them.
+  const extraScopes = () => { try { return JSON.parse(localStorage.getItem('nc-extra-scopes') || '[]'); } catch (e) { return []; } };
+  const scopes = () => [...new Set([...C.graphScopes, ...extraScopes()])];
   async function signIn() {
     if (!pca) throw new Error('Sign-in is not available on this page.');
-    await pca.loginRedirect({ scopes: C.graphScopes, prompt: 'select_account' });
+    await pca.loginRedirect({ scopes: scopes(), prompt: 'select_account' });
   }
+  // Ask the user to grant more permissions (redirects through Microsoft and back).
+  async function requestScopes(more) {
+    if (!pca || !account) throw Object.assign(new Error('Not signed in'), { code: 'nosession' });
+    const next = [...new Set([...extraScopes(), ...more])];
+    localStorage.setItem('nc-extra-scopes', JSON.stringify(next));
+    await pca.acquireTokenRedirect({ scopes: scopes(), account });
+  }
+  function hasScope(scope) { return extraScopes().includes(scope); }
 
   async function signOut() {
     if (!pca || !account) return;
@@ -46,11 +57,11 @@
   async function token() {
     if (!pca || !account) throw Object.assign(new Error('Not signed in'), { code: 'nosession' });
     try {
-      const r = await pca.acquireTokenSilent({ scopes: C.graphScopes, account });
+      const r = await pca.acquireTokenSilent({ scopes: scopes(), account });
       return r.accessToken;
     } catch (e) {
       if (window.msal && e instanceof msal.InteractionRequiredAuthError) {
-        await pca.acquireTokenRedirect({ scopes: C.graphScopes, account });
+        await pca.acquireTokenRedirect({ scopes: scopes(), account });
       }
       throw e;
     }
@@ -162,5 +173,5 @@
     if (!res.ok && res.status !== 404) throw new Error('Delete failed ' + res.status);
   }
 
-  window.NCGraph = { init, signIn, signOut, state, onChange: (fn) => listeners.add(fn), ensureFolders, list, download, upload, remove, json, call };
+  window.NCGraph = { init, signIn, signOut, state, onChange: (fn) => listeners.add(fn), ensureFolders, list, download, upload, remove, json, call, requestScopes, hasScope };
 })();

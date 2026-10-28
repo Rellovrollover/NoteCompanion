@@ -30,6 +30,18 @@
   // with Claude adds a trial, a pearl or a portfolio entry: it drops "<stamp>.page.json" in the relay.
   //   { notebook, group?, section, title, html? | text?, props?: [{k,v}] | {k:v}, tags?, ptype?, pinned?, id?, created? }
   // Without a notebook it lands in the Inbox. An array files several. An existing id is updated, not duplicated.
+  // The to-do page that emails and the "Add to-do" Shortcut feed. Chosen in Settings; made on first use otherwise.
+  async function todoPage() {
+    const id = await meta.get('todoPage', '');
+    if (id) { const p = await pages.get(id); if (p && !p.deleted) return p; }
+    const existing = (await pages.live()).find((p) => p.ptype === 'todo');
+    if (existing) { await meta.set('todoPage', existing.id); return existing; }
+    const p = await pages.create({ inbox: 1, title: 'To-do', html: '<h3>Now</h3><ul></ul><h3>Today</h3><ul></ul>', ptype: 'todo', pinned: 1 });
+    await meta.set('todoPage', p.id);
+    return p;
+  }
+  async function addTodo(text, opts) { const p = await todoPage(); return window.NCTodo ? window.NCTodo.addTo(p.id, text, opts) : false; }
+
   async function placePage(spec) {
     const { notebooks, sections } = window.NCDB;
     const props = Array.isArray(spec.props) ? spec.props : Object.entries(spec.props || {}).map(([k, v]) => ({ k, v: String(v) }));
@@ -71,6 +83,8 @@
         if (!del.ok) continue;
         if (!bytes.length) continue; // a test run of the Shortcut with no input uploads an empty file
         if (/\.job\.txt$/i.test(it.name)) { const text = new TextDecoder().decode(bytes).trim(); if (text && window.NCShift) { await window.NCShift.addQuick(text); n++; } continue; }
+        // "<stamp>.todo.txt": each line becomes an item on the to-do list ("Chase CT !" / "Book leave @fri").
+        if (/\.todo\.txt$/i.test(it.name)) { const text = new TextDecoder().decode(bytes).trim(); for (const line of text.split(/\n+/)) if (line.trim() && await addTodo(line.trim())) n++; continue; }
         // "<stamp>.page.json": one note (or a list of them) filed straight into a notebook.
         if (/\.pages?\.json$/i.test(it.name)) {
           let spec; try { spec = JSON.parse(new TextDecoder().decode(bytes)); } catch (e) { console.warn('bad page.json', it.name); continue; }
@@ -118,5 +132,5 @@
     return j.full_name;
   }
 
-  window.NCDrop = { config, setConfig, pull, test, placePage };
+  window.NCDrop = { config, setConfig, pull, test, placePage, todoPage, addTodo };
 })();

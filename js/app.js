@@ -1306,7 +1306,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
       toolbar: 'undo redo | blocks | bold italic underline strikethrough | forecolor backcolor | bullist numlist todo | outdent indent | alignleft aligncenter alignright | callout accordion table image link pagelink | fontsize fontfamily | codesample removeformat searchreplace',
       quickbars_selection_toolbar: 'bold italic underline | forecolor backcolor | quicklink',
       quickbars_insert_toolbar: false, quickbars_image_toolbar: 'alignleft aligncenter alignright | imageoptions',
-      autoresize_bottom_margin: 24, min_height: isNarrow() ? 360 : 460,
+      autoresize_bottom_margin: 24, autoresize_overflow_padding: 14, min_height: isNarrow() ? 360 : 460,
       convert_urls: false, paste_data_images: true, automatic_uploads: true, image_title: false, image_dimensions: false,
       images_upload_handler: (blobInfo) => storeAsset(blobInfo.blob(), blobInfo.filename()).then((a) => { onChanged(); return assetUrl(a.id); }),
       link_default_target: '_blank', link_assume_external_targets: 'https',
@@ -1314,7 +1314,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
       font_family_formats: 'Calibri=Calibri,Carlito,Segoe UI,-apple-system,system-ui,sans-serif; System=-apple-system,Segoe UI,system-ui,sans-serif; Serif=Iowan Old Style,Palatino Linotype,Georgia,serif; Arial=arial,helvetica,sans-serif; Mono=ui-monospace,Menlo,Consolas,monospace',
       block_formats: 'Paragraph=p; Heading 1=h1; Heading 2=h2; Heading 3=h3; Quote=blockquote; Code=pre',
       table_toolbar: 'tableprops tabledelete | tableinsertrowbefore tableinsertrowafter tabledeleterow | tableinsertcolbefore tableinsertcolafter tabledeletecol',
-      placeholder: 'Start writing… (type / for commands)', extended_valid_elements: 'li[data-todo|data-due|data-pri|data-added|data-done|style|class],a[href|class|target|rel|title],audio[src|controls],div[class|style]',
+      placeholder: 'Start writing… (type / for commands)', extended_valid_elements: 'li[data-todo|data-due|data-pri|data-added|data-done|data-link|style|class],a[href|class|target|rel|title],audio[src|controls],div[class|style]',
       setup: (ed) => {
         ed.ui.registry.addButton('todo', { icon: 'checklist', tooltip: 'To-do item', onAction: () => toggleTodo(ed) });
         ed.ui.registry.addMenuButton('callout', { icon: 'info', tooltip: 'Callout', fetch: (cb) => cb(Object.entries(CALLOUTS).map(([k, v]) => ({ type: 'menuitem', text: v, onAction: () => { insertCallout(ed, k); scheduleSave(); } })).concat([{ type: 'menuitem', text: 'Remove callout', onAction: () => { const c = ed.dom.getParent(ed.selection.getNode(), '.callout'); if (c) { ed.dom.remove(c, true); ed.undoManager.add(); scheduleSave(); } } }])) });
@@ -1729,6 +1729,31 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
     const ghRepo = el('input', { type: 'text', id: 'gh-repo', placeholder: 'owner/repo (private)', value: gh.repo, autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false' });
     const ghToken = el('input', { type: 'password', id: 'gh-token', placeholder: 'GitHub token', value: gh.token, autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false' });
     const ghStatus = el('p', { class: 'rule' }, gh.repo && gh.token ? 'Configured on this device. Captures are picked up on every sync.' : 'Not set up on this device.');
+    // Email → to-do, and which to-do page the relay/email feed.
+    const todoName = el('span', { class: 'sub' }, '');
+    const refreshTodoName = async () => { const id = await meta.get('todoPage', ''); const tp = id ? await pages.get(id) : null; todoName.textContent = tp && !tp.deleted ? 'Currently: "' + (tp.title || 'Untitled') + '"' : 'Not chosen yet — a "To-do" page is made in the Inbox on first use.'; };
+    refreshTodoName();
+    const pickTodo = el('button', { class: 'btn', type: 'button', onclick: async () => {
+      const lists = (await pages.live()).filter((q) => q.ptype === 'todo');
+      menu('To-do list for emails and the Shortcut', [...lists.map((q) => ({ label: q.title || 'Untitled', fn: async () => { await meta.set('todoPage', q.id); refreshTodoName(); } })), { label: '+ New to-do list in the Inbox', accent: true, fn: async () => { const np = await pages.create({ inbox: 1, title: 'To-do', html: '<h3>Now</h3><ul></ul><h3>Today</h3><ul></ul>', ptype: 'todo', pinned: 1 }); await meta.set('todoPage', np.id); onChanged(); refreshTodoName(); } }]);
+    } }, 'Choose list…');
+    const mailStatus = el('p', { class: 'rule' }, '');
+    const mailToggle = el('input', { type: 'checkbox' });
+    meta.get('mailTodos', false).then((v) => { mailToggle.checked = !!v; });
+    mailToggle.addEventListener('change', async () => {
+      await meta.set('mailTodos', mailToggle.checked);
+      if (mailToggle.checked && !G.hasScope('Mail.ReadWrite')) {
+        mailStatus.textContent = 'Taking you to Microsoft to allow mail access…';
+        try { await G.requestScopes(['Mail.ReadWrite']); } catch (err) { mailStatus.textContent = 'Could not request access: ' + (err.message || err); }
+      } else if (mailToggle.checked) { mailStatus.textContent = 'On. Checked on every sync.'; S.schedule(300); }
+      else mailStatus.textContent = 'Off.';
+    });
+    view.append(el('div', { class: 'panel help' }, el('h2', {}, 'Email → to-do'),
+      el('p', {}, 'Make a folder called ', el('b', {}, '2nd Brain'), ' in your personal Outlook. Any email you move or forward into it (from any account) becomes an item on your to-do list on the next sync — the subject as the task, with a ✉ link back to the email. The email is marked read so it is only added once.'),
+      el('label', { class: 'shift-toggle' }, mailToggle, ' Turn emails in that folder into to-dos'), mailStatus,
+      el('div', { class: 'formrow' }, pickTodo, todoName),
+      el('details', {}, el('summary', {}, '"Add to-do" Shortcut (any app, any email account)'),
+        el('p', {}, 'Duplicate your "Add job" Shortcut and change the file name to end in ', el('code', {}, '.todo.txt'), ' instead of ', el('code', {}, '.job.txt'), '. Share any text (or an email) to it and each line becomes a to-do: "Chase CT report !" is a priority, "Book leave @fri" sets a due date.'))));
     view.append(el('div', { class: 'panel help' }, el('h2', {}, 'Instant capture relay'),
       el('p', {}, 'Fastest route from the iPhone Share Sheet: two taps, no browser. A Shortcut drops the item into a private GitHub repo and this app collects it on its next sync. Free; the repo is just a mailbox.'),
       el('div', { class: 'formrow' }, ghRepo, ghToken, el('button', { class: 'btn', type: 'button', onclick: async (e) => {

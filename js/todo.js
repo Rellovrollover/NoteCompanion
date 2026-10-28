@@ -31,7 +31,7 @@
       for (const li of node.querySelectorAll(':scope > li')) {
         const text = li.textContent.replace(/\s+/g, ' ').trim(); if (!text) continue;
         const done = li.getAttribute('data-todo') === 'done' || bucket === 'Done';
-        items.push({ text, bucket: done ? 'Done' : bucket, done, due: li.getAttribute('data-due') || '', pri: li.getAttribute('data-pri') === '1', added: li.getAttribute('data-added') || today(), doneOn: li.getAttribute('data-done') || '' });
+        items.push({ text, bucket: done ? 'Done' : bucket, done, due: li.getAttribute('data-due') || '', pri: li.getAttribute('data-pri') === '1', added: li.getAttribute('data-added') || today(), doneOn: li.getAttribute('data-done') || '', link: li.getAttribute('data-link') || '' });
       }
     }
     return items;
@@ -41,7 +41,7 @@
     for (const b of BUCKETS.concat('Done')) {
       const list = items.filter((i) => i.bucket === b);
       if (!list.length && b !== 'Today' && b !== 'Now') continue;
-      out += '<h3>' + b + '</h3><ul>' + list.map((i) => '<li data-todo="' + (i.done ? 'done' : '') + '"' + (i.due ? ' data-due="' + i.due + '"' : '') + (i.pri ? ' data-pri="1"' : '') + (i.added ? ' data-added="' + i.added + '"' : '') + (i.doneOn ? ' data-done="' + i.doneOn + '"' : '') + '>' + esc(i.text) + '</li>').join('') + '</ul>';
+      out += '<h3>' + b + '</h3><ul>' + list.map((i) => '<li data-todo="' + (i.done ? 'done' : '') + '"' + (i.due ? ' data-due="' + i.due + '"' : '') + (i.pri ? ' data-pri="1"' : '') + (i.added ? ' data-added="' + i.added + '"' : '') + (i.doneOn ? ' data-done="' + i.doneOn + '"' : '') + (i.link ? ' data-link="' + esc(i.link) + '"' : '') + '>' + esc(i.text) + '</li>').join('') + '</ul>';
     }
     return out;
   }
@@ -100,6 +100,7 @@
         i.done && i.doneOn ? el('span', {}, 'done ' + fmtDue(i.doneOn).replace('today', 'today')) : null);
       const text = el('button', { class: 'todo-text', type: 'button', onclick: () => itemMenu(i) }, i.pri ? el('span', { class: 'todo-bolt' }, '⚡') : null, i.text, meta);
       r.append(box, text);
+      if (i.link) r.append(el('a', { class: 'todo-link', href: i.link, target: '_blank', rel: 'noopener', title: 'Open the email', onclick: (e) => e.stopPropagation() }, '✉'));
       return r;
     }
     function draw() {
@@ -150,5 +151,16 @@
     return { destroy() { host.innerHTML = ''; } };
   }
 
-  window.NCTodo = { render, parse, serialise, parseQuick };
+  // Add a line to a to-do page from outside the view (the relay, an email). "!" and "@fri" work here too.
+  async function addTo(pageId, raw, opts = {}) {
+    const { pages } = window.NCDB;
+    const p = await pages.get(pageId); if (!p || p.deleted) return false;
+    const items = parse(p.html);
+    const q = parseQuick(raw);
+    if (!q.text) return false;
+    items.unshift({ text: q.text, bucket: opts.bucket || 'Today', done: false, due: q.due || opts.due || '', pri: q.pri || !!opts.pri, added: today(), doneOn: '', link: opts.link || '' });
+    await pages.update(pageId, { html: serialise(items) });
+    return true;
+  }
+  window.NCTodo = { render, parse, serialise, parseQuick, addTo };
 })();
