@@ -237,48 +237,31 @@
   }
 
   // ---- Push: only records flagged dirty ----
-  // Small JSON records go up twenty at a time through Graph's $batch; big ones one by one.
-  const BATCH_MAX = 20, BATCH_BYTES = 3 * 1024 * 1024;
+  // One PUT per record, a few in flight at once. (Batched PUTs were tried: Graph stored some of those bodies
+  // in a form Safari could not parse, so records go up one file at a time, exactly as written.)
   async function pushKind(sub, table, progress) {
     const dirty = (await table.where('dirty').equals(1).toArray()).filter((rec) => { if (rec.deleted && !rec.etag) { table.update(rec.id, { dirty: 0 }); return false; } return true; });
     if (!dirty.length) return;
     let done = 0; const total = dirty.length;
     const report = () => { if (progress && total > 3) progress('Uploading ' + sub + '… ' + done + '/' + total); };
     report();
-    const enc = (s) => encodeURIComponent(s);
-    let i = 0;
-    while (i < dirty.length) {
-      // Gather a batch under the size cap.
-      const group = []; let bytes = 0;
-      while (i < dirty.length && group.length < BATCH_MAX) {
-        const rec = dirty[i]; const body = JSON.stringify(strip(rec)); const size = body.length;
-        if (group.length && bytes + size > BATCH_BYTES) break;
-        group.push({ rec, body }); bytes += size; i++;
-        if (size > BATCH_BYTES) break;
-      }
-      let batched = false;
-      if (group.length > 1) {
-        try {
-          const res = await G.call('/$batch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requests: group.map((g, k) => ({ id: String(k), method: 'PUT', url: '/me/drive/root:/' + enc(C.driveFolder) + '/' + enc(sub) + '/' + enc(g.rec.id + '.json') + ':/content', headers: { 'Content-Type': 'application/json' }, body: JSON.parse(g.body) })) }) });
-          if (res.ok) {
-            const out = await res.json(); const byId = new Map((out.responses || []).map((r) => [r.id, r]));
-            const failed = [];
-            for (const [k, g] of group.entries()) { const r = byId.get(String(k)); if (r && r.status >= 200 && r.status < 300) { await table.update(g.rec.id, { etag: r.body && r.body.eTag || null, dirty: 0 }); done++; } else failed.push(g); }
-            report();
-            if (failed.length) { for (const g of failed) { const item = await G.upload(sub, g.rec.id + '.json', g.body, 'application/json'); await table.update(g.rec.id, { etag: item ? item.eTag : null, dirty: 0 }); done++; report(); } }
-            batched = true;
-          }
-        } catch (e) { console.warn('batch push failed, falling back', e); }
-      }
-      if (!batched) {
-        for (const g of group) {
-          try {
-            const item = await G.upload(sub, g.rec.id + '.json', g.body, 'application/json');
-            await table.update(g.rec.id, { etag: item ? item.eTag : null, dirty: 0 }); done++; report();
-          } catch (e) { console.warn('push failed', sub, g.rec.id, e); throw e; }
-        }
-      }
-    }
+    let firstErr = null;
+    await pool(dirty, 4, async (rec) => {
+      if (firstErr) return;
+      try {
+        const body = JSON.stringify(strip(rec));
+        const item = await G.upload(sub, rec.id + '.json', body, 'application/json');
+        await table.update(rec.id, { etag: item ? item.eTag : null, dirty: 0 }); done++; report();
+      } catch (e) { console.warn('push failed', sub, rec.id, e); firstErr = e; }
+    });
+    if (firstErr) throw firstErr;
+  }
+  // Mark every live record on this device for upload again, overwriting the copies on OneDrive.
+  async function reuploadAll() {
+    let n = 0;
+    for (const [, table] of KINDS) n += await table.where('deleted').equals(0).modify({ dirty: 1 });
+    status.pending = await window.NCDB.pendingCount(); emit();
+    return n;
   }
   async function pushAssets(progress) {
     const dirty = await db.assets.where('dirty').equals(1).toArray();
@@ -426,5 +409,5 @@
   }
 
   async function resetDelta() { await meta.set('deltaLink', null); }
-  window.NCSync = { init, run, schedule, resetDelta, purgeDeleted, fetchAsset, buildPack, onChange: (fn) => listeners.add(fn), status: () => Object.assign({}, status) };
+  window.NCSync = { init, run, schedule, resetDelta, purgeDeleted, fetchAsset, buildPack, reuploadAll, onChange: (fn) => listeners.add(fn), status: () => Object.assign({}, status) };
 })();

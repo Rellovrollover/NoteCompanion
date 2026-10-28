@@ -1707,9 +1707,13 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
       catch (err) { purgeStatus.textContent = 'Purge failed: ' + (err.message || err); }
       purgeBtn.disabled = false;
     } }, 'Purge deleted items');
+    const reupBtn = el('button', { class: 'btn', type: 'button', onclick: async () => {
+      if (!(await confirm('Re-upload every note from this device?', 'Each record on this device is written to OneDrive again, overwriting the copy there. Use it on the device that has the complete, correct set of notes.', 'Re-upload'))) return;
+      const n = await S.reuploadAll(); toast('Uploading ' + n + ' records…'); S.schedule(200);
+    } }, 'Re-upload all notes from this device');
     view.append(el('div', { class: 'panel' }, el('h2', {}, 'Clean up'),
       el('p', { class: 'rule' }, 'Deleted pages, sections and files stay in OneDrive as markers so your other devices delete them too. Once everything has synced, purge them to keep the folder small and syncs quick.'),
-      el('div', { class: 'formrow' }, purgeBtn), purgeStatus));
+      el('div', { class: 'formrow' }, purgeBtn, reupBtn), purgeStatus));
     view.append(el('div', { class: 'panel' }, el('h2', {}, 'Backup'),
       el('p', { class: 'rule' }, 'Everything is in your OneDrive folder as plain JSON and files. This also downloads a single JSON file of all notes from this device.'),
       el('div', {}, el('button', { class: 'btn', type: 'button', onclick: async () => { const data = await window.NCDB.exportAll(); await deliver(new Blob([JSON.stringify(data)], { type: 'application/json' }), 'notecompanion-backup-' + isoDay(new Date()) + '.json'); } }, 'Download backup'))));
