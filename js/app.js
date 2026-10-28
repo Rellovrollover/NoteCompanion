@@ -1548,6 +1548,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
     let timer = null;
     const run = async () => {
       state.query = inp.value; const q = inp.value.trim().toLowerCase(); results.innerHTML = '';
+      const ts = $('#topsearch'); if (ts && ts.value !== inp.value && document.activeElement !== ts) ts.value = inp.value;
       if (!q) return;
       let all = await pages.live();
       const tagQ = q.startsWith('#') ? q.slice(1) : null;
@@ -1960,6 +1961,14 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
     await refreshTree(); await refreshInboxCount();
     await route();
     try { const sp = localStorage.getItem('nc-split'); if (sp && !isNarrow()) openSplit(sp); } catch (e) { /* ignore */ }
+    // Desktop top-bar search: type and go; Ctrl+K / Cmd+K jumps to it.
+    const topSearch = $('#topsearch');
+    if (topSearch) {
+      let t = null;
+      topSearch.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { state.query = topSearch.value; if (state.view === 'search') { const inp = $('#search-input'); if (inp) { inp.value = topSearch.value; inp.dispatchEvent(new Event('input')); } } else if (topSearch.value.trim()) { go('#search'); setTimeout(() => { topSearch.focus(); const v = topSearch.value; topSearch.setSelectionRange(v.length, v.length); }, 150); } }, 250); });
+      topSearch.addEventListener('keydown', (e) => { if (e.key === 'Enter') { clearTimeout(t); state.query = topSearch.value; if (state.view === 'search') { const inp = $('#search-input'); if (inp) { inp.value = topSearch.value; inp.dispatchEvent(new Event('input')); } } else go('#search'); } if (e.key === 'Escape') { topSearch.value = ''; topSearch.blur(); } });
+      document.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); topSearch.focus(); topSearch.select(); } });
+    }
     await G.init();
     await S.init();
     if (G.state().signedIn) S.schedule(600);

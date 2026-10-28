@@ -821,3 +821,9 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 700; letter-spacing: 0; tex
 .sheet-x { position: sticky; top: 0; justify-self: end; margin-bottom: -46px; width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); background: var(--raised); color: var(--muted); font-size: 1.3rem; line-height: 1; cursor: pointer; display: grid; place-items: center; padding: 0 0 2px; z-index: 2; }
 .sheet-x:hover { color: var(--fg); background: var(--line); }
 .sheet > h2:first-of-type { padding-right: 44px; }
+
+/* Always-there search on desktop */
+.topsearch { width: min(320px, 28vw); border: 1px solid var(--line-strong); background: var(--raised); border-radius: 999px; padding: 6px 12px; font: inherit; font-size: .9rem; color: var(--fg); }
+.topsearch:focus { outline: none; border-color: var(--accent); background: var(--paper); box-shadow: 0 0 0 3px var(--accent-soft); }
+input.topsearch.desktop-only { display: none !important; }
+@media (min-width: 900px) { input.topsearch.desktop-only { display: inline-block !important; } }
