@@ -2,7 +2,7 @@
 // 1. Caches the app shell so it opens with no connection.
 // 2. Serves local assets (images, audio, files) from IndexedDB at ./asset/<id>,
 //    so markdown can reference them with a plain relative URL on every device.
-const VERSION = 'nc-2026-10-29v';
+const VERSION = 'nc-2026-10-29w';
 const SHELL = [
   './', './index.html', './manifest.webmanifest',
   './css/app.css',

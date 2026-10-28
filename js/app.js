@@ -888,8 +888,11 @@
       apps = (await pages.live()).filter((q) => q.kind === 'app');
     }
     // Tiles that have become built-in views take over their old link tiles by name.
-    const builtin = [[/shopping list/i, 'shop'], [/trials/i, 'tp'], [/portfolio/i, 'portfolio']];
-    for (const a of apps) for (const [re, key] of builtin) if (!a.app && re.test(a.title || '')) { await pages.update(a.id, { app: key, url: '', assetId: null, embed: 0 }); a.app = key; a.url = ''; a.assetId = null; }
+    const builtin = [[/shopping list/i, 'shop', 'A view over the "Shopping list" page in your notebook.'], [/trials/i, 'tp', 'A view over the Trials & Pearls notebook.'], [/portfolio/i, 'portfolio', 'Portfolio evidence and teaching hours — a view over the Portfolio notebook.']];
+    for (const a of apps) for (const [re, key, desc] of builtin) {
+      if (!a.app && re.test(a.title || '')) { await pages.update(a.id, { app: key, url: '', assetId: null, embed: 0, html: '<p>' + esc(desc) + '</p>' }); a.app = key; a.url = ''; a.assetId = null; a.html = '<p>' + esc(desc) + '</p>'; }
+      else if (a.app === key && /moving into|NoteCompanion/i.test(a.html || '')) { await pages.update(a.id, { html: '<p>' + esc(desc) + '</p>' }); a.html = '<p>' + esc(desc) + '</p>'; }
+    }
     return apps.sort((a, b) => (b.pinned || 0) - (a.pinned || 0) || (a.title || '').localeCompare(b.title || ''));
   }
   // Import a seed file (a notebook of pages) into NoteCompanion; idempotent by page id.
