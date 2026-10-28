@@ -1416,6 +1416,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
       p.kind === 'pdf' || p.kind === 'app' ? null : (p.ptype === 'todo' ? { label: state.todoAsNote || !document.querySelector('.todohost') ? 'Open as to-do list' : 'Open as plain note', fn: () => { state.todoAsNote = !document.querySelector('.todohost'); renderPage(p.id); } } : { label: 'Turn into a to-do list', fn: async () => { await pages.update(p.id, { ptype: 'todo' }); S.schedule(); state.todoAsNote = false; renderPage(p.id); } }),
       p.kind === 'pdf' ? null : { label: 'History…', fn: () => historySheet(p) },
       ...inkItems,
+      p.kind === 'pdf' || p.kind === 'app' ? null : { label: 'Send as email…', fn: () => sendAsEmail(p) },
       p.kind === 'pdf' ? { label: 'Export annotated PDF', fn: async () => { try { toast('Preparing PDF…'); const blob = await window.NCPDF.exportAnnotated(p); await deliver(blob, (p.title || 'document') + ' (annotated).pdf'); } catch (e) { toast(e.message); } } } : { label: 'Export as Markdown (.md)', fn: () => exportPage(p, 'md') },
       p.kind === 'pdf' ? { label: 'Export original PDF', fn: async () => { const a = await assets.get(p.assetId); if (a && a.blob) await deliver(a.blob, (p.title || 'document') + '.pdf'); else toast('PDF not on this device'); } } : { label: 'Export as Word (.doc)', fn: () => exportPage(p, 'doc') },
       p.kind === 'pdf' ? { label: 'Clear all marks', danger: true, fn: async () => { if (await confirm('Remove every pen and highlighter mark from this PDF?', null, 'Clear')) { await pages.update(p.id, { annots: {} }); S.schedule(); renderPage(p.id); } } } : { label: 'Print / Save as PDF', fn: () => setTimeout(() => window.print(), 200) },
@@ -1492,6 +1493,21 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
       }
     }
     return html;
+  }
+  // Opens the mail app of your choice with the page as the message: title as subject, text as body.
+  function sendAsEmail(p) {
+    const html = state.editor && state.pageId === p.id ? state.editor.getContent() : htmlOf(p);
+    const d = document.createElement('div'); d.innerHTML = html.replace(/>\s+</g, '><');
+    for (const li of d.querySelectorAll('li[data-todo]')) li.prepend(li.getAttribute('data-todo') === 'done' ? '☑ ' : '☐ ');
+    for (const li of d.querySelectorAll('li:not([data-todo])')) li.prepend('• ');
+    for (const br of d.querySelectorAll('br')) br.replaceWith('\n');
+    for (const b of d.querySelectorAll('p, div, li, h1, h2, h3, h4, tr, blockquote, pre')) b.append('\n');
+    for (const td of d.querySelectorAll('td, th')) td.append('\t');
+    const props = (p.props || []).map((x) => x.k + ': ' + x.v).join('\n');
+    let text = ((props ? props + '\n\n' : '') + (d.textContent || '')).replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').replace(/\n(?=[☐☑•])/g, '\n').trim();
+    const LIMIT = 12000;
+    if (text.length > LIMIT) { text = text.slice(0, LIMIT) + '\n\n[…] (the rest is in 2nd Brain)'; toast('Long page — the email has the first part; export it for the whole thing'); }
+    location.href = 'mailto:?subject=' + encodeURIComponent(p.title || 'Note') + '&body=' + encodeURIComponent(text);
   }
   async function deliver(blob, filename) {
     const file = new File([blob], filename, { type: blob.type });
