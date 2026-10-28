@@ -69,17 +69,19 @@
   // Resumable: each delta page is applied (records downloaded) before its continuation link is saved, so a sync
   // that dies halfway — the phone locking, a lost signal, a rate-limit storm — carries on from that page next time
   // instead of listing the whole folder again.
-  async function pullChanges(progress) {
+  async function pullChanges(progress, opts = {}) {
     let url = await meta.get('deltaLink', null);
-    const first = !url;
+    let first = !url, fromPack = false;
+    // A fresh device starts from the snapshot pack (one download) and then asks only for what changed since.
+    if (!url && !opts.noPack) { const dl = await applyPack(progress); if (dl) { url = dl; fromPack = true; first = false; } }
     if (!url) url = deltaUrl(await meta.get('deltaNoLinks', false));
     const totals = { seen: 0, failed: 0, why: '' };
     while (url) {
       let page;
       try { page = await G.json(url); }
       catch (e) {
-        if (e.status === 410 || e.status === 404) { await meta.set('deltaLink', null); if (!first) return pullChanges(progress); }
-        if (e.status === 400 && first && !totals.seen && !(await meta.get('deltaNoLinks', false))) { await meta.set('deltaNoLinks', true); return pullChanges(progress); }
+        if (e.status === 410 || e.status === 404) { await meta.set('deltaLink', null); if (!first) return pullChanges(progress, { noPack: fromPack }); }
+        if (e.status === 400 && first && !totals.seen && !(await meta.get('deltaNoLinks', false))) { await meta.set('deltaNoLinks', true); return pullChanges(progress, opts); }
         throw e;
       }
       const changed = { notebooks: [], sections: [], pages: [], versions: [], assets: [], inbox: [] };
@@ -105,6 +107,79 @@
       if (keep) await meta.set('deltaLink', keep);
     }
     return totals;
+  }
+
+  // ---- Snapshot pack: every live record in one compressed file, plus the change-position it was taken at ----
+  const PACK_SUB = 'snapshot', PACK_GZ = 'pack.json.gz', PACK_JSON = 'pack.json', PACK_MIN_GAP = 20 * 60 * 1000;
+  const PHONE = /iPhone|iPad|Android/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const packRec = (r) => { const o = Object.assign({}, r); delete o.dirty; delete o.blob; return o; };
+  async function latestChange() {
+    let t = 0;
+    for (const [, table] of KINDS) { const r = await table.orderBy('updated').last(); if (r && r.updated > t) t = r.updated; }
+    const a = await db.assets.orderBy('updated').last(); if (a && a.updated > t) t = a.updated;
+    return t;
+  }
+  async function buildPack(progress) {
+    const deltaLink = await meta.get('deltaLink', null);
+    if (!deltaLink || !/delta/.test(deltaLink) || /token=latest/.test(deltaLink) || !deltaLink.includes('token=')) return false;
+    const pending = await window.NCDB.pendingCount(); if (pending) return false;
+    const built = await meta.get('packBuilt', 0);
+    if (Date.now() - built < PACK_MIN_GAP) return false;
+    const changedAt = await latestChange();
+    if (changedAt <= built) return false;
+    if (progress) progress('Writing snapshot for other devices…');
+    const pack = { v: 1, built: Date.now(), deltaLink, notebooks: [], sections: [], pages: [], versions: [], assets: [] };
+    for (const [sub, table] of KINDS) {
+      const live = await table.where('deleted').equals(0).toArray();
+      if (sub === 'versions') {
+        // History is the bulk of the record count; a fresh device gets the newest few per page.
+        const byPage = new Map();
+        for (const v of live) { if (!byPage.has(v.pageId)) byPage.set(v.pageId, []); byPage.get(v.pageId).push(v); }
+        for (const list of byPage.values()) { list.sort((a, b) => (b.updated || 0) - (a.updated || 0)); for (const v of list.slice(0, 5)) pack.versions.push(packRec(v)); }
+      } else pack[sub] = live.map(packRec);
+    }
+    for (const a of await db.assets.where('deleted').equals(0).toArray()) pack.assets.push(Object.assign(packRec(a), { downloaded: 0 }));
+    const json = JSON.stringify(pack);
+    let blob = new Blob([json], { type: 'application/json' }), name = PACK_JSON, mime = 'application/json';
+    if (typeof CompressionStream === 'function') {
+      try { blob = await new Response(blob.stream().pipeThrough(new CompressionStream('gzip'))).blob(); name = PACK_GZ; mime = 'application/gzip'; } catch (e) { blob = new Blob([json], { type: 'application/json' }); }
+    }
+    await G.upload(PACK_SUB, name, blob, mime);
+    if (name === PACK_GZ) { try { await G.remove(PACK_SUB, PACK_JSON); } catch (e) { /* none */ } }
+    await meta.set('packBuilt', pack.built);
+    return true;
+  }
+  async function applyPack(progress) {
+    let pack = null;
+    try {
+      if (progress) progress('Fetching snapshot…');
+      let res = null, gz = true;
+      try { res = await G.download(PACK_SUB, PACK_GZ); } catch (e) { if (e.status !== 404) throw e; }
+      if (!res) { gz = false; try { res = await G.download(PACK_SUB, PACK_JSON); } catch (e) { if (e.status !== 404) throw e; } }
+      if (!res) return null;
+      let text;
+      if (gz) { if (typeof DecompressionStream !== 'function') return null; text = await new Response(res.body.pipeThrough(new DecompressionStream('gzip'))).text(); }
+      else text = await res.text();
+      pack = JSON.parse(text);
+    } catch (e) { console.warn('snapshot unusable', e); return null; }
+    if (!pack || pack.v !== 1 || !pack.deltaLink) return null;
+    const total = pack.notebooks.length + pack.sections.length + pack.pages.length + pack.versions.length + pack.assets.length;
+    let n = 0;
+    for (const [sub, table] of KINDS) {
+      const list = pack[sub] || [];
+      for (let i = 0; i < list.length; i += 200) {
+        const slice = list.slice(i, i + 200);
+        const keep = [];
+        for (const r of slice) { const loc = await table.get(r.id); if (loc && (loc.dirty || (loc.updated || 0) > (r.updated || 0))) continue; keep.push(Object.assign(r, { dirty: 0 })); }
+        if (keep.length) await table.bulkPut(keep);
+        n += slice.length;
+        if (progress) progress('Loading snapshot… ' + n + '/' + total);
+      }
+    }
+    for (const a of pack.assets) { const loc = await db.assets.get(a.id); if (loc) continue; await db.assets.put(Object.assign(a, { blob: null, dirty: 0, downloaded: 0 })); }
+    if (progress) progress('Snapshot loaded (' + pack.pages.length + ' pages, taken ' + new Date(pack.built).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) + '); checking for changes since…');
+    await meta.set('deltaLink', pack.deltaLink);
+    return pack.deltaLink;
   }
 
   async function applyChanges(changed, progress, totals) {
@@ -133,7 +208,6 @@
   }
 
   // Phones fetch small files during sync and the rest when a page that needs them is opened.
-  const PHONE = /iPhone|iPad|Android/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   const autoLimit = () => (PHONE ? 1.5 * 1024 * 1024 : C.autoDownloadLimit);
   async function pullAsset(item) {
     const id = item.name.split('__')[0];
@@ -246,9 +320,9 @@
     running = true;
     try {
       await setState('syncing', 'Syncing with OneDrive');
-      if ((await meta.get('foldersReady')) !== 'v3') {
-        await G.ensureFolders(['notebooks', 'sections', 'pages', 'assets', 'versions', 'inbox']);
-        await meta.set('foldersReady', 'v3');
+      if ((await meta.get('foldersReady')) !== 'v4') {
+        await G.ensureFolders(['notebooks', 'sections', 'pages', 'assets', 'versions', 'inbox', PACK_SUB]);
+        await meta.set('foldersReady', 'v4');
       }
       // Push first so our edits are on OneDrive before we read the delta (which then echoes them back with matching etags).
       let base = 'Syncing with OneDrive', pulled = null;
@@ -266,6 +340,8 @@
       for (const [sub, table] of KINDS) await pushKind(sub, table, prog);
       status.lastSync = Date.now();
       await meta.set('lastSync', status.lastSync);
+      // Laptops/desktops refresh the snapshot other devices bootstrap from; phones don't spend their data on it.
+      if (!PHONE && !(pulled && pulled.failed)) { try { await buildPack(prog); } catch (e) { console.warn('snapshot build failed', e); } }
       if (pulled && pulled.failed) await setState('error', pulled.failed + ' items could not be downloaded (' + pulled.why.slice(0, 300) + '); will retry', new Error(pulled.why));
       else await setState('ok', 'Synced');
     } catch (e) {
@@ -345,5 +421,5 @@
   }
 
   async function resetDelta() { await meta.set('deltaLink', null); }
-  window.NCSync = { init, run, schedule, resetDelta, purgeDeleted, fetchAsset, onChange: (fn) => listeners.add(fn), status: () => Object.assign({}, status) };
+  window.NCSync = { init, run, schedule, resetDelta, purgeDeleted, fetchAsset, buildPack, onChange: (fn) => listeners.add(fn), status: () => Object.assign({}, status) };
 })();

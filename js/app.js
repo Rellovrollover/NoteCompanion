@@ -44,6 +44,8 @@
       const close = (v) => { host.hidden = true; host.innerHTML = ''; host.classList.remove('popover', 'centre'); resolve(v); };
       const box = el('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true' });
       await build(box, close);
+      // Every sheet gets a cross in the corner, whatever buttons it has at the bottom.
+      box.prepend(el('button', { class: 'sheet-x', type: 'button', 'aria-label': 'Close', title: 'Close', onclick: () => close(undefined) }, '×'));
       const anchored = !opts.centre && !isNarrow() && Date.now() - lastPoint.t < 1500;
       host.classList.toggle('popover', anchored);
       host.classList.toggle('centre', !!opts.centre && !isNarrow());
@@ -59,7 +61,7 @@
         box.style.left = x + 'px'; box.style.top = y + 'px'; box.style.maxHeight = (innerHeight - y - margin) + 'px';
       }
       host.onclick = (e) => { if (e.target === host) close(undefined); };
-      const first = box.querySelector('input, textarea, button'); if (first) setTimeout(() => first.focus(), 30);
+      const first = box.querySelector('input, textarea, button:not(.sheet-x)'); if (first) setTimeout(() => first.focus(), 30);
     });
   }
   const ask = (title, placeholder, value, okLabel) => sheet((box, close) => {
