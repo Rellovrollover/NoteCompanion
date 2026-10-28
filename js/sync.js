@@ -24,7 +24,12 @@
     const direct = item['@microsoft.graph.downloadUrl'];
     if (direct) { try { const r = await fetch(direct); if (r.ok) return await r.json(); } catch (e) { /* fall through */ } }
     const res = await G.download(sub, item.name);
-    return res.json();
+    const text = await res.text();
+    try { return JSON.parse(text); }
+    catch (e) {
+      // Say what came back, so a bad file can be recognised rather than guessed at.
+      throw new Error('Not JSON (' + (res.headers.get('content-type') || 'no type') + ', ' + text.length + ' chars, ' + (direct ? 'via link' : 'via graph') + '): ' + JSON.stringify(text.slice(0, 90)));
+    }
   }
   // Run fn over items with up to `limit` in flight at once.
   async function pool(items, limit, fn) {
