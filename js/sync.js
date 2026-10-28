@@ -192,7 +192,15 @@
       const table = TABLE[sub];
       // Only what we don't already have at this etag; a few in flight at once, progress on every one.
       const todo = [];
-      for (const item of changed[sub]) { const loc = await table.get(item.name.replace(/\.json$/, '')); if (!(loc && loc.etag === item.eTag)) todo.push([item, loc]); }
+      let empty = 0;
+      for (const item of changed[sub]) {
+        const loc = await table.get(item.name.replace(/\.json$/, ''));
+        // A zero-byte file (a batched upload Graph never wrote) is not worth a request; a device holding the real
+        // record re-uploads it, and the new etag brings it down next time.
+        if (item.size === 0) { empty++; if (loc && !loc.deleted && !loc.dirty) await table.update(loc.id, { dirty: 1 }); continue; }
+        if (!(loc && loc.etag === item.eTag)) todo.push([item, loc]);
+      }
+      if (empty) { totals.empty = (totals.empty || 0) + empty; }
       if (!todo.length) continue;
       let done = 0, failed = 0, why = ''; const total = todo.length;
       if (progress) progress('Downloading ' + sub + '… 0/' + total);
@@ -255,6 +263,23 @@
       } catch (e) { console.warn('push failed', sub, rec.id, e); firstErr = e; }
     });
     if (firstErr) throw firstErr;
+  }
+  // One-off: find zero-byte record files on OneDrive and re-upload them from this device where it holds the record.
+  async function repairEmpty(progress) {
+    if ((await meta.get('repairEmpty', '')) === 'v1') return 0;
+    let n = 0;
+    for (const [sub, table] of KINDS) {
+      if (progress) progress('Checking OneDrive for empty ' + sub + '…');
+      const items = await G.list(sub);
+      for (const it of items) {
+        if (it.size !== 0) continue;
+        const loc = await table.get(it.name.replace(/\.json$/, ''));
+        if (loc && !loc.deleted && !loc.dirty) { await table.update(loc.id, { dirty: 1 }); n++; }
+      }
+    }
+    await meta.set('repairEmpty', 'v1');
+    status.pending = await window.NCDB.pendingCount(); emit();
+    return n;
   }
   // Mark every live record on this device for upload again, overwriting the copies on OneDrive.
   async function reuploadAll() {
@@ -319,6 +344,7 @@
       const prevThrottle = G.onThrottle;
       G.onThrottle = (ms) => { status.message = base + ' — Microsoft is rate-limiting, waiting ' + Math.round(ms / 1000) + ' s'; emit(); if (prevThrottle) prevThrottle(ms); };
       try {
+      try { const fixed = await repairEmpty(prog); if (fixed) prog('Re-uploading ' + fixed + ' records that were empty on OneDrive…'); } catch (e) { console.warn('repair check failed', e); }
       for (const [sub, table] of KINDS) await pushKind(sub, table, prog);
       await pushAssets(prog);
       pulled = await pullChanges(prog);
@@ -331,6 +357,7 @@
       // Laptops/desktops refresh the snapshot other devices bootstrap from; phones don't spend their data on it.
       if (!PHONE && !(pulled && pulled.failed)) { try { await buildPack(prog); } catch (e) { console.warn('snapshot build failed', e); } }
       if (pulled && pulled.failed) await setState('error', pulled.failed + ' items could not be downloaded (' + pulled.why.slice(0, 300) + '); will retry', new Error(pulled.why));
+      else if (pulled && pulled.empty) await setState('ok', 'Synced — ' + pulled.empty + ' records are empty on OneDrive; they arrive once another device re-uploads them');
       else await setState('ok', 'Synced');
     } catch (e) {
       console.warn('sync failed', e);
