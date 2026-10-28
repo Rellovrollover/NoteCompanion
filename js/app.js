@@ -1306,7 +1306,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
       toolbar: 'undo redo | blocks | bold italic underline strikethrough | forecolor backcolor | bullist numlist todo | outdent indent | alignleft aligncenter alignright | callout accordion table image link pagelink | fontsize fontfamily | codesample removeformat searchreplace',
       quickbars_selection_toolbar: 'bold italic underline | forecolor backcolor | quicklink',
       quickbars_insert_toolbar: false, quickbars_image_toolbar: 'alignleft aligncenter alignright | imageoptions',
-      autoresize_bottom_margin: 24, min_height: isNarrow() ? 360 : 460,
+      autoresize_bottom_margin: 24, autoresize_overflow_padding: 14, min_height: isNarrow() ? 360 : 460,
       convert_urls: false, paste_data_images: true, automatic_uploads: true, image_title: false, image_dimensions: false,
       images_upload_handler: (blobInfo) => storeAsset(blobInfo.blob(), blobInfo.filename()).then((a) => { onChanged(); return assetUrl(a.id); }),
       link_default_target: '_blank', link_assume_external_targets: 'https',
