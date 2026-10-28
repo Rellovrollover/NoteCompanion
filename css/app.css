@@ -848,3 +848,7 @@ input.topsearch.desktop-only { display: none !important; }
 .tree .nb-body .group-head { background: transparent; padding: 5px 4px 3px; }
 .tree .nb-body .group-body { margin-left: 10px; border-left-width: 2px; }
 .tree .nb-body .addsec { margin: 6px 0 2px 8px; }
+
+.shift-del { color: var(--bad); }
+.shift-settype { margin: 2px 0 4px; align-items: center; }
+.shift-settype .chip { font-size: .78rem; }

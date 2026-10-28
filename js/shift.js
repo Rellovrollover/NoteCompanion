@@ -25,9 +25,10 @@
     Procedure: { icon: '💉', picks: ['Cannula', 'Bloods (phleb)', 'Catheter', 'NGT', 'ABG', 'VBG', 'LP', 'Other'], stages: ['To do', 'In progress', 'Done'] },
     Discharge: { icon: '📋', picks: ['Discharge letter', 'TTO', 'TTO not required', 'DN prescription'], stages: ['To do', 'In progress', 'Done'] },
     Family:    { icon: '👪', picks: ['Update given', 'Update needed', 'Collateral history', 'DNACPR discussion', 'Best interests'], stages: ['To do', 'In progress', 'Done'] },
-    Other:     { icon: '📝', picks: ['Weight', 'Fluid balance chart', 'Catheter needed', 'BM monitoring', 'Fluid output monitoring'], custom: 'Describe', stages: ['To do', 'In progress', 'Done'] }
+    Other:     { icon: '📝', picks: ['Weight', 'Fluid balance chart', 'Catheter needed', 'BM monitoring', 'Fluid output monitoring'], custom: 'Describe', stages: ['To do', 'In progress', 'Done'] },
+    Unassigned: { icon: '❔', hint: 'Came in from the Shortcut — set its type when you get to it', hidden: true }
   };
-  const TYPES = Object.keys(TYPEDEF);
+  const TYPES = Object.keys(TYPEDEF).filter((t) => !TYPEDEF[t].hidden);
   const TYPE_ALIASES = { atsp: 'Review', review: 'Review', bloods: 'Bloods', blood: 'Bloods', micro: 'Micro', imaging: 'Imaging', xr: 'Imaging', cxr: 'Imaging', ct: 'Imaging', uss: 'Imaging', ecg: 'Imaging', prescribe: 'Prescribe', rx: 'Prescribe', meds: 'Prescribe', referral: 'Referral', refer: 'Referral', procedure: 'Procedure', cannula: 'Procedure', catheter: 'Procedure', discharge: 'Discharge', tto: 'Discharge', family: 'Family', other: 'Other' };
   const FLAGS = ['🔺 Senior review', '↘️ Handed to me', '🔁 Re-review later', '👥 Colleagues aware', '🔬 Results pending', '🌅 Handover'];
   const PRIORITY = { 1: 'Now', 2: 'Soon', 3: 'Routine' };
@@ -157,7 +158,10 @@
             d.stages && j.status !== 'done' ? el('button', { class: 'btn small shift-stage', type: 'button', title: 'Tap to move to the next stage', onclick: async (e) => { e.stopPropagation(); if ((j.stage || 0) < d.stages.length - 1) { j.stage = (j.stage || 0) + 1; if (j.status === 'new') j.status = 'seen'; if (j.stage === d.stages.length - 1) j.status = 'done'; } await put(j); draw(); } }, stageName(j) + ' ›') : null,
             j.status !== 'done' ? el('button', { class: 'btn small', type: 'button', onclick: async (e) => { e.stopPropagation(); j.status = j.status === 'new' ? 'seen' : 'done'; if (j.status === 'done' && d.stages) j.stage = d.stages.length - 1; await put(j); draw(); } }, j.status === 'new' ? 'Seen' : 'Done') : el('button', { class: 'btn small', type: 'button', onclick: async (e) => { e.stopPropagation(); j.status = 'seen'; if (d.stages) j.stage = Math.max(0, d.stages.length - 2); await put(j); draw(); } }, 'Reopen'),
             el('button', { class: 'btn small', type: 'button', title: 'Copy this job as one line', onclick: (e) => { e.stopPropagation(); copyText(jobLine(j), ui); } }, 'Copy'),
-            j.callback ? el('a', { class: 'btn small', href: 'tel:' + j.callback.replace(/\s+/g, ''), onclick: (e) => e.stopPropagation() }, '☎ ' + j.callback) : null)));
+            j.callback ? el('a', { class: 'btn small', href: 'tel:' + j.callback.replace(/\s+/g, ''), onclick: (e) => e.stopPropagation() }, '☎ ' + j.callback) : null,
+            el('span', { class: 'spacer' }),
+            el('button', { class: 'btn small shift-del', type: 'button', title: 'Delete this job', 'aria-label': 'Delete', onclick: async (e) => { e.stopPropagation(); if (await ui.confirm('Delete this job?', (j.where || '') + ' ' + (j.reason || typeOf(j)), 'Delete')) { await db.shift.delete(j.id); draw(); } } }, '🗑'))));
+        if (typeOf(j) === 'Unassigned' && j.status !== 'done') ul.lastChild.insertBefore(el('div', { class: 'shift-chips shift-settype', onclick: (e) => e.stopPropagation() }, el('span', { class: 'sub' }, 'Type:'), ...TYPES.map((t) => el('button', { class: 'chip', type: 'button', onclick: async () => { j.type = t; await put(j); draw(); } }, TYPEDEF[t].icon + ' ' + t))), ul.lastChild.querySelector('.shift-job-actions'));
       }
       return ul;
     }
@@ -264,16 +268,17 @@
   const onShift = () => !!prefs.onShift;
   const setOnShift = (v) => { prefs.onShift = !!v; savePrefs(); };
   // A one-line job from the iPhone Shortcut (via the capture relay).
-  async function addQuick(text) { const j = parseQuick(text, prefs.mode); await put(j); return j; }
+  // Jobs from the Shortcut arrive as Unassigned unless the text names a type ("12 bloods FBC").
+  async function addQuick(text) { const j = parseQuick(text, prefs.mode, 'Unassigned'); await put(j); return j; }
 
   // "9A ATSP hypotension" → where 9A, type Review, reason hypotension. "12 bloods FBC U&Es" picks the tests too.
-  function parseQuick(text, mode) {
-    const j = newJob(mode, 'Review');
+  function parseQuick(text, mode, fallback) {
+    const j = newJob(mode, 'Review'); if (fallback && TYPEDEF[fallback]) j.type = fallback;
     const words = text.split(/\s+/);
     const typeIx = words.findIndex((w) => TYPE_ALIASES[w.toLowerCase().replace(/[^a-z]/g, '')]);
     let typeWord = '';
     if (typeIx >= 0) { typeWord = words[typeIx]; j.type = TYPE_ALIASES[typeWord.toLowerCase().replace(/[^a-z]/g, '')]; words.splice(typeIx, 1); }
-    if (words.length && /^[A-Za-z]?\d{1,2}[A-Za-z]?$|^(bay|bed|ward)\d*/i.test(words[0])) j.where = words.shift().toUpperCase();
+    if (words.length && /^[A-Za-z]?\d{1,2}[A-Za-z]?[:,.\-]?$|^(bay|bed|ward)\d*/i.test(words[0])) j.where = words.shift().replace(/[:,.\-]$/, '').toUpperCase();
     const d = TYPEDEF[j.type];
     // "CT" or "cannula" named the type and is also one of its picks.
     if (d.picks && typeWord) { const hit = d.picks.find((x) => x.toLowerCase().replace(/[^a-z0-9]/g, '') === typeWord.toLowerCase().replace(/[^a-z0-9]/g, '')); if (hit) j.picks.push(hit); }
