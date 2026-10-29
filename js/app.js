@@ -162,7 +162,8 @@
   const setBtn = (btn, name, label) => { btn.replaceChildren(icon(name), el('span', {}, label)); };
   // Level icons: notebook › section group (stacked pages) › section (a page).
   const LVL = {
-    notebook: '<path d="M7 3.5h10.5A1.5 1.5 0 0 1 19 5v14.5H7.5A2.5 2.5 0 0 1 5 17V5.5a2 2 0 0 1 2-2z"/><path d="M5 17a2.5 2.5 0 0 1 2.5-2.5H19M9 3.5v11"/>',
+    // Solid book, pages showing through at the bottom (a hole, so it works on any background).
+    notebook: '<path fill="currentColor" stroke="none" fill-rule="evenodd" d="M8 2.5h10a1 1 0 0 1 1 1v17a1 1 0 0 1-1 1H8a3 3 0 0 1-3-3v-13a3 3 0 0 1 3-3zM8 17.2h9.4c-.5.5-.8 1.1-.8 1.65s.3 1.15.8 1.65H8a1.65 1.65 0 0 1 0-3.3z"/>',
     group: '<path d="M3 13V5.5A1.5 1.5 0 0 1 4.5 4H8l1.5 1.5H15A1.5 1.5 0 0 1 16.5 7v.5"/><path d="M5.5 16.5V9A1.5 1.5 0 0 1 7 7.5h3.5L12 9h5.5A1.5 1.5 0 0 1 19 10.5v.5"/><path d="M8 12.5A1.5 1.5 0 0 1 9.5 11H13l1.5 1.5H20a1.5 1.5 0 0 1 1.5 1.5v5.5A1.5 1.5 0 0 1 20 21H9.5A1.5 1.5 0 0 1 8 19.5z"/>',
     section: '<path d="M3.5 7A1.5 1.5 0 0 1 5 5.5h4.5l2 2H19A1.5 1.5 0 0 1 20.5 9v9a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 18z"/>',
     page: '<path d="M13.5 3.5h-6A1.5 1.5 0 0 0 6 5v14a1.5 1.5 0 0 0 1.5 1.5h9A1.5 1.5 0 0 0 18 19V8z"/><path d="M13.5 3.5V8H18M9 12.5h6M9 16h4"/>'
@@ -750,6 +751,16 @@
       (() => { let cur = null; try { cur = localStorage.getItem('nc-secmode'); } catch (e) { /* ignore */ } cur = cur || s.view || 'list'; const next = cur === 'table' ? 'list' : 'table';
         return { label: cur === 'table' ? 'Show as list' : 'Show as table (database view)', fn: async () => { try { localStorage.setItem('nc-secmode', next); } catch (e) { /* ignore */ } await sections.update(s.id, { view: next }); onChanged(); if (state.view === 'section') renderSection(s.id); else go('#section/' + s.id); } }; })(),
       { label: 'Rename', fn: async () => { const n = await ask('Rename section', '', s.name, 'Rename'); if (n && n !== s.name) { await sections.update(s.id, { name: n }); onChanged(); } } },
+      { label: 'Merge into another section…', fn: async () => {
+        const others = (await sections.forNotebook(nb.id)).filter((x) => x.id !== s.id);
+        if (!others.length) { toast('No other section in this notebook'); return; }
+        others.sort((a, b) => ((a.group || '') === (s.group || '') ? 0 : 1) - ((b.group || '') === (s.group || '') ? 0 : 1) || (a.group || '').localeCompare(b.group || '') || a.name.localeCompare(b.name));
+        menu('Merge "' + s.name + '" into', others.map((x) => ({ label: (x.group ? x.group + ' › ' : '') + x.name, fn: async () => {
+          if (!(await confirm('Merge "' + s.name + '" into "' + x.name + '"?', 'Its pages move into ' + x.name + ' and the empty section goes.', 'Merge'))) return;
+          const n = await sections.merge(s.id, x.id); onChanged(); toast('Moved ' + n + ' page' + (n === 1 ? '' : 's') + ' into ' + x.name);
+          if (state.view === 'section' && state.sectionId === s.id) go('#section/' + x.id);
+        } })));
+      } },
       { label: 'Delete section', danger: true, fn: async () => { if (await confirm('Delete section "' + s.name + '"?', 'Its pages go to the bin too.')) { await sections.remove(s.id); onChanged(); if (state.view === 'page' || state.view === 'section') go('#inbox'); } } }
     ]);
   }
@@ -865,6 +876,7 @@
     view.append(el('div', { class: 'crumbs' }, el('a', { href: nb ? '#nb/' + nb.id : '#notes' }, nb ? nb.name : '—'), '›', ...(s.group ? [s.group, '›'] : []), s.name, el('span', { class: 'spacer' }), el('button', { class: 'more-page', type: 'button', 'aria-label': 'Section options', onclick: () => sectionMenu(nb, s) }, '···')));
     const head = el('div', { class: 'view-head' }, el('h1', {}, s.name), el('div', { class: 'toolrow' },
       el('div', { class: 'seg' }, el('button', { type: 'button', class: s.view !== 'table' ? 'on' : '', onclick: () => setMode('list') }, 'List'), el('button', { type: 'button', class: s.view === 'table' ? 'on' : '', onclick: () => setMode('table') }, 'Table')),
+      s.view === 'table' ? el('button', { class: 'btn small', type: 'button', onclick: () => pickColumns() }, 'Columns') : null,
       el('button', { class: 'btn small', type: 'button', onclick: () => { sv.select = !sv.select; sv.picked = new Set(); renderSection(id); } }, sv.select ? 'Done' : 'Select'),
       el('button', { class: 'btn small primary', type: 'button', onclick: () => newPage(nb.id, id) }, '+ Page')));
     view.append(head);
@@ -886,25 +898,94 @@
     const holder = el('div', {});
     view.append(holder);
     const propVal = (p, k) => { const f = (p.props || []).find((x) => x.k === k); return f ? f.v : ''; };
+    // ---- table columns: built-ins plus a column per property. Which show, and in what order, is kept on the section (synced). ----
+    const BUILTIN = { snippet: 'Preview', tags: 'Tags', created: 'Created', updated: 'Edited', words: 'Words', images: 'Images', files: 'Files' };
+    const HIDDEN_BY_DEFAULT = ['words', 'images', 'files'];
+    const colLabel = (k) => BUILTIN[k] || k.replace(/^p:/, '');
+    const info = new Map();
+    const infoOf = (p) => {
+      let x = info.get(p.id); if (x) return x;
+      const html = htmlOf(p); const d = document.createElement('div'); d.innerHTML = html;
+      const parts = [...d.querySelectorAll('p, li, h1, h2, h3, h4, td, th, blockquote')].filter((n) => !n.querySelector('p, li, td')).map((n) => n.textContent.replace(/\s+/g, ' ').trim()).filter(Boolean);
+      let snip = ''; for (const t of parts) { snip = snip ? snip + (/[.!?:;]$/.test(snip) ? ' ' : ' · ') + t : t; if (snip.length > 160) break; }
+      if (!snip) snip = (d.textContent || '').replace(/\s+/g, ' ').trim();
+      x = { snippet: snip.slice(0, 180), words: ((d.textContent || '').match(/\S+/g) || []).length, images: (html.match(/<img\b/gi) || []).length, files: (html.match(/href="asset\//gi) || []).length + (p.assetId && p.kind !== 'image' ? 1 : 0) };
+      info.set(p.id, x); return x;
+    };
+    const columns = () => {
+      const propKeys = [...new Set(pgs.flatMap((p) => (p.props || []).map((x) => 'p:' + x.k)))];
+      const saved = Array.isArray(s.cols) ? s.cols : null, hide = new Set(Array.isArray(s.hide) ? s.hide : HIDDEN_BY_DEFAULT);
+      const all = saved ? [...saved.filter((k) => k in BUILTIN || k.startsWith('p:')), ...propKeys.filter((k) => !saved.includes(k)), ...Object.keys(BUILTIN).filter((k) => !saved.includes(k))]
+        : [...propKeys, 'snippet', 'tags', 'created', 'updated', 'words', 'images', 'files'];
+      return { all: [...new Set(all)], hide };
+    };
+    async function pickColumns() {
+      const { all, hide } = columns(); const order = all.slice();
+      await sheet((box, close) => {
+        const list = el('div', { class: 'colpick' });
+        const drawList = () => list.replaceChildren(...order.map((k, i) => el('div', { class: 'colpick-row' },
+          el('label', {}, el('input', { type: 'checkbox', checked: hide.has(k) ? null : '', onchange: (e) => { if (e.target.checked) hide.delete(k); else hide.add(k); } }), el('span', {}, colLabel(k)), k.startsWith('p:') ? el('span', { class: 'sub' }, ' property') : null),
+          el('button', { class: 'colpick-mv', type: 'button', 'aria-label': 'Move up', disabled: i ? null : '', onclick: () => { [order[i - 1], order[i]] = [order[i], order[i - 1]]; drawList(); } }, '↑'),
+          el('button', { class: 'colpick-mv', type: 'button', 'aria-label': 'Move down', disabled: i < order.length - 1 ? null : '', onclick: () => { [order[i + 1], order[i]] = [order[i], order[i + 1]]; drawList(); } }, '↓'))));
+        drawList();
+        const nn = el('input', { type: 'text', placeholder: 'New property column, e.g. Status' });
+        const addCol = () => { const n = nn.value.trim(); if (!n) return; const k = 'p:' + n; if (!order.includes(k)) order.push(k); hide.delete(k); nn.value = ''; drawList(); };
+        nn.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addCol(); } });
+        box.append(el('h2', {}, 'Columns'), el('p', { class: 'sub' }, 'Title always comes first. Tick to show, arrows to reorder. Tap a property or tag cell in the table to edit it.'), list,
+          el('div', { class: 'colpick-add' }, nn, el('button', { class: 'btn small', type: 'button', onclick: addCol }, 'Add')),
+          el('div', { class: 'actions' },
+            el('button', { class: 'btn', type: 'button', onclick: async () => { await sections.update(id, { cols: null, hide: null }); close(); onChanged(); renderSection(id); } }, 'Reset'),
+            el('button', { class: 'btn primary', type: 'button', onclick: async () => { await sections.update(id, { cols: order, hide: [...hide] }); close(); onChanged(); renderSection(id); } }, 'Save')));
+      }, { centre: true });
+    }
+    // Click a property or tags cell to edit it in place; Enter or leaving the cell saves, Esc cancels.
+    function editCell(td, p, k) {
+      if (td.querySelector('input')) return;
+      const isTags = k === 'tags', key = k.slice(2);
+      const start = isTags ? (p.tags || []).join(', ') : propVal(p, key);
+      const input = el('input', { class: 'cell-edit', type: 'text', value: start, placeholder: isTags ? 'tag, tag' : '' });
+      let done = false;
+      const finish = async (save) => {
+        if (done) return; done = true;
+        const v = input.value.trim();
+        if (save && v !== start) {
+          if (isTags) { p.tags = [...new Set(v.split(',').map((t) => t.trim().replace(/^#/, '')).filter(Boolean))]; await pages.update(p.id, { tags: p.tags }); }
+          else { const props = (p.props || []).map((x) => Object.assign({}, x)); const f = props.find((x) => x.k === key); if (f) { if (v) f.v = v; else props.splice(props.indexOf(f), 1); } else if (v) props.push({ k: key, v }); p.props = props; await pages.update(p.id, { props }); }
+          onChanged();
+        }
+        td.replaceChildren(isTags ? (p.tags || []).join(', ') : propVal(p, key));
+      };
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); finish(true); } if (e.key === 'Escape') { e.preventDefault(); finish(false); } });
+      input.addEventListener('blur', () => finish(true));
+      input.addEventListener('click', (e) => e.stopPropagation());
+      td.replaceChildren(input); input.focus(); input.select();
+    }
     const draw = () => {
       const q = sv.q.trim().toLowerCase();
       let rows = pgs.filter((p) => !q || (p.title || '').toLowerCase().includes(q) || textOf(p).toLowerCase().includes(q) || (p.tags || []).join(' ').includes(q));
-      const keys = [...new Set(rows.flatMap((p) => (p.props || []).map((x) => x.k)))];
-      const val = (p, k) => k === 'title' ? (p.title || '') : k === 'updated' ? (p.updated || 0) : k === 'manual' ? orderOf(p) : k === 'tags' ? (p.tags || []).join(', ') : propVal(p, k);
+      const val = (p, k) => k === 'title' ? (p.title || '') : k === 'updated' ? (p.updated || 0) : k === 'created' ? (p.created || 0) : k === 'manual' ? orderOf(p) : k === 'tags' ? (p.tags || []).join(', ') : (k in BUILTIN) ? infoOf(p)[k] : propVal(p, k.replace(/^p:/, ''));
       rows.sort((a, b) => { const pa = (b.pinned || 0) - (a.pinned || 0); if (pa) return pa; const va = val(a, sv.sort), vb = val(b, sv.sort); return (typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb), undefined, { numeric: true })) * sv.dir; });
       if (s.view === 'table' && sv.sort === 'manual') { sv.sort = 'updated'; sv.dir = -1; rows.sort((a, b) => (b.pinned || 0) - (a.pinned || 0) || (b.updated || 0) - (a.updated || 0)); }
       holder.innerHTML = '';
       if (!rows.length) { holder.append(el('p', { class: 'sub' }, q ? 'Nothing matched.' : 'No pages yet.')); return; }
       if (s.view === 'table') {
-        const cols = [['title', 'Title'], ...keys.map((k) => [k, k]), ['tags', 'Tags'], ['updated', 'Updated']];
+        const { all, hide } = columns();
+        const cols = [['title', 'Title'], ...all.filter((k) => !hide.has(k)).map((k) => [k, colLabel(k)])];
         const table = el('table', { class: 'dbtable' });
         const tr = el('tr', {});
-        for (const [k, label] of cols) tr.append(el('th', { onclick: () => { if (sv.sort === k) sv.dir = -sv.dir; else { sv.sort = k; sv.dir = k === 'updated' ? -1 : 1; } draw(); } }, label, sv.sort === k ? (sv.dir > 0 ? ' ▲' : ' ▼') : ''));
+        const numeric = (k) => k === 'updated' || k === 'created' || k === 'words' || k === 'images' || k === 'files';
+        for (const [k, label] of cols) tr.append(el('th', { class: numeric(k) && k !== 'updated' && k !== 'created' ? 'num' : '', onclick: () => { if (sv.sort === k) sv.dir = -sv.dir; else { sv.sort = k; sv.dir = numeric(k) ? -1 : 1; } draw(); } }, label, sv.sort === k ? (sv.dir > 0 ? ' ▲' : ' ▼') : ''));
         table.append(el('thead', {}, tr));
         const tb = el('tbody', {});
+        const cellText = (p, k) => k === 'updated' || k === 'created' ? fmtWhen(k === 'updated' ? p.updated : p.created) : k === 'title' ? (p.pinned ? '📌 ' : '') + (p.title || 'Untitled') : (k === 'words' || k === 'images' || k === 'files') ? (infoOf(p)[k] || '') : String(val(p, k));
         for (const p of rows) {
           const r = el('tr', { class: sv.select && sv.picked.has(p.id) ? 'picked' : '', onclick: () => { if (!sv.select) { openPage(p.id); return; } if (sv.picked.has(p.id)) sv.picked.delete(p.id); else sv.picked.add(p.id); r.classList.toggle('picked'); syncBulk(); } });
-          for (const [k] of cols) r.append(el('td', { class: k === 'title' ? 'tcell' : '' }, k === 'updated' ? fmtWhen(p.updated) : (k === 'title' ? (p.pinned ? '📌 ' : '') + (p.title || 'Untitled') : String(val(p, k)))));
+          for (const [k] of cols) {
+            const editable = k === 'tags' || k.startsWith('p:');
+            const td = el('td', { class: (k === 'title' ? 'tcell' : k === 'snippet' ? 'snip' : numeric(k) && k !== 'updated' && k !== 'created' ? 'num' : '') + (editable ? ' editable' : ''), title: k === 'snippet' ? infoOf(p).snippet : (editable && !sv.select ? 'Click to edit' : null) }, cellText(p, k));
+            if (editable) td.addEventListener('click', (e) => { if (sv.select) return; e.stopPropagation(); editCell(td, p, k); });
+            r.append(td);
+          }
           tb.append(r);
         }
         table.append(tb);
@@ -946,13 +1027,14 @@
       apps = (await pages.live()).filter((q) => q.kind === 'app');
     }
     // Tiles that have become built-in views take over their old link tiles by name.
-    const builtin = [[/shopping list/i, 'shop', 'A view over the "Shopping list" page in your notebook.'], [/trials/i, 'tp', 'A view over the Trials & Pearls notebook.'], [/portfolio/i, 'portfolio', 'Portfolio evidence and teaching hours — a view over the Portfolio notebook.'], [/logbook/i, 'logbook', 'Your own procedure and experience log — a view over the Logbook notebook.']];
+    const builtin = [[/shopping list/i, 'shop', 'A view over the "Shopping list" page in your notebook.'], [/trials/i, 'tp', 'A view over the Trials & Pearls notebook.'], [/portfolio/i, 'portfolio', 'Portfolio evidence and teaching hours — a view over the Portfolio notebook.'], [/logbook/i, 'logbook', 'Your own procedure and experience log — a view over the Logbook notebook.'], [/famus|scan log/i, 'famus', 'FAMUS thoracic scan log — the v1.9 reporting sheet, kept as one table note.']];
     for (const a of apps) for (const [re, key, desc] of builtin) {
       if (!a.app && re.test(a.title || '')) { await pages.update(a.id, { app: key, url: '', assetId: null, embed: 0, html: '<p>' + esc(desc) + '</p>' }); a.app = key; a.url = ''; a.assetId = null; a.html = '<p>' + esc(desc) + '</p>'; }
       else if (a.app === key && /moving into|NoteCompanion/i.test(a.html || '')) { await pages.update(a.id, { html: '<p>' + esc(desc) + '</p>' }); a.html = '<p>' + esc(desc) + '</p>'; }
     }
     // Built-in views always have a tile.
     if (!apps.some((a) => a.app === 'logbook')) { const t = await pages.create({ kind: 'app', inbox: 0, title: 'Logbook', app: 'logbook', url: '', html: '<p>Your own procedure and experience log — a view over the Logbook notebook.</p>' }); apps.push(t); S.schedule(); }
+    if (!apps.some((a) => a.app === 'famus')) { const t = await pages.create({ kind: 'app', inbox: 0, title: 'FAMUS scan log', app: 'famus', url: '', html: '<p>FAMUS thoracic scan log — the v1.9 reporting sheet, kept as one table note.</p>' }); apps.push(t); S.schedule(); }
     return apps.sort((a, b) => (b.pinned || 0) - (a.pinned || 0) || (a.title || '').localeCompare(b.title || ''));
   }
   // Import a seed file (a notebook of pages) into NoteCompanion; idempotent by page id.
@@ -1004,8 +1086,8 @@
         el('div', { class: 'apphead' }, el('span', { class: 'appico', html: appIcon }), el('b', {}, a.title)),
         el('div', { class: 'appdesc' }, textOf(a).slice(0, 120)),
         el('div', { class: 'actions' },
-          a.app === 'shop' ? el('a', { class: 'btn small primary', href: '#shop' }, 'Open') : a.app === 'tp' ? el('a', { class: 'btn small primary', href: '#tp' }, 'Open') : a.app === 'portfolio' ? el('a', { class: 'btn small primary', href: '#portfolio' }, 'Open') : a.app === 'logbook' ? el('a', { class: 'btn small primary', href: '#logbook' }, 'Open') : (a.assetId || a.embed) ? el('button', { class: 'btn small primary', type: 'button', onclick: () => openPage(a.id) }, 'Open') : a.url ? el('a', { class: 'btn small primary', href: a.url, target: '_blank', rel: 'noopener' }, 'Open') : el('span', { class: 'sub' }, 'No link yet'),
-          (a.app === 'shop' || a.app === 'tp' || a.app === 'portfolio' || a.app === 'logbook') ? el('span', { class: 'sub' }, a.app === 'shop' ? 'a view of a note' : 'a view of a notebook') : (a.assetId || a.embed) ? el('span', { class: 'sub' }, a.assetId ? 'runs inside' : 'embedded') : el('button', { class: 'btn small', type: 'button', onclick: () => openPage(a.id) }, 'Notes'),
+          a.app === 'shop' ? el('a', { class: 'btn small primary', href: '#shop' }, 'Open') : a.app === 'tp' ? el('a', { class: 'btn small primary', href: '#tp' }, 'Open') : a.app === 'portfolio' ? el('a', { class: 'btn small primary', href: '#portfolio' }, 'Open') : a.app === 'logbook' ? el('a', { class: 'btn small primary', href: '#logbook' }, 'Open') : a.app === 'famus' ? el('a', { class: 'btn small primary', href: '#famus' }, 'Open') : (a.assetId || a.embed) ? el('button', { class: 'btn small primary', type: 'button', onclick: () => openPage(a.id) }, 'Open') : a.url ? el('a', { class: 'btn small primary', href: a.url, target: '_blank', rel: 'noopener' }, 'Open') : el('span', { class: 'sub' }, 'No link yet'),
+          (a.app === 'shop' || a.app === 'tp' || a.app === 'portfolio' || a.app === 'logbook' || a.app === 'famus') ? el('span', { class: 'sub' }, a.app === 'shop' || a.app === 'famus' || a.app === 'logbook' ? 'a view of a note' : 'a view of a notebook') : (a.assetId || a.embed) ? el('span', { class: 'sub' }, a.assetId ? 'runs inside' : 'embedded') : el('button', { class: 'btn small', type: 'button', onclick: () => openPage(a.id) }, 'Notes'),
           SEED_FILES[a.title] && a.app !== 'tp' ? el('button', { class: 'btn small', type: 'button', onclick: async (e) => { e.target.disabled = true; toast('Importing…'); try { const r = await importSeed(SEED_FILES[a.title]); toast(r.added ? 'Imported ' + r.added + ' pages into ' + r.notebook.name : 'Already imported (' + r.total + ' pages)'); } catch (err) { toast(err.message); } e.target.disabled = false; } }, 'Import into 2nd Brain') : null));
       grid.append(gestures(tile, { onDelete: async () => { if (await confirm('Remove "' + a.title + '" from the hub?', null, 'Remove')) { await pages.remove(a.id); S.schedule(); renderApps(); } }, onLongPress: () => menu(a.title, [
         (a.assetId || a.embed) ? { label: 'Open', fn: () => openPage(a.id) } : { label: 'Open notes', fn: () => openPage(a.id) },
@@ -1102,6 +1184,19 @@
     if (!tile) { await pages.create({ kind: 'app', inbox: 0, title: 'Logbook', app: 'logbook', url: '', html: '<p>Your own procedure and experience log — a view over the Logbook notebook.</p>' }); onChanged(); }
     if (!window.NCLogbook) { host.append(el('p', { class: 'sub' }, 'Not loaded.')); return; }
     await NCLogbook.render(host, { toast, sheet, confirm, ask, menu, go, changed: onChanged });
+  }
+
+  // ---------- FAMUS scan log (a view over one table note) ----------
+  async function renderFamus() {
+    state.view = 'famus';
+    const view = el('div', { class: 'view pf-view' });
+    view.append(el('div', { class: 'view-head' }, el('h1', {}, 'FAMUS scan log'), el('div', { class: 'toolrow' }, el('a', { class: 'btn small', href: '#apps' }, 'Apps'))));
+    const host = el('div', {});
+    view.append(host);
+    content.replaceChildren(view); syncNav();
+    if (!(await pages.live()).some((q) => q.kind === 'app' && q.app === 'famus')) { await pages.create({ kind: 'app', inbox: 0, title: 'FAMUS scan log', app: 'famus', url: '', html: '<p>FAMUS thoracic scan log — the v1.9 reporting sheet, kept as one table note.</p>' }); onChanged(); }
+    if (!window.NCFamus) { host.append(el('p', { class: 'sub' }, 'Not loaded.')); return; }
+    await NCFamus.render(host, { toast, sheet, confirm, ask, menu, go, changed: onChanged });
   }
 
   // ---------- new page ----------
@@ -1291,6 +1386,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
     if (p.kind === 'app' && p.app === 'tp') { go('#tp'); return; }
     if (p.kind === 'app' && p.app === 'portfolio') { go('#portfolio'); return; }
     if (p.kind === 'app' && p.app === 'logbook') { go('#logbook'); return; }
+    if (p.kind === 'app' && p.app === 'famus') { go('#famus'); return; }
     if (p.kind === 'app' && (p.assetId || p.embed)) {
       view.classList.add('app-view');
       const host = el('div', { class: 'apphost' });
@@ -1874,7 +1970,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
 
   // ---------- navigation ----------
   function syncNav() {
-    document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === state.view || ((state.view === 'page' || state.view === 'section' || state.view === 'notebook' || ((state.view === 'pdfs' || state.view === 'apps' || state.view === 'shift' || state.view === 'shop' || state.view === 'tp' || state.view === 'portfolio' || state.view === 'logbook') && a.closest('.tabbar'))) && a.dataset.nav === 'notes')));
+    document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === state.view || ((state.view === 'page' || state.view === 'section' || state.view === 'notebook' || ((state.view === 'pdfs' || state.view === 'apps' || state.view === 'shift' || state.view === 'shop' || state.view === 'tp' || state.view === 'portfolio' || state.view === 'logbook' || state.view === 'famus') && a.closest('.tabbar'))) && a.dataset.nav === 'notes')));
     if (typeof PANE !== 'undefined' && !PANE && document.documentElement.classList.contains('sidebar-collapsed')) sidebar.classList.remove('peek');
     closeSidebar();
   }
@@ -1892,6 +1988,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
     if (h === '#tp') return renderTP();
     if (h === '#portfolio') return renderPortfolio();
     if (h === '#logbook') return renderLogbook();
+    if (h === '#famus') return renderFamus();
     if (h === '#notes') return renderNotes();
     if (h === '#pdfs') { state.query = 'is:pdf'; return renderSearch(); }
     if (h === '#apps') return renderApps();

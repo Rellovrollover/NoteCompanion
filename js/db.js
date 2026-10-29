@@ -79,6 +79,19 @@
       await db.sections.put(stamp(rec)); return rec;
     },
     async update(id, patch) { await db.sections.update(id, stamp(Object.assign({}, patch))); },
+    // Fold one section into another: its pages move across (a Category property naming the old section follows), then it goes.
+    async merge(fromId, intoId) {
+      const from = await db.sections.get(fromId), into = await db.sections.get(intoId);
+      if (!from || !into || fromId === intoId) return 0;
+      const pgs = (await db.pages.where('sectionId').equals(fromId).toArray()).filter((p) => !p.deleted);
+      let order = now();
+      for (const p of pgs) {
+        const props = (p.props || []).map((x) => (x.k === 'Category' && x.v === from.name ? { k: x.k, v: into.name } : x));
+        await pages.update(p.id, { sectionId: intoId, notebookId: into.notebookId, inbox: 0, props, order: order++ });
+      }
+      await db.sections.update(fromId, stamp({ deleted: 1 }));
+      return pgs.length;
+    },
     async remove(id) {
       const pgs = await db.pages.where('sectionId').equals(id).toArray();
       for (const p of pgs) if (!p.deleted) await pages.remove(p.id);

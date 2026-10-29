@@ -47,6 +47,22 @@
       }
       await sections.remove(pearlsSec.id); changed = true;
     }
+    // Duplicate specialties within Trials or Pearls fold into one: the same name in any case or spacing
+    // ("&" = "and"), or a known alias. The one with the alias's name, else the fuller one, is kept.
+    const ALIAS = { Pearls: { 'renal and fluids': 'renal' } };
+    const norm = (n) => String(n || '').toLowerCase().replace(/&/g, 'and').replace(/\s+/g, ' ').trim();
+    for (const group of ['Trials', 'Pearls']) {
+      const list = (await sections.forNotebook(nb.id)).filter((s) => s.group === group);
+      const names = new Set(list.map((s) => norm(s.name)));
+      const byKey = new Map();
+      for (const s of list) { let k = norm(s.name); const a = (ALIAS[group] || {})[k]; if (a && names.has(a)) k = a; if (!byKey.has(k)) byKey.set(k, []); byKey.get(k).push(s); }
+      for (const [k, secs] of byKey) {
+        if (secs.length < 2) continue;
+        const n = new Map(); for (const s of secs) n.set(s.id, (await pages.forSection(s.id)).length);
+        secs.sort((a, b) => (norm(b.name) === k) - (norm(a.name) === k) || n.get(b.id) - n.get(a.id));
+        for (const s of secs.slice(1)) { await sections.merge(s.id, secs[0].id); changed = true; }
+      }
+    }
     for (const s of await sections.forNotebook(nb.id)) {
       if (!s.group) { await sections.update(s.id, { group: 'Trials', view: 'table' }); changed = true; for (const p of await pages.forSection(s.id)) if (p.ptype !== 'trial') await pages.update(p.id, { ptype: 'trial' }); }
       else if (s.group === 'Pearls') { for (const p of await pages.forSection(s.id)) if (p.ptype !== 'pearl') await pages.update(p.id, { ptype: 'pearl' }); }
@@ -72,9 +88,24 @@
     const items = all.map((p) => Object.assign({ sec: secById.get(p.sectionId) }, p)).filter((p) => p.sec);
     const trials = items.filter((p) => p.sec.group === 'Trials' || p.ptype === 'trial');
     const pearls = items.filter((p) => p.sec.group === 'Pearls' || p.ptype === 'pearl');
-    let tab = 'trials', q = '', spec = '';
-    try { const s = JSON.parse(localStorage.getItem('nc-tp') || '{}'); tab = s.tab || tab; spec = s.spec || ''; } catch (e) { /* ignore */ }
-    const remember = () => { try { localStorage.setItem('nc-tp', JSON.stringify({ tab, spec })); } catch (e) { /* ignore */ } };
+    let tab = 'trials', q = '', spec = '', sort = { trials: 'year', pearls: 'added' };
+    try { const s = JSON.parse(localStorage.getItem('nc-tp') || '{}'); tab = s.tab || tab; spec = s.spec || ''; if (s.sort) sort = Object.assign(sort, s.sort); } catch (e) { /* ignore */ }
+    const remember = () => { try { localStorage.setItem('nc-tp', JSON.stringify({ tab, spec, sort })); } catch (e) { /* ignore */ } };
+    const SORTS = {
+      trials: [['year', 'Latest year'], ['yearOld', 'Oldest year'], ['added', 'Newest added'], ['edited', 'Recently edited'], ['az', 'A–Z'], ['spec', 'Specialty']],
+      pearls: [['added', 'Newest added'], ['edited', 'Recently edited'], ['az', 'A–Z'], ['spec', 'Specialty'], ['oldest', 'Oldest added']]
+    };
+    const yearOf = (p) => parseInt(prop(p, 'Year'), 10) || 0;
+    const byTitle = (a, b) => (a.title || '').localeCompare(b.title || '', undefined, { numeric: true });
+    const sorters = {
+      year: (a, b) => yearOf(b) - yearOf(a) || byTitle(a, b),
+      yearOld: (a, b) => (yearOf(a) || 9999) - (yearOf(b) || 9999) || byTitle(a, b),
+      added: (a, b) => (b.created || 0) - (a.created || 0),
+      oldest: (a, b) => (a.created || 0) - (b.created || 0),
+      edited: (a, b) => (b.updated || 0) - (a.updated || 0),
+      az: byTitle,
+      spec: (a, b) => a.sec.name.localeCompare(b.sec.name) || byTitle(a, b)
+    };
     const wrap = el('div', { class: 'tp' }); host.append(wrap);
     const draw = () => {
       wrap.innerHTML = '';
@@ -88,7 +119,9 @@
       const addBtn = el('button', { class: 'btn small primary', type: 'button', onclick: () => tab === 'trials' ? newTrial() : newPearl() }, tab === 'trials' ? '+ Trial' : '+ Pearl');
       const randomBtn = tab === 'pearls' ? el('button', { class: 'btn small', type: 'button', onclick: () => { const pool = filtered(); if (pool.length) ui.go('#page/' + pool[Math.floor(Math.random() * pool.length)].id); } }, 'Random pearl') : null;
       wrap.append(el('div', { class: 'tp-head' }, seg, el('span', { class: 'spacer' }), randomBtn, addBtn, el('a', { class: 'btn small', href: '#nb/' + nb.id }, 'Notebook')));
-      wrap.append(search);
+      const sortSel = el('select', { class: 'tp-sort', 'aria-label': 'Sort by' }, ...SORTS[tab].map(([k, label]) => el('option', { value: k, selected: sort[tab] === k ? '' : null }, label)));
+      sortSel.addEventListener('change', () => { sort[tab] = sortSel.value; remember(); drawBody(); });
+      wrap.append(el('div', { class: 'tp-searchrow' }, search, el('label', { class: 'tp-sortwrap' }, el('span', {}, 'Sort'), sortSel)));
       const chips = el('div', { class: 'tagchips' }, el('button', { class: 'chip' + (spec ? '' : ' on'), type: 'button', onclick: () => { spec = ''; remember(); draw(); } }, 'All'), ...specs.map((s) => el('button', { class: 'chip' + (spec === s ? ' on' : ''), type: 'button', onclick: () => { spec = spec === s ? '' : s; remember(); draw(); } }, s + ' ', el('span', { class: 'tp-n' }, String(list.filter((p) => p.sec.name === s).length)))));
       wrap.append(chips);
       const body = el('div', { class: 'tp-body' }); wrap.append(body);
@@ -101,13 +134,13 @@
         const rows = filtered();
         if (!rows.length) { body.append(el('p', { class: 'sub' }, 'Nothing matches.')); return; }
         if (tab === 'trials') {
-          rows.sort((a, b) => (prop(b, 'Year') || '').localeCompare(prop(a, 'Year') || '') || (a.title || '').localeCompare(b.title || ''));
+          rows.sort(sorters[sort.trials] || sorters.year);
           const table = el('table', { class: 'dbtable tp-table' }, el('thead', {}, el('tr', {}, el('th', {}, 'Trial'), el('th', {}, 'Year'), el('th', {}, 'Specialty'), el('th', {}, 'Topic'), el('th', {}, 'Finding'))));
           const tb = el('tbody', {});
           for (const p of rows) tb.append(el('tr', { onclick: () => ui.go('#page/' + p.id) }, el('td', { class: 'tcell' }, el('b', {}, p.title || 'Untitled')), el('td', {}, prop(p, 'Year')), el('td', {}, p.sec.name), el('td', {}, prop(p, 'Topic')), el('td', { class: 'tp-finding' }, findingOf(p))));
           table.append(tb); body.append(el('div', { class: 'dbwrap' }, table));
         } else {
-          rows.sort((a, b) => (b.updated || 0) - (a.updated || 0));
+          rows.sort(sorters[sort.pearls] || sorters.added);
           const grid = el('div', { class: 'tp-cards' });
           for (const p of rows) grid.append(el('a', { class: 'tp-card', href: '#page/' + p.id }, el('span', { class: 'tp-card-spec' }, p.sec.name), el('b', {}, p.title || 'Untitled'), el('span', { class: 'tp-card-body' }, snippetOf(p.html).slice(0, 220))));
           body.append(grid);
