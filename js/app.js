@@ -707,6 +707,7 @@
   let treeTimer = null;
   const refreshTreeSoon = () => { clearTimeout(treeTimer); treeTimer = setTimeout(refreshTree, 30); };
   async function refreshTree() {
+    drawRecent();
     const tree = await buildTree();
     $('#tree').replaceChildren(...tree.children);
     if (state.view === 'notes') renderNotes();
@@ -1048,7 +1049,7 @@
     // Built-in views always have a tile.
     if (!apps.some((a) => a.app === 'logbook')) { const t = await pages.create({ kind: 'app', inbox: 0, title: 'Logbook', app: 'logbook', url: '', html: '<p>Your own procedure and experience log — a view over the Logbook notebook.</p>' }); apps.push(t); S.schedule(); }
     // A built-in tile made on two devices before they had synced: keep the oldest, remove the copies.
-    for (const key of ['shop', 'tp', 'portfolio', 'logbook', 'famus', 'shift']) {
+    for (const key of ['shop', 'tp', 'portfolio', 'logbook', 'famus', 'shift', 'organiser']) {
       const same = apps.filter((a) => a.app === key).sort((a, b) => (a.created || 0) - (b.created || 0) || String(a.id).localeCompare(String(b.id)));
       if (same.length < 2) continue;
       const keep = same[0], extra = same.slice(1);
@@ -1057,6 +1058,7 @@
       for (const x of extra) await pages.remove(x.id);
       apps = apps.filter((a) => !extra.includes(a)); S.schedule();
     }
+    if (!apps.some((a) => a.app === 'organiser')) { const t = await pages.create({ kind: 'app', inbox: 0, title: 'Organiser', app: 'organiser', url: '', html: '<p>Your everyday to-do list, across everything — a view over the "Organiser" note.</p>', created: 2 }); apps.push(t); S.schedule(); }
     if (!apps.some((a) => a.app === 'shift')) { const t = await pages.create({ kind: 'app', inbox: 0, title: 'Shift Companion', app: 'shift', url: '', html: '<p>On-call queue and ward jobs. Jobs live on this device only, never synced; cleared after 7 days unless kept.</p>', created: 1 }); apps.push(t); S.schedule(); }
     if (!apps.some((a) => a.app === 'famus')) { const t = await pages.create({ kind: 'app', inbox: 0, title: 'FAMUS scan log', app: 'famus', url: '', html: '<p>FAMUS thoracic scan log — the v1.9 reporting sheet, kept as one table note.</p>' }); apps.push(t); S.schedule(); }
     // First time on any device: put four apps on the Inbox (change them on the Apps page).
@@ -1101,9 +1103,10 @@
     logbook: '<path d="M6.5 3.5H18a1 1 0 0 1 1 1v15a1 1 0 0 1-1 1H6.5A1.5 1.5 0 0 1 5 19V5a1.5 1.5 0 0 1 1.5-1.5z"/><path d="M8.5 3.5v17"/><path d="m11 10.4 1.6 1.6 3.2-3.4M11 15.6h4.5"/>',
     famus: '<path d="M12 3.5v6M12 9.5l-1.5 1.6M12 9.5l1.5 1.6"/><path d="M9.3 7.2C7 7.6 4.5 11.2 4.5 16c0 2.4 1.2 3.8 3 3.5 2-.3 3-1.6 3-3.8V9.4c0-1.3-.5-2.3-1.2-2.2z"/><path d="M14.7 7.2c2.3.4 4.8 4 4.8 8.8 0 2.4-1.2 3.8-3 3.5-2-.3-3-1.6-3-3.8V9.4c0-1.3.5-2.3 1.2-2.2z"/>',
     brick: '<rect x="3.5" y="9" width="17" height="10.5" rx="1.5"/><path d="M6.5 9V6.8a.8.8 0 0 1 .8-.8h2.4a.8.8 0 0 1 .8.8V9M13.5 9V6.8a.8.8 0 0 1 .8-.8h2.4a.8.8 0 0 1 .8.8V9"/>',
-    drawers: '<rect x="4" y="3.5" width="16" height="17" rx="1.5"/><path d="M4 9.2h16M4 14.8h16M10.5 6.3h3M10.5 12h3M10.5 17.6h3"/>'
+    drawers: '<rect x="4" y="3.5" width="16" height="17" rx="1.5"/><path d="M4 9.2h16M4 14.8h16M10.5 6.3h3M10.5 12h3M10.5 17.6h3"/>',
+    organiser: '<rect x="4" y="3.5" width="16" height="17" rx="2"/><path d="m7.5 8.6 1.3 1.3 2.4-2.6M13.2 9h3.6M7.5 14.6l1.3 1.3 2.4-2.6M13.2 15h3.6"/>'
   };
-  const appKind = (a) => a.app && APP_SVG[a.app] ? a.app : /brick viewer|stud\.io/i.test(a.title || '') ? 'brick' : /brick locator|lego|drawer/i.test(a.title || '') ? 'drawers' : /portfolio/i.test(a.title || '') ? 'portfolio' : /shopping/i.test(a.title || '') ? 'shop' : /trial|pearl/i.test(a.title || '') ? 'tp' : /famus|scan log/i.test(a.title || '') ? 'famus' : /logbook/i.test(a.title || '') ? 'logbook' : /shift/i.test(a.title || '') ? 'shift' : 'app';
+  const appKind = (a) => a.app && APP_SVG[a.app] ? a.app : /brick viewer|stud\.io/i.test(a.title || '') ? 'brick' : /brick locator|lego|drawer/i.test(a.title || '') ? 'drawers' : /portfolio/i.test(a.title || '') ? 'portfolio' : /shopping/i.test(a.title || '') ? 'shop' : /trial|pearl/i.test(a.title || '') ? 'tp' : /famus|scan log/i.test(a.title || '') ? 'famus' : /logbook/i.test(a.title || '') ? 'logbook' : /shift/i.test(a.title || '') ? 'shift' : /organi[sz]er/i.test(a.title || '') ? 'organiser' : 'app';
   const appIco = (a) => { const k = appKind(a); return el('span', { class: 'appico k-' + k, html: APP_SVG[k] ? '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + APP_SVG[k] + '</svg>' : appIcon }); };
   async function toggleInboxPin(a) {
     if (a.inboxPin > 0) { await pages.update(a.id, { inboxPin: 0 }); }
@@ -1123,9 +1126,10 @@
       let ref = a.pageRef ? await pages.get(a.pageRef) : null;
       // Not opened on this device yet: find the note it views by its kind, and remember it on the tile.
       const kinds = { famus: 'famus-table', logbook: 'logbook-table' };
-      if ((!ref || ref.deleted) && kinds[a.app]) { ref = await window.NCDB.db.pages.filter((q) => q.ptype === kinds[a.app] && !q.deleted).first(); if (ref) { await pages.update(a.id, { pageRef: ref.id }); a.pageRef = ref.id; } }
+      if ((!ref || ref.deleted) && (kinds[a.app] || a.app === 'organiser')) { ref = await window.NCDB.db.pages.filter((q) => !q.deleted && (a.app === 'organiser' ? q.ptype === 'todo' && q.title === 'Organiser' : q.ptype === kinds[a.app])).first(); if (ref) { await pages.update(a.id, { pageRef: ref.id }); a.pageRef = ref.id; } }
       if (a.app === 'shift') { const open = await window.NCDB.db.shift.filter((j) => j.status !== 'done').count(); text = open ? open + ' job' + (open === 1 ? '' : 's') + ' open' : 'No open jobs'; }
       else if (a.app === 'shop' && ref && window.NCShop) { const b = NCShop.parseBook(ref.html); const n = b.current.items.filter((i) => !i.done).length, e = b.elsewhere.filter((i) => !i.done).length; text = (n ? n + ' to get' : 'List empty') + (e ? ' · ' + e + ' elsewhere' : ''); }
+      else if (a.app === 'organiser' && ref && window.NCTodo) { const open = NCTodo.parse(ref.html).filter((i) => !i.done); const hi = open.filter((i) => i.pri === 'high').length; text = open.length ? open.length + ' to do' + (hi ? ' · ' + hi + ' high' : '') : 'All clear'; }
       else if (a.app === 'famus' && ref && window.NCFamus) { const n = NCFamus.parse(ref.html).scans.length; text = n + ' of 10 scans'; }
       else if (a.app === 'logbook' && ref && window.NCLogbook) { const n = NCLogbook.parse(ref.html).length; text = n + ' logged'; }
       else if (a.app === 'tp') { const nb = (await notebooks.all()).find((x) => x.name === 'Trials & Pearls'); if (nb) { const all = await window.NCDB.db.pages.where('notebookId').equals(nb.id).filter((q) => !q.deleted && q.kind !== 'app').toArray(); const pe = all.filter((q) => q.ptype === 'pearl').length; text = (all.length - pe) + ' trials · ' + pe + ' pearls'; } }
@@ -1136,7 +1140,7 @@
   async function inboxApps() {
     const apps = (await pages.live()).filter((q) => q.kind === 'app' && q.inboxPin > 0).sort((a, b) => a.inboxPin - b.inboxPin).slice(0, 4);
     if (!apps.length) return null;
-    const route = { shift: '#shift', shop: '#shop', tp: '#tp', portfolio: '#portfolio', logbook: '#logbook', famus: '#famus' };
+    const route = { shift: '#shift', shop: '#shop', tp: '#tp', portfolio: '#portfolio', logbook: '#logbook', famus: '#famus', organiser: '#organiser' };
     const box = el('div', { class: 'inbox-apps' });
     for (const a of apps) {
       const live = el('span', { class: 'inbox-app-live' }, '');
@@ -1167,8 +1171,8 @@
         el('div', { class: 'apphead' }, appIco(a), el('b', {}, a.title)),
         el('div', { class: 'appdesc' }, textOf(a).slice(0, 120)),
         el('div', { class: 'actions' },
-          a.app === 'shift' ? el('a', { class: 'btn small primary', href: '#shift' }, 'Open') : a.app === 'shop' ? el('a', { class: 'btn small primary', href: '#shop' }, 'Open') : a.app === 'tp' ? el('a', { class: 'btn small primary', href: '#tp' }, 'Open') : a.app === 'portfolio' ? el('a', { class: 'btn small primary', href: '#portfolio' }, 'Open') : a.app === 'logbook' ? el('a', { class: 'btn small primary', href: '#logbook' }, 'Open') : a.app === 'famus' ? el('a', { class: 'btn small primary', href: '#famus' }, 'Open') : (a.assetId || a.embed) ? el('button', { class: 'btn small primary', type: 'button', onclick: () => openPage(a.id) }, 'Open') : a.url ? el('a', { class: 'btn small primary', href: a.url, target: '_blank', rel: 'noopener' }, 'Open') : el('span', { class: 'sub' }, 'No link yet'),
-          a.app === 'shift' ? el('span', { class: 'sub' }, 'built in') : (a.app === 'shop' || a.app === 'tp' || a.app === 'portfolio' || a.app === 'logbook' || a.app === 'famus') ? el('span', { class: 'sub' }, a.app === 'shop' || a.app === 'famus' || a.app === 'logbook' ? 'a view of a note' : 'a view of a notebook') : (a.assetId || a.embed) ? el('span', { class: 'sub' }, a.assetId ? 'runs inside' : 'embedded') : el('button', { class: 'btn small', type: 'button', onclick: () => openPage(a.id) }, 'Notes'),
+          a.app === 'shift' ? el('a', { class: 'btn small primary', href: '#shift' }, 'Open') : a.app === 'organiser' ? el('a', { class: 'btn small primary', href: '#organiser' }, 'Open') : a.app === 'shop' ? el('a', { class: 'btn small primary', href: '#shop' }, 'Open') : a.app === 'tp' ? el('a', { class: 'btn small primary', href: '#tp' }, 'Open') : a.app === 'portfolio' ? el('a', { class: 'btn small primary', href: '#portfolio' }, 'Open') : a.app === 'logbook' ? el('a', { class: 'btn small primary', href: '#logbook' }, 'Open') : a.app === 'famus' ? el('a', { class: 'btn small primary', href: '#famus' }, 'Open') : (a.assetId || a.embed) ? el('button', { class: 'btn small primary', type: 'button', onclick: () => openPage(a.id) }, 'Open') : a.url ? el('a', { class: 'btn small primary', href: a.url, target: '_blank', rel: 'noopener' }, 'Open') : el('span', { class: 'sub' }, 'No link yet'),
+          a.app === 'shift' ? el('span', { class: 'sub' }, 'built in') : a.app === 'organiser' ? el('span', { class: 'sub' }, 'a view of a note') : (a.app === 'shop' || a.app === 'tp' || a.app === 'portfolio' || a.app === 'logbook' || a.app === 'famus') ? el('span', { class: 'sub' }, a.app === 'shop' || a.app === 'famus' || a.app === 'logbook' ? 'a view of a note' : 'a view of a notebook') : (a.assetId || a.embed) ? el('span', { class: 'sub' }, a.assetId ? 'runs inside' : 'embedded') : el('button', { class: 'btn small', type: 'button', onclick: () => openPage(a.id) }, 'Notes'),
           SEED_FILES[a.title] && a.app !== 'tp' ? el('button', { class: 'btn small', type: 'button', onclick: async (e) => { e.target.disabled = true; toast('Importing…'); try { const r = await importSeed(SEED_FILES[a.title]); toast(r.added ? 'Imported ' + r.added + ' pages into ' + r.notebook.name : 'Already imported (' + r.total + ' pages)'); } catch (err) { toast(err.message); } e.target.disabled = false; } }, 'Import into 2nd Brain') : null));
       tile.querySelector('.actions').append(el('span', { class: 'spacer' }), pinChip(a));
       grid.append(gestures(tile, { onDelete: async () => { if (await confirm('Remove "' + a.title + '" from the hub?', null, 'Remove')) { await pages.remove(a.id); S.schedule(); renderApps(); } }, onLongPress: () => menu(a.title, [
@@ -1267,6 +1271,32 @@
     if (!tile) { await pages.create({ kind: 'app', inbox: 0, title: 'Logbook', app: 'logbook', url: '', html: '<p>Your own procedure and experience log — a view over the Logbook notebook.</p>' }); onChanged(); }
     if (!window.NCLogbook) { host.append(el('p', { class: 'sub' }, 'Not loaded.')); return; }
     await NCLogbook.render(host, { toast, sheet, confirm, ask, menu, go, changed: onChanged });
+  }
+
+  // ---------- Organiser: the everyday to-do list (a view over one to-do note) ----------
+  async function renderOrganiser() {
+    state.view = 'organiser';
+    const view = el('div', { class: 'view todo-view' });
+    view.append(el('div', { class: 'view-head' }, el('h1', {}, 'Organiser'), el('div', { class: 'toolrow' }, el('a', { class: 'btn small', href: '#apps' }, 'Apps'))));
+    const host = el('div', {});
+    view.append(host);
+    content.replaceChildren(view); syncNav();
+    let tile = (await pages.live()).find((q) => q.kind === 'app' && q.app === 'organiser');
+    if (!tile) { tile = await pages.create({ kind: 'app', inbox: 0, title: 'Organiser', app: 'organiser', url: '', html: '<p>Your everyday to-do list, across everything — a view over the "Organiser" note.</p>' }); onChanged(); }
+    let page = tile.pageRef ? await pages.get(tile.pageRef) : null;
+    if (!page || page.deleted) page = (await pages.live()).find((q) => q.ptype === 'todo' && q.title === 'Organiser') || null;
+    if (!page) {
+      const t = await pickSection('Where should the Organiser note live?');
+      if (!t) { host.append(el('p', { class: 'sub' }, 'Choose where the Organiser note lives to start using it.'), el('button', { class: 'btn primary', type: 'button', onclick: () => renderOrganiser() }, 'Choose…')); return; }
+      page = await pages.create({ notebookId: t.notebookId, sectionId: t.sectionId, title: 'Organiser', ptype: 'todo', html: '<h3>To do</h3><ul></ul>', pinned: 1 });
+      onChanged();
+    }
+    if (tile.pageRef !== page.id) { await pages.update(tile.id, { pageRef: page.id }); onChanged(); }
+    if (!window.NCTodo) { host.append(el('p', { class: 'sub' }, 'Not loaded.')); return; }
+    let timer = null;
+    const save = (html) => { page.html = html; clearTimeout(timer); timer = setTimeout(async () => { await pages.update(page.id, { html }); onChanged(); }, 300); };
+    state.appTeardown = NCTodo.render(host, page, { save, toast, menu, ask, confirm }).destroy;
+    view.append(el('p', { class: 'sub organiser-foot' }, el('a', { href: '#page/' + page.id }, 'Open the Organiser note')));
   }
 
   // ---------- FAMUS scan log (a view over one table note) ----------
@@ -1437,10 +1467,26 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
       if (await NCSync.fetchAsset(id)) onEach && onEach(id);
     }
   }
+  // Recently opened notes, newest first (kept on this device).
+  const recentPages = () => { try { return JSON.parse(localStorage.getItem('nc-recent-pages') || '[]'); } catch (e) { return []; } };
+  const notePageOpened = (id) => { try { localStorage.setItem('nc-recent-pages', JSON.stringify([id, ...recentPages().filter((x) => x !== id)].slice(0, 12))); } catch (e) { /* ignore */ } };
+  async function drawRecent() {
+    const box = $('#recent'); if (!box) return;
+    const list = [];
+    for (const id of recentPages()) { const q = await pages.get(id); if (q && !q.deleted && q.kind !== 'app') list.push(q); if (list.length >= 6) break; }
+    if (!list.length) { box.hidden = true; return; }
+    box.hidden = false;
+    let open = true; try { open = localStorage.getItem('nc-recent-open') !== '0'; } catch (e) { /* ignore */ }
+    const d = el('details', { class: 'recent', open: open ? '' : null }, el('summary', {}, 'Recent'),
+      el('div', { class: 'recent-list' }, ...list.map((q) => el('a', { class: 'recent-link' + (state.view === 'page' && state.pageId === q.id ? ' here' : ''), href: '#page/' + q.id, title: q.title || 'Untitled' }, q.title || 'Untitled'))));
+    d.addEventListener('toggle', () => { try { localStorage.setItem('nc-recent-open', d.open ? '1' : '0'); } catch (e) { /* ignore */ } });
+    box.replaceChildren(d);
+  }
   async function renderPage(id) {
     destroyEditor();
     const p = await pages.get(id);
     if (!p || p.deleted) { content.replaceChildren(el('div', { class: 'view' }, el('h1', {}, 'Page not found'))); return; }
+    if (p.kind !== 'app') { notePageOpened(id); drawRecent(); }
     state.view = 'page'; state.pageId = id; state.sectionId = p.sectionId || null;
     const nb = p.notebookId ? await notebooks.get(p.notebookId) : null;
     const sec = p.sectionId ? await sections.get(p.sectionId) : null;
@@ -1471,6 +1517,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
     if (p.kind === 'app' && p.app === 'logbook') { go('#logbook'); return; }
     if (p.kind === 'app' && p.app === 'famus') { go('#famus'); return; }
     if (p.kind === 'app' && p.app === 'shift') { go('#shift'); return; }
+    if (p.kind === 'app' && p.app === 'organiser') { go('#organiser'); return; }
     if (p.kind === 'app' && (p.assetId || p.embed)) {
       view.classList.add('app-view');
       const host = el('div', { class: 'apphost' });
@@ -1801,9 +1848,23 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
     const nPdf = (await pages.live()).filter((q) => q.kind === 'pdf').length;
     tagbar.append(el('button', { class: 'chip', type: 'button', onclick: () => { inp.value = 'is:pdf'; run(); } }, 'PDFs ' + nPdf));
     for (const t of tags.slice(0, 20)) tagbar.append(el('button', { class: 'chip', type: 'button', onclick: () => { inp.value = '#' + t.tag; run(); } }, '#' + t.tag + ' ' + t.n));
-    let timer = null;
+    let timer = null, keepTimer = null;
+    // Recent searches (this device): kept once you pause on a search or open a result; a longer version replaces its shorter start.
+    const recentQ = () => { try { return JSON.parse(localStorage.getItem('nc-recent-q') || '[]'); } catch (e) { return []; } };
+    const keepQ = (q) => { q = q.trim(); if (q.length < 2) return; const l = recentQ().filter((x) => !(q.toLowerCase().startsWith(x.toLowerCase()) || x.toLowerCase().startsWith(q.toLowerCase()))); try { localStorage.setItem('nc-recent-q', JSON.stringify([q, ...l].slice(0, 10))); } catch (e) { /* ignore */ } };
+    const recentBar = el('div', { class: 'recent-q' });
+    const drawRecentQ = () => {
+      const l = recentQ(); recentBar.hidden = !l.length || !!inp.value.trim();
+      recentBar.replaceChildren(el('span', { class: 'recent-q-label' }, 'Recent'), ...l.map((q) => el('span', { class: 'chip recent-chip' },
+        el('button', { type: 'button', class: 'recent-chip-q', onclick: () => { inp.value = q; run(); keepQ(q); } }, q),
+        el('button', { type: 'button', class: 'recent-chip-x', 'aria-label': 'Forget this search', onclick: () => { try { localStorage.setItem('nc-recent-q', JSON.stringify(recentQ().filter((x) => x !== q))); } catch (e) { /* ignore */ } drawRecentQ(); } }, '×'))),
+        el('button', { type: 'button', class: 'linkbtn recent-clear', onclick: () => { try { localStorage.removeItem('nc-recent-q'); } catch (e) { /* ignore */ } drawRecentQ(); } }, 'Clear'));
+    };
+    results.addEventListener('click', (e) => { if (e.target.closest('a.result')) keepQ(inp.value); });
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') keepQ(inp.value); });
     const run = async () => {
       state.query = inp.value; const q = inp.value.trim().toLowerCase(); results.innerHTML = '';
+      drawRecentQ(); clearTimeout(keepTimer); if (q.length >= 2) keepTimer = setTimeout(() => keepQ(inp.value), 2000);
       const ts = $('#topsearch'); if (ts && ts.value !== inp.value && document.activeElement !== ts) ts.value = inp.value;
       if (!q) return;
       let all = await pages.live();
@@ -1834,7 +1895,8 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
       if (!scored.length) results.append(el('p', { class: 'sub' }, 'Nothing matched.'));
     };
     inp.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(run, 120); });
-    view.append(el('div', { class: 'view-head' }, el('h1', {}, 'Search')), inp, tagbar, results);
+    view.append(el('div', { class: 'view-head' }, el('h1', {}, 'Search')), inp, recentBar, tagbar, results);
+    drawRecentQ();
     content.replaceChildren(view); syncNav();
     if (state.query) run(); else setTimeout(() => inp.focus(), 60);
   }
@@ -2110,12 +2172,25 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
     view.append(el('div', { class: 'panel help' }, el('h2', {}, 'Other capture routes'),
       el('p', {}, el('b', {}, 'OneDrive drop folder:'), ' in Shortcuts, make a shortcut that receives anything from the Share Sheet, then a ', el('b', {}, 'Save File'), ' action with "Ask Where to Save" off and the destination set to the OneDrive folder ', el('code', {}, 'NoteCompanion/inbox'), '. Text, links, photos and PDFs saved there appear in the Inbox the next time any device syncs, and the dropped file is cleared from OneDrive.'),
       el('p', {}, el('b', {}, 'Instant way (opens Safari):'), ' an "Open URLs" action set to ', el('code', {}, C.redirectUri + '?capture=1&text=[Shortcut Input]'), '. iOS always opens a URL in Safari rather than the home-screen app, so the note lands in the same shared inbox but the app itself does not come to the front.')));
+    // Settings as folding sections in a sensible order; which ones are open is remembered on this device.
+    const ORDER = ['OneDrive sync', 'Appearance', 'Symbol shortcuts', 'Google Calendar', 'Instant capture relay', 'Other capture routes', 'Import from OneNote', 'Import from OneNote without the API', 'Backup', 'Clean up', 'This device', 'Tips'];
+    const LABEL = { 'Import from OneNote': 'Import from OneNote (Microsoft sign-in)', 'Import from OneNote without the API': 'Import OneNote exports (.mht / Word)' };
+    let openSet; try { openSet = new Set(JSON.parse(localStorage.getItem('nc-settings-open') || '[]')); } catch (e) { openSet = new Set(); }
+    const secs = [...view.children].filter((n) => n.classList && n.classList.contains('panel')).map((pn) => {
+      const h = pn.querySelector(':scope > h2'); const title = h ? h.textContent.trim() : '';
+      const d = el('details', { class: 'setsec', open: openSet.has(title) ? '' : null }, el('summary', {}, LABEL[title] || title));
+      pn.before(d); d.append(pn);
+      d.addEventListener('toggle', () => { if (d.open) openSet.add(title); else openSet.delete(title); try { localStorage.setItem('nc-settings-open', JSON.stringify([...openSet])); } catch (e) { /* ignore */ } });
+      return { d, title };
+    });
+    secs.sort((a, b) => (ORDER.indexOf(a.title) + 1 || 99) - (ORDER.indexOf(b.title) + 1 || 99));
+    for (const x of secs) view.append(x.d);
     content.replaceChildren(view); syncNav();
   }
 
   // ---------- navigation ----------
   function syncNav() {
-    document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === state.view || ((state.view === 'page' || state.view === 'section' || state.view === 'notebook' || ((state.view === 'pdfs' || state.view === 'apps' || state.view === 'shift' || state.view === 'shop' || state.view === 'tp' || state.view === 'portfolio' || state.view === 'logbook' || state.view === 'famus') && a.closest('.tabbar'))) && a.dataset.nav === 'notes')));
+    document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === state.view || ((state.view === 'page' || state.view === 'section' || state.view === 'notebook' || ((state.view === 'pdfs' || state.view === 'apps' || state.view === 'shift' || state.view === 'shop' || state.view === 'tp' || state.view === 'portfolio' || state.view === 'logbook' || state.view === 'famus' || state.view === 'organiser') && a.closest('.tabbar'))) && a.dataset.nav === 'notes')));
     if (typeof PANE !== 'undefined' && !PANE && document.documentElement.classList.contains('sidebar-collapsed')) sidebar.classList.remove('peek');
     closeSidebar();
   }
@@ -2134,6 +2209,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
     if (h === '#portfolio') return renderPortfolio();
     if (h === '#logbook') return renderLogbook();
     if (h === '#famus') return renderFamus();
+    if (h === '#organiser') return renderOrganiser();
     if (h === '#notes') return renderNotes();
     if (h === '#pdfs') { state.query = 'is:pdf'; return renderSearch(); }
     if (h === '#apps') return renderApps();

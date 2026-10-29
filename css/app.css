@@ -1129,3 +1129,36 @@ input.topsearch.desktop-only { display: none !important; }
 .todo-item.p-low { background: color-mix(in srgb, var(--good) 10%, var(--paper)); box-shadow: inset 4px 0 0 color-mix(in srgb, var(--good) 65%, transparent); }
 .todo-item.done { background: var(--paper); box-shadow: none; }
 .todo-item.pri .todo-box { border-color: var(--line-strong); }
+
+/* Settings: folding sections */
+.setsec { background: var(--paper); border: 1px solid var(--line); border-radius: 12px; }
+.setsec > summary { list-style: none; cursor: pointer; padding: 13px 16px; font-family: var(--serif); font-weight: 700; font-size: 1.05rem; display: flex; align-items: center; gap: 10px; }
+.setsec > summary::-webkit-details-marker { display: none; }
+.setsec > summary::before { content: ""; width: 7px; height: 7px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(-45deg); transition: transform .15s; flex: none; margin-right: 2px; }
+.setsec[open] > summary::before { transform: rotate(45deg); }
+.setsec[open] > summary { border-bottom: 1px solid var(--line); }
+.setsec > .panel { border: 0; border-radius: 0 0 12px 12px; background: transparent; }
+.setsec > .panel > h2:first-child, .setsec > .panel > .sheet-x + h2 { display: none; }
+
+/* Side menu: recent notes */
+.recentbox { padding: 0 8px 4px; }
+.recent > summary { list-style: none; cursor: pointer; font-size: .72rem; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); padding: 6px 10px 4px; display: flex; align-items: center; gap: 6px; }
+.recent > summary::-webkit-details-marker { display: none; }
+.recent > summary::after { content: "▸"; font-size: .7rem; }
+.recent[open] > summary::after { content: "▾"; }
+.recent-list { display: grid; }
+.recent-link { display: block; padding: 6px 10px; border-radius: 8px; color: var(--fg); text-decoration: none; font-size: .92rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.recent-link:hover { background: var(--raised); }
+.recent-link.here { color: var(--accent); font-weight: 600; }
+
+/* Search: recent searches */
+.recent-q { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.recent-q-label { font-size: .72rem; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin-right: 2px; }
+.recent-chip { display: inline-flex; align-items: center; gap: 0; padding: 0; overflow: hidden; }
+.recent-chip-q { border: 0; background: none; font: inherit; color: inherit; padding: 5px 4px 5px 11px; cursor: pointer; }
+.recent-chip-x { border: 0; background: none; font: inherit; color: var(--muted); padding: 5px 10px 5px 6px; cursor: pointer; }
+.recent-chip-x:hover { color: var(--bad); }
+.linkbtn { border: 0; background: none; padding: 0; font: inherit; color: var(--accent); text-decoration: underline; cursor: pointer; }
+.recent-clear { font-size: .85rem; margin-left: 4px; }
+.organiser-foot { text-align: center; margin-top: 6px; }
+.appico.k-organiser { --ac: #4b5bb5; }
