@@ -1092,6 +1092,19 @@
   }
   const SEED_FILES = { 'Trials & Pearls': 'seed/trials-pearls.json' };
   const appIcon = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/></svg>';
+  // An icon per app (tinted per app on the Inbox and the Apps page); anything else gets the generic grid.
+  const APP_SVG = {
+    shift: '<rect x="5" y="4.5" width="14" height="16.5" rx="2"/><path d="M9 4.5v-.7A1.3 1.3 0 0 1 10.3 2.5h3.4A1.3 1.3 0 0 1 15 3.8v.7"/><path d="M9 4.5h6v1.8H9z"/><path d="m8.8 13 2.2 2.2 4.4-4.6"/>',
+    shop: '<path d="M3 4h2.2l2.1 10.2a1.5 1.5 0 0 0 1.5 1.2h8.3a1.5 1.5 0 0 0 1.5-1.1L20.3 8H6.1"/><circle cx="9.5" cy="19" r="1.4"/><circle cx="17" cy="19" r="1.4"/>',
+    tp: '<path d="M9.5 3h5M10.5 3v5.2L5.4 17.6A2 2 0 0 0 7.2 20.5h9.6a2 2 0 0 0 1.8-2.9L13.5 8.2V3"/><path d="M7.6 14h8.8"/><circle cx="11" cy="17.2" r=".9"/><circle cx="14.2" cy="16.4" r=".6"/>',
+    portfolio: '<rect x="3.5" y="7" width="17" height="12.5" rx="2"/><path d="M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7"/><path d="M3.5 12.5h17M11 12.5V14h2v-1.5"/>',
+    logbook: '<path d="M6.5 3.5H18a1 1 0 0 1 1 1v15a1 1 0 0 1-1 1H6.5A1.5 1.5 0 0 1 5 19V5a1.5 1.5 0 0 1 1.5-1.5z"/><path d="M8.5 3.5v17"/><path d="m11 10.4 1.6 1.6 3.2-3.4M11 15.6h4.5"/>',
+    famus: '<path d="M12 3.5v6M12 9.5l-1.5 1.6M12 9.5l1.5 1.6"/><path d="M9.3 7.2C7 7.6 4.5 11.2 4.5 16c0 2.4 1.2 3.8 3 3.5 2-.3 3-1.6 3-3.8V9.4c0-1.3-.5-2.3-1.2-2.2z"/><path d="M14.7 7.2c2.3.4 4.8 4 4.8 8.8 0 2.4-1.2 3.8-3 3.5-2-.3-3-1.6-3-3.8V9.4c0-1.3.5-2.3 1.2-2.2z"/>',
+    brick: '<rect x="3.5" y="9" width="17" height="10.5" rx="1.5"/><path d="M6.5 9V6.8a.8.8 0 0 1 .8-.8h2.4a.8.8 0 0 1 .8.8V9M13.5 9V6.8a.8.8 0 0 1 .8-.8h2.4a.8.8 0 0 1 .8.8V9"/>',
+    drawers: '<rect x="4" y="3.5" width="16" height="17" rx="1.5"/><path d="M4 9.2h16M4 14.8h16M10.5 6.3h3M10.5 12h3M10.5 17.6h3"/>'
+  };
+  const appKind = (a) => a.app && APP_SVG[a.app] ? a.app : /brick viewer|stud\.io/i.test(a.title || '') ? 'brick' : /brick locator|lego|drawer/i.test(a.title || '') ? 'drawers' : /portfolio/i.test(a.title || '') ? 'portfolio' : /shopping/i.test(a.title || '') ? 'shop' : /trial|pearl/i.test(a.title || '') ? 'tp' : /famus|scan log/i.test(a.title || '') ? 'famus' : /logbook/i.test(a.title || '') ? 'logbook' : /shift/i.test(a.title || '') ? 'shift' : 'app';
+  const appIco = (a) => { const k = appKind(a); return el('span', { class: 'appico k-' + k, html: APP_SVG[k] ? '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + APP_SVG[k] + '</svg>' : appIcon }); };
   async function toggleInboxPin(a) {
     if (a.inboxPin > 0) { await pages.update(a.id, { inboxPin: 0 }); }
     else {
@@ -1128,7 +1141,7 @@
     for (const a of apps) {
       const live = el('span', { class: 'inbox-app-live' }, '');
       const tile = el('button', { class: 'inbox-app', type: 'button', onclick: () => (route[a.app] ? go(route[a.app]) : openPage(a.id)) },
-        el('span', { class: 'appico', html: appIcon }), el('span', { class: 'inbox-app-text' }, el('b', {}, a.title === 'Shopping List Manager' ? 'Shopping' : a.title), live));
+        appIco(a), el('span', { class: 'inbox-app-text' }, el('b', {}, a.title === 'Shopping List Manager' ? 'Shopping' : a.title), live));
       box.append(tile);
       appLive(a).then((t) => { live.textContent = t; if (!t) tile.classList.add('nolive'); });
     }
@@ -1152,7 +1165,7 @@
     const pinChip = (a) => el('button', { class: 'chip pinchip' + (a.inboxPin > 0 ? ' on' : ''), type: 'button', title: a.inboxPin > 0 ? 'Shown on the Inbox — tap to remove' : 'Show on the Inbox (up to 4)', onclick: () => toggleInboxPin(a) }, a.inboxPin > 0 ? '✓ On Inbox' : '+ Inbox');
     for (const a of apps) {
       const tile = el('div', { class: 'apptile' + (a.pinned ? ' pinned' : '') },
-        el('div', { class: 'apphead' }, el('span', { class: 'appico', html: appIcon }), el('b', {}, a.title)),
+        el('div', { class: 'apphead' }, appIco(a), el('b', {}, a.title)),
         el('div', { class: 'appdesc' }, textOf(a).slice(0, 120)),
         el('div', { class: 'actions' },
           a.app === 'shift' ? el('a', { class: 'btn small primary', href: '#shift' }, 'Open') : a.app === 'shop' ? el('a', { class: 'btn small primary', href: '#shop' }, 'Open') : a.app === 'tp' ? el('a', { class: 'btn small primary', href: '#tp' }, 'Open') : a.app === 'portfolio' ? el('a', { class: 'btn small primary', href: '#portfolio' }, 'Open') : a.app === 'logbook' ? el('a', { class: 'btn small primary', href: '#logbook' }, 'Open') : a.app === 'famus' ? el('a', { class: 'btn small primary', href: '#famus' }, 'Open') : (a.assetId || a.embed) ? el('button', { class: 'btn small primary', type: 'button', onclick: () => openPage(a.id) }, 'Open') : a.url ? el('a', { class: 'btn small primary', href: a.url, target: '_blank', rel: 'noopener' }, 'Open') : el('span', { class: 'sub' }, 'No link yet'),

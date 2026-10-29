@@ -1092,3 +1092,25 @@ input.topsearch.desktop-only { display: none !important; }
   .composer .bar .btn { min-height: 38px; padding-top: 7px; padding-bottom: 7px; }
   .view-head h1 { margin-bottom: 2px; }
 }
+
+/* App icons: one per app, each with its own tint */
+.appico { --ac: var(--accent); color: color-mix(in srgb, var(--ac) 85%, var(--fg)); }
+.appico.k-shift { --ac: #2f5d8a; } .appico.k-shop { --ac: #2e7d5b; } .appico.k-tp { --ac: #7b3f8c; } .appico.k-famus { --ac: #1d7f8c; }
+.appico.k-portfolio { --ac: #b8651b; } .appico.k-logbook { --ac: #8d5a2b; } .appico.k-brick { --ac: #b03a5b; } .appico.k-drawers { --ac: #5b6472; }
+:root[data-theme="dark"] .appico, .dark .appico { color: color-mix(in srgb, var(--ac) 55%, #fff); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .appico { color: color-mix(in srgb, var(--ac) 55%, #fff); } }
+.inbox-app .appico, .apphead .appico { background: color-mix(in srgb, var(--ac) 14%, var(--paper)); }
+.apphead .appico { width: 34px; height: 34px; padding: 6px; border-radius: 10px; }
+
+/* Laptop: bigger Today strip and app tiles */
+@media (min-width: 900px) {
+  .gcal-strip { font-size: 1rem; padding: 11px 14px; gap: 8px; }
+  .gcal-day { font-size: .8rem; }
+  .gcal-ev { padding: 5px 13px; }
+  .gcal-ev i { width: 9px; height: 9px; }
+  .inbox-apps { gap: 12px; }
+  .inbox-app { min-height: 68px; padding: 11px 14px; gap: 13px; }
+  .inbox-app .appico { width: 42px; height: 42px; padding: 8px; border-radius: 12px; }
+  .inbox-app-text b { font-size: 1.04rem; }
+  .inbox-app-live { font-size: .86rem; }
+}
