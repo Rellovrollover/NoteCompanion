@@ -28,7 +28,8 @@
 
   // A note described as JSON, filed straight into a notebook/section (created if missing). This is how a chat
   // with Claude adds a trial, a pearl or a portfolio entry: it drops "<stamp>.page.json" in the relay.
-  //   { notebook, group?, section, title, html? | text?, props?: [{k,v}] | {k:v}, tags?, ptype?, pinned?, id?, created? }
+  //   { notebook, group?, section, title, html? | text?, props?: [{k,v}] | {k:v}, tags?, ptype?, pinned?, id?, created?,
+  //     paper?, size? (a3|a4|a5), orient? (p|l), pcolor? }   ptype "template" in a Templates section makes a template
   // Without a notebook it lands in the Inbox. An array files several. An existing id is updated, not duplicated.
   // Notebook by name: exact first, then one whose name starts with or contains it ("FY2" finds "FY2 Notebook").
   async function findNotebook(name) {
@@ -59,6 +60,7 @@
     html = await placeImages(html, spec.images);
     const fields = { title: spec.title || (spec.text || '').split('\n')[0].slice(0, 80) || 'Untitled', html, props, tags: spec.tags || [], pinned: spec.pinned ? 1 : 0 };
     if (spec.ptype) fields.ptype = spec.ptype;
+    for (const k of ['paper', 'size', 'orient', 'pcolor']) if (spec[k]) fields[k] = spec[k];
     let nb = spec.notebook ? await findNotebook(spec.notebook) : null;
     if (spec.notebook && !nb && !spec.inboxIfMissing) nb = await notebooks.create(spec.notebook);
     if (nb) {

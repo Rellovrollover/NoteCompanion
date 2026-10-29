@@ -1314,13 +1314,22 @@
 
   // ---------- new page ----------
   async function newPage(notebookId, sectionId) {
-    const paper = await sheet((box, close) => {
-      box.append(el('h2', {}, 'New page'), el('p', { class: 'rule' }, 'Paper'), el('div', { class: 'list papers' }, Object.entries(PAPERS).map(([k, v]) => el('button', { type: 'button', class: 'paper-' + k, onclick: () => close(k) }, el('span', { class: 'swatch' }), v))),
-        el('p', { class: 'rule' }, 'Or a page type'), el('div', { class: 'list' }, el('button', { type: 'button', onclick: () => close('todo') }, '☑ To-do list')),
+    const opt = defaultPage();
+    const temps = await templateList();
+    const pick = await sheet((box, close) => {
+      const types = el('div', { class: 'np-types' },
+        ...STARTERS.map((t) => el('button', { type: 'button', class: 'np-type', onclick: () => close({ starter: t }) }, starterIcon(t.key), el('span', {}, t.label))),
+        ...temps.map((t) => el('button', { type: 'button', class: 'np-type tpl', title: 'Template', onclick: () => close({ template: t }) }, starterIcon('template'), el('span', {}, t.title || 'Untitled template'))));
+      box.classList.add('np-sheet');
+      box.append(el('h2', {}, 'New page'), pageOptions(opt, () => {}), el('p', { class: 'np-label np-start' }, 'Start with'), types,
         el('div', { class: 'actions' }, el('button', { class: 'btn', type: 'button', onclick: () => close(undefined) }, 'Cancel')));
-    });
-    if (paper === undefined) return;
-    const p = paper === 'todo' ? await pages.create({ notebookId, sectionId, title: '', html: '<h3>To do</h3><ul></ul>', ptype: 'todo' }) : await pages.create({ notebookId, sectionId, title: '', html: '', paper });
+    }, { centre: true });
+    if (!pick) return;
+    const page = { paper: opt.paper, size: opt.size, orient: opt.orient, pcolor: opt.pcolor };
+    let fields;
+    if (pick.template) { const t = pick.template; fields = { html: htmlOf(t), paper: t.paper || page.paper, size: t.size || '', orient: t.orient || 'p', pcolor: t.pcolor || '' }; }
+    else fields = Object.assign(page, { html: pick.starter.html }, pick.starter.ptype ? { ptype: pick.starter.ptype } : {});
+    const p = await pages.create(Object.assign({ notebookId, sectionId, title: '' }, fields));
     state.expanded.add(notebookId); state.expanded.add(sectionId);
     onChanged(); state.focusNew = true; go('#page/' + p.id);
   }
@@ -1350,12 +1359,20 @@
     @font-face { font-family: Carlito; font-style: normal; font-weight: 700; src: url('${FONT_BASE}carlito-latin-700-normal.woff2') format('woff2'); }
     @font-face { font-family: Carlito; font-style: italic; font-weight: 700; src: url('${FONT_BASE}carlito-latin-700-italic.woff2') format('woff2'); }
     :root { --pitch: 24px; --rule: rgba(47,93,138,.18); --grid: rgba(47,93,138,.13); --ink: #1a1d23; color-scheme: light; }
-    html { background: #ffffff; min-height: 100%; }
+    html { background-color: var(--page, #ffffff); min-height: 100%; }
     body { background: transparent; color: var(--ink); font-family: Calibri, Carlito, "Segoe UI", -apple-system, system-ui, sans-serif; font-size: 17px; line-height: var(--pitch); padding: var(--pitch) 12px var(--pitch); max-width: none; margin: 0; box-sizing: border-box; min-height: 100%; }
-    html.paper-ruled { background-image: repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--pitch) - 1px), var(--rule) calc(var(--pitch) - 1px), var(--rule) var(--pitch)); background-origin: border-box; }
-    html.paper-grid { background-image: repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--pitch) - 1px), var(--grid) calc(var(--pitch) - 1px), var(--grid) var(--pitch)), repeating-linear-gradient(to right, transparent 0, transparent calc(var(--pitch) - 1px), var(--grid) calc(var(--pitch) - 1px), var(--grid) var(--pitch)); background-origin: border-box; }
-    html.paper-dots { background-image: radial-gradient(circle, var(--rule) 1.2px, transparent 1.6px); background-size: var(--pitch) var(--pitch); background-position: calc(var(--pitch) / 2) calc(var(--pitch) / 2); background-origin: border-box; }
+    html.paper-ruled:not(.sized), html.sized.paper-ruled body { background-image: repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--pitch) - 1px), var(--rule) calc(var(--pitch) - 1px), var(--rule) var(--pitch)); background-origin: border-box; }
+    html.paper-grid:not(.sized), html.sized.paper-grid body { background-image: repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--pitch) - 1px), var(--grid) calc(var(--pitch) - 1px), var(--grid) var(--pitch)), repeating-linear-gradient(to right, transparent 0, transparent calc(var(--pitch) - 1px), var(--grid) calc(var(--pitch) - 1px), var(--grid) var(--pitch)); background-origin: border-box; }
+    html.paper-dots:not(.sized), html.sized.paper-dots body { background-image: radial-gradient(circle, var(--rule) 1.2px, transparent 1.6px); background-size: var(--pitch) var(--pitch); background-position: calc(var(--pitch) / 2) calc(var(--pitch) / 2); background-origin: border-box; }
     html.paper-ruled, html.paper-grid, html.paper-dots { background-attachment: scroll; min-height: 100%; }
+    html.sized { background-color: #e6e9ee; overflow-x: auto; }
+    html.sized.dark-desk { background-color: #2a2e35; }
+    html.sized body { width: var(--sheet-w); min-height: var(--sheet-h) !important; margin: 24px auto 32px; padding: var(--sheet-m) !important; background-color: var(--page, #ffffff); box-shadow: 0 1px 3px rgba(0,0,0,.14), 0 8px 28px rgba(0,0,0,.10); }
+    html.sized.paper-ruled body, html.sized.paper-grid body, html.sized.paper-dots body { background-origin: border-box; }
+    #nc-breaks { position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; }
+    #nc-breaks > div { position: absolute; border-top: 1.5px dashed rgba(70,80,95,.45); }
+    #nc-breaks > div > span { position: absolute; right: 0; top: 2px; font: 11px/1 Calibri, Carlito, system-ui, sans-serif; color: rgba(70,80,95,.7); background: var(--page, #fff); padding: 1px 4px; border-radius: 3px; }
+    table.nc-cols { table-layout: fixed; } table.nc-cols td { border: 1px dashed rgba(127,127,127,.35); padding: 0 12px; }
     p, ul, ol, blockquote, pre, table, details, .callout { margin: 0; }
     li { line-height: var(--pitch); }
     h1, h2, h3 { font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif; letter-spacing: -0.01em; margin: 0; }
@@ -1388,6 +1405,140 @@
     const h = doc.documentElement;
     h.className = h.className.replace(/\bpaper-\w+/g, '').trim();
     if (paper && paper !== 'plain') h.classList.add('paper-' + paper);
+  }
+  // Page size (Fit, or A3/A4/A5 portrait or landscape) and page colour. A sized page shows as a sheet of that
+  // width with a dashed line where each printed page ends; on a phone the text re-wraps to the screen as usual.
+  const SIZES = { a5: [148, 210], a4: [210, 297], a3: [297, 420] };
+  const PAGE_MARGIN = 48; // px, about 12.7 mm — the same margin is used when printing
+  const PCOLORS = { white: ['White', '#ffffff'], cream: ['Cream', '#fbf5e6'], yellow: ['Yellow', '#fff6c4'], green: ['Green', '#e6f3df'], blue: ['Blue', '#e3edf9'], pink: ['Pink', '#fbe4ec'], lilac: ['Lilac', '#eee6f7'], grey: ['Grey', '#eeeff1'] };
+  const sizeLabel = (q) => (q.size && SIZES[q.size] ? q.size.toUpperCase() + ' ' + (q.orient === 'l' ? 'landscape' : 'portrait') : 'Fit window');
+  function sheetDims(q) {
+    if (!q.size || !SIZES[q.size]) return null;
+    const [w, h] = SIZES[q.size], mm = 96 / 25.4, land = q.orient === 'l';
+    return { w: Math.round((land ? h : w) * mm), h: Math.round((land ? w : h) * mm), css: q.size.toUpperCase() + ' ' + (land ? 'landscape' : 'portrait') };
+  }
+  function drawBreaks(ed, q) {
+    const doc = ed.getDoc(); if (!doc || !doc.body) return;
+    let lay = doc.getElementById('nc-breaks');
+    const d = sheetDims(q), h = doc.documentElement;
+    if (!d || !h.classList.contains('sized')) { if (lay) lay.remove(); if (doc.body.style.zoom) doc.body.style.zoom = ''; return; }
+    if (!lay) { lay = doc.createElement('div'); lay.id = 'nc-breaks'; h.appendChild(lay); }
+    // The sheet is scaled down to fit the width available (like "page width" zoom), so measure what's on screen.
+    const b = doc.body, z = fitSheet(ed, d), r = b.getBoundingClientRect(), win = ed.getWin();
+    // When printed, the title sits at the top of page 1 (48px line + 12px gap), so page 1 holds that much less.
+    const titled = (q.title || '').trim() ? 60 * z : 0;
+    const per = (d.h - 2 * PAGE_MARGIN) * z, top0 = r.top + win.scrollY + PAGE_MARGIN * z - titled, left = r.left + win.scrollX;
+    const n = Math.max(0, Math.ceil((r.height - 2 * PAGE_MARGIN * z + titled) / per) - 1);
+    let out = '';
+    for (let k = 1; k <= n; k++) out += '<div style="left:' + Math.round(left) + 'px;width:' + Math.round(r.width) + 'px;top:' + Math.round(top0 + k * per) + 'px"><span>Page ' + (k + 1) + '</span></div>';
+    if (lay.innerHTML !== out) lay.innerHTML = out;
+  }
+  function fitSheet(ed, d) {
+    const doc = ed.getDoc(), avail = doc.documentElement.clientWidth - 32;
+    const z = Math.min(1, Math.max(0.3, avail / d.w));
+    const want = z < 1 ? String(Math.round(z * 1000) / 1000) : '';
+    if (doc.body.style.zoom !== want) doc.body.style.zoom = want;
+    return z < 1 ? Math.round(z * 1000) / 1000 : 1;
+  }
+  function applyPage(ed, q) {
+    const doc = ed.getDoc(); if (!doc) return;
+    applyPaper(ed, q.paper);
+    const h = doc.documentElement, d = sheetDims(q), col = PCOLORS[q.pcolor] ? PCOLORS[q.pcolor][1] : '';
+    if (col) h.style.setProperty('--page', col); else h.style.removeProperty('--page');
+    const sized = !!d && !isNarrow();
+    h.classList.toggle('sized', sized); h.classList.toggle('dark-desk', sized && isDark());
+    if (d) { h.style.setProperty('--sheet-w', d.w + 'px'); h.style.setProperty('--sheet-h', d.h + 'px'); h.style.setProperty('--sheet-m', PAGE_MARGIN + 'px'); }
+    drawBreaks(ed, q);
+    try { ed.execCommand('mceAutoResize'); } catch (e) { /* not loaded */ }
+  }
+  // Print / Save as PDF: the note on its own, at the page's size (or the printer's default for Fit pages).
+  const PRINT_CSS = `
+    #printout { font-family: Calibri, Carlito, "Segoe UI", -apple-system, system-ui, sans-serif; font-size: 17px; line-height: 24px; color: #1a1d23; }
+    #printout .pt-title { font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif; font-size: 28px; line-height: 48px; margin: 0 0 12px; }
+    #printout p, #printout ul, #printout ol, #printout blockquote, #printout pre, #printout table, #printout details { margin: 0; }
+    #printout p, #printout li { orphans: 1; widows: 1; }
+    #printout h1, #printout h2, #printout h3 { font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif; margin: 0; break-after: avoid; }
+    #printout h1 { font-size: 28px; line-height: 48px; } #printout h2 { font-size: 22px; line-height: 24px; } #printout h3 { font-size: 18px; line-height: 24px; }
+    #printout img { max-width: 100%; height: auto; border-radius: 8px; break-inside: avoid; }
+    #printout table { border-collapse: collapse; width: 100%; } #printout td, #printout th { border: 1px solid #b9b4a8; padding: 0 8px; vertical-align: top; } #printout th { background: #eee; }
+    #printout tr { break-inside: avoid; }
+    #printout table.nc-cols { table-layout: fixed; } #printout table.nc-cols td { border: 0; padding: 0 12px 0 0; }
+    #printout li[data-todo] { list-style: none; position: relative; padding-left: 1.7em; margin-left: -1.4em; }
+    #printout li[data-todo]::before { content: ""; position: absolute; left: 0; top: .28em; width: 1em; height: 1em; border: 1.6px solid #7a7f88; border-radius: 4px; box-sizing: border-box; }
+    #printout li[data-todo="done"] { text-decoration: line-through; opacity: .65; }
+    #printout blockquote { border-left: 3px solid #b9b4a8; padding-left: 12px; color: #6a6e78; }
+    #printout pre { background: #f0f0f0; padding: 0 12px; border-radius: 8px; white-space: pre-wrap; }
+    #printout mark { background: #fde68a; }
+    #printout .callout { border-radius: 10px; padding: 11px 14px; border: 1px solid #ccc; }
+    #printout details { border-left: 3px solid #b9b4a8; padding-left: 12px; } #printout details > summary { font-weight: 600; }
+    #printout a { color: inherit; }
+  `;
+  function printNote(p) {
+    const html = state.editor && state.pageId === p.id ? state.editor.getContent() : htmlOf(p);
+    // Notes with handwriting print as they are on screen, so the ink stays where it was drawn.
+    const plain = !(state.ink && state.pageId === p.id && state.ink.hasInk());
+    for (const old of document.querySelectorAll('#printout, #print-style')) old.remove();
+    const d = sheetDims(p);
+    const style = el('style', { id: 'print-style' }, '@page { ' + (d ? 'size: ' + d.css + '; ' : '') + 'margin: 12.7mm; }' + (plain ? PRINT_CSS : ''));
+    document.head.append(style);
+    if (plain) { const box = el('div', { id: 'printout' }); box.innerHTML = '<h1 class="pt-title">' + esc(p.title || '') + '</h1>' + html; document.body.append(box); document.body.classList.add('printing'); }
+    const done = () => { document.body.classList.remove('printing'); for (const old of document.querySelectorAll('#printout, #print-style')) old.remove(); };
+    addEventListener('afterprint', done, { once: true });
+    setTimeout(() => window.print(), 200);
+  }
+  // The rows of choices for a page: paper, size and orientation, colour. Used by New page and Page setup.
+  function pageOptions(opt, onChange) {
+    const wrap = el('div', { class: 'np-opts' });
+    const draw = () => {
+      const paper = el('div', { class: 'np-papers papers' }, ...Object.entries(PAPERS).map(([k, v]) => el('button', { type: 'button', class: 'paper-' + k + ((opt.paper || 'plain') === k ? ' on' : ''), 'aria-pressed': (opt.paper || 'plain') === k ? 'true' : 'false', onclick: () => { opt.paper = k; draw(); onChange(); } }, el('span', { class: 'swatch' }), v)));
+      const size = el('div', { class: 'seg np-seg' }, ...[['', 'Fit'], ['a5', 'A5'], ['a4', 'A4'], ['a3', 'A3']].map(([k, v]) => el('button', { type: 'button', class: (opt.size || '') === k ? 'on' : '', onclick: () => { opt.size = k; draw(); onChange(); } }, v)));
+      const orient = el('div', { class: 'seg np-seg' + (opt.size ? '' : ' off') }, ...[['p', 'Portrait'], ['l', 'Landscape']].map(([k, v]) => el('button', { type: 'button', class: (opt.orient || 'p') === k ? 'on' : '', disabled: opt.size ? null : '', onclick: () => { opt.orient = k; draw(); onChange(); } }, v)));
+      const cols = el('div', { class: 'np-colours' }, ...Object.entries(PCOLORS).map(([k, [name, hex]]) => el('button', { type: 'button', class: 'np-colour' + ((opt.pcolor || 'white') === k ? ' on' : ''), title: name, 'aria-label': name + ' page', style: 'background:' + hex, onclick: () => { opt.pcolor = k === 'white' ? '' : k; draw(); onChange(); } })));
+      wrap.replaceChildren(
+        el('div', { class: 'np-row' }, el('span', { class: 'np-label' }, 'Paper'), paper),
+        el('div', { class: 'np-row' }, el('span', { class: 'np-label' }, 'Size'), el('div', { class: 'np-sizes' }, size, orient)),
+        el('div', { class: 'np-row' }, el('span', { class: 'np-label' }, 'Colour'), cols));
+    };
+    draw();
+    return wrap;
+  }
+  // Ready-made starting points. Each is an ordinary note once made.
+  const cellsRow = (tag, n) => '<tr>' + ('<' + tag + '>&nbsp;</' + tag + '>').repeat(n) + '</tr>';
+  const STARTERS = [
+    { key: 'blank', label: 'Blank page', html: '' },
+    { key: 'todo', label: 'To-do list', html: '<h3>To do</h3><ul></ul>', ptype: 'todo' },
+    { key: 'table', label: 'Table', html: '<table style="width: 100%;"><thead>' + cellsRow('th', 4) + '</thead><tbody>' + cellsRow('td', 4).repeat(3) + '</tbody></table><p>&nbsp;</p>' },
+    { key: 'check', label: 'Checklist', html: '<ul><li data-todo=""><br></li></ul>' },
+    { key: 'fold', label: 'Fold-down sections', html: [1, 2, 3].map((n) => '<details class="mce-accordion" open="open"><summary class="mce-accordion-summary">Section ' + n + '</summary><div class="mce-accordion-body"><p>&nbsp;</p></div></details>').join('') + '<p>&nbsp;</p>' },
+    { key: 'cols', label: 'Columns', html: '<table class="nc-cols" style="width: 100%;"><tbody><tr><td><p>&nbsp;</p></td><td><p>&nbsp;</p></td></tr></tbody></table><p>&nbsp;</p>' }
+  ];
+  const STARTER_SVG = {
+    blank: '<rect x="5" y="3" width="14" height="18" rx="2"/>',
+    todo: '<rect x="4" y="4" width="6" height="6" rx="1.5"/><path d="M5.5 7l1.3 1.3L9 5.8"/><path d="M13 7h7"/><rect x="4" y="14" width="6" height="6" rx="1.5"/><path d="M13 17h7"/>',
+    table: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M3 14.5h18M9 4v16M15 4v16"/>',
+    check: '<path d="M4 6.5l1.6 1.6L8.5 5"/><path d="M11 7h9"/><path d="M4 13l1.6 1.6L8.5 11.5"/><path d="M11 13h9"/><path d="M4 19h4.5M11 19h9"/>',
+    fold: '<path d="M4 5l3 3 3-3"/><path d="M13 6.5h7"/><path d="M4 12h6M13 12h7" opacity=".5"/><path d="M5 17l3 3V14z"/><path d="M13 17.5h7"/>',
+    cols: '<rect x="3" y="4" width="8" height="16" rx="1.5"/><rect x="13" y="4" width="8" height="16" rx="1.5"/>',
+    template: '<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4"/><path d="M9 12h7M9 16h5"/>'
+  };
+  const starterIcon = (k) => { const sp = el('span', { class: 'np-ico' }); sp.innerHTML = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (STARTER_SVG[k] || STARTER_SVG.blank) + '</svg>'; return sp; };
+  const defaultPage = () => { let d = {}; try { d = JSON.parse(localStorage.getItem('nc-newpage') || '{}'); } catch (e) { /* ignore */ } return { paper: 'plain', size: d.size || '', orient: d.orient || 'p', pcolor: '' }; };
+  // Templates: notes kept in a "Templates" section, marked as templates.
+  const templateList = async () => (await pages.live()).filter((q) => q.ptype === 'template').sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+  async function saveAsTemplate(p) {
+    const html = state.editor && state.pageId === p.id ? state.editor.getContent() : htmlOf(p);
+    const name = await ask('Save as template', 'Template name', p.title || '', 'Save'); if (!name) return;
+    const nbs = await sortedNotebooks();
+    let home = null;
+    for (const nb of nbs) { const sc = (await sections.forNotebook(nb.id)).find((x) => x.name.toLowerCase() === 'templates'); if (sc && (!home || nb.id === p.notebookId)) home = { nb, sc }; }
+    if (!home) { const nb = nbs.find((x) => x.id === p.notebookId) || nbs[0]; if (!nb) { toast('Make a notebook first'); return; } home = { nb, sc: await sections.create(nb.id, 'Templates') }; }
+    await pages.create({ notebookId: home.nb.id, sectionId: home.sc.id, title: name, html, ptype: 'template', paper: p.paper || 'plain', size: p.size || '', orient: p.orient || 'p', pcolor: p.pcolor || '' });
+    onChanged(); toast('Saved as a template — it\'s in ' + home.nb.name + ' › Templates');
+  }
+  function pageSetup(p) {
+    const opt = { paper: p.paper || 'plain', size: p.size || '', orient: p.orient || 'p', pcolor: p.pcolor || '' };
+    const apply = async () => { Object.assign(p, opt); await pages.update(p.id, { paper: opt.paper, size: opt.size, orient: opt.orient, pcolor: opt.pcolor }); S.schedule(); if (state.editor && state.pageId === p.id) applyPage(state.editor, p); };
+    sheet((box, close) => { box.append(el('h2', {}, 'Page setup'), pageOptions(opt, apply), el('div', { class: 'actions' }, el('button', { class: 'btn primary', type: 'button', onclick: () => close() }, 'Done'))); });
   }
   const CALLOUTS = { info: 'Info', tip: 'Tip', warning: 'Warning', danger: 'Important' };
   function insertCallout(ed, kind) {
@@ -1507,7 +1658,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
     view.append(crumbs);
 
     const title = el('input', { class: 'title-input', id: 'page-title', type: 'text', placeholder: 'Untitled', value: p.title || '' });
-    title.addEventListener('input', () => queueSave({ title: title.value }));
+    title.addEventListener('input', () => { p.title = title.value; queueSave({ title: title.value }); if (state.editor && state.pageId === p.id) drawBreaks(state.editor, p); });
     title.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); if (state.editor) state.editor.focus(); } });
     view.append(title);
 
@@ -1635,6 +1786,11 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
           if (li && e.target === li && e.offsetX < 24) { ed.dom.setAttrib(li, 'data-todo', li.getAttribute('data-todo') === 'done' ? '' : 'done'); ed.undoManager.add(); scheduleSave(); }
         });
         ed.on('input change undo redo SetContent ExecCommand', () => { if (ed.initialized) scheduleSave(); });
+        // Page-end lines follow the text as it grows; the sheet re-fits if the window changes width.
+        let brk = 0; const breaks = () => { cancelAnimationFrame(brk); brk = requestAnimationFrame(() => drawBreaks(ed, p)); };
+        ed.on('input change undo redo SetContent NodeChange ResizeEditor', breaks);
+        let wasNarrow = isNarrow(); const onResize = () => { if (isNarrow() !== wasNarrow) { wasNarrow = isNarrow(); applyPage(ed, p); } else breaks(); };
+        addEventListener('resize', onResize); ed.on('remove', () => removeEventListener('resize', onResize));
         // Copying a selection that contains pictures: put the pixels on the clipboard, not our local asset URL,
         // so they paste into Word, Teams, other devices and so on.
         ed.on('copy cut', (e) => {
@@ -1648,7 +1804,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
         });
         // Pasted HTML with pictures hosted elsewhere: copy them into the note so it works offline.
         ed.on('PastePostProcess', () => setTimeout(() => localiseImages(ed, scheduleSave), 0));
-        ed.on('init', () => { ed.setContent(initial); applyPaper(ed, p.paper); ed.undoManager.clear(); ed.setDirty(false); if (focusNew && !p.title) setTimeout(() => title.focus(), 60);
+        ed.on('init', () => { ed.setContent(initial); applyPage(ed, p); ed.undoManager.clear(); ed.setDirty(false); if (focusNew && !p.title) setTimeout(() => title.focus(), 60);
           ensureAssets(p, (aid) => { try { for (const img of ed.getDoc().querySelectorAll('img[src*="asset/' + aid + '"]')) img.src = img.src.split('?')[0] + '?v=' + Date.now(); } catch (e) { /* editor gone */ } }); });
       }
     });
@@ -1715,14 +1871,15 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
       p.kind === 'app' ? { label: 'Change link', fn: async () => { const u = await ask('Link', 'https://…', p.url || '', 'Save'); if (u !== undefined) { await pages.update(p.id, { url: u }); S.schedule(); renderPage(p.id); } } } : p.inbox ? { label: 'File to section…', fn: async () => { if (await fileInto(p.id)) renderPage(p.id); } } : { label: 'Move to…', fn: async () => { const t = await pickSection('Move page to'); if (t) { await pages.update(p.id, { inbox: 0, notebookId: t.notebookId, sectionId: t.sectionId, order: Date.now() }); onChanged(); renderPage(p.id); } } },
       (!PANE && !isNarrow()) ? { label: 'Open in split view', fn: () => openSplit('#page/' + p.id) } : null,
       { label: p.pinned ? 'Unpin' : 'Pin to top of section', fn: async () => { await pages.update(p.id, { pinned: p.pinned ? 0 : 1 }); onChanged(); renderPage(p.id); } },
-      p.kind === 'pdf' ? null : { label: 'Paper: ' + (PAPERS[p.paper] || 'Plain') + '…', fn: () => menu('Paper', Object.entries(PAPERS).map(([k, v]) => ({ label: v + (k === (p.paper || 'plain') ? '  ✓' : ''), fn: async () => { p.paper = k; await pages.update(p.id, { paper: k }); S.schedule(); if (state.editor && state.pageId === p.id) applyPaper(state.editor, k); } }))) },
+      p.kind === 'pdf' || p.kind === 'app' ? null : { label: 'Page setup: ' + [PAPERS[p.paper] || 'Plain', sizeLabel(p), p.pcolor && PCOLORS[p.pcolor] ? PCOLORS[p.pcolor][0] : null].filter(Boolean).join(' · ') + '…', fn: () => pageSetup(p) },
       p.kind === 'pdf' || p.kind === 'app' ? null : (p.ptype === 'todo' ? { label: state.todoAsNote || !document.querySelector('.todohost') ? 'Open as to-do list' : 'Open as plain note', fn: () => { state.todoAsNote = !document.querySelector('.todohost'); renderPage(p.id); } } : { label: 'Turn into a to-do list', fn: async () => { await pages.update(p.id, { ptype: 'todo' }); S.schedule(); state.todoAsNote = false; renderPage(p.id); } }),
       p.kind === 'pdf' ? null : { label: 'History…', fn: () => historySheet(p) },
+      p.kind === 'pdf' || p.kind === 'app' || p.ptype === 'template' ? null : { label: 'Save as template…', fn: () => saveAsTemplate(p) },
       ...inkItems,
       p.kind === 'pdf' || p.kind === 'app' ? null : { label: 'Send as email…', fn: () => sendAsEmail(p) },
       p.kind === 'pdf' ? { label: 'Export annotated PDF', fn: async () => { try { toast('Preparing PDF…'); const blob = await window.NCPDF.exportAnnotated(p); await deliver(blob, (p.title || 'document') + ' (annotated).pdf'); } catch (e) { toast(e.message); } } } : { label: 'Export as Markdown (.md)', fn: () => exportPage(p, 'md') },
       p.kind === 'pdf' ? { label: 'Export original PDF', fn: async () => { const a = await assets.get(p.assetId); if (a && a.blob) await deliver(a.blob, (p.title || 'document') + '.pdf'); else toast('PDF not on this device'); } } : { label: 'Export as Word (.doc)', fn: () => exportPage(p, 'doc') },
-      p.kind === 'pdf' ? { label: 'Clear all marks', danger: true, fn: async () => { if (await confirm('Remove every pen and highlighter mark from this PDF?', null, 'Clear')) { await pages.update(p.id, { annots: {} }); S.schedule(); renderPage(p.id); } } } : { label: 'Print / Save as PDF', fn: () => setTimeout(() => window.print(), 200) },
+      p.kind === 'pdf' ? { label: 'Clear all marks', danger: true, fn: async () => { if (await confirm('Remove every pen and highlighter mark from this PDF?', null, 'Clear')) { await pages.update(p.id, { annots: {} }); S.schedule(); renderPage(p.id); } } } : { label: 'Print / Save as PDF', fn: () => printNote(p) },
       { label: 'Delete page', danger: true, fn: async () => { if (await confirm('Delete "' + (p.title || 'Untitled') + '"?')) { destroyEditor(); await pages.remove(p.id); onChanged(); go(p.kind === 'app' ? '#apps' : p.inbox ? '#inbox' : '#notes'); } } }
     ], note);
   }
@@ -1932,7 +2089,15 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
     view.append(acct);
     const cur = themePref();
     const seg = el('div', { class: 'seg' }, ...[['system', 'Match phone'], ['light', 'Light'], ['dark', 'Dark']].map(([k, v]) => el('button', { type: 'button', class: k === cur ? 'on' : '', onclick: () => { applyTheme(k); renderSettings(); } }, v)));
-    view.append(el('div', { class: 'panel' }, el('h2', {}, 'Appearance'), el('p', { class: 'rule' }, 'Note paper stays white in either mode.'), seg));
+    const np = defaultPage();
+    const saveNp = () => { try { localStorage.setItem('nc-newpage', JSON.stringify({ size: np.size, orient: np.orient })); } catch (e) { /* ignore */ } };
+    const npRow = el('div', { class: 'np-sizes' });
+    const drawNp = () => npRow.replaceChildren(
+      el('div', { class: 'seg np-seg' }, ...[['', 'Fit'], ['a5', 'A5'], ['a4', 'A4'], ['a3', 'A3']].map(([k, v]) => el('button', { type: 'button', class: (np.size || '') === k ? 'on' : '', onclick: () => { np.size = k; saveNp(); drawNp(); } }, v))),
+      el('div', { class: 'seg np-seg' + (np.size ? '' : ' off') }, ...[['p', 'Portrait'], ['l', 'Landscape']].map(([k, v]) => el('button', { type: 'button', class: np.orient === k ? 'on' : '', disabled: np.size ? null : '', onclick: () => { np.orient = k; saveNp(); drawNp(); } }, v))));
+    drawNp();
+    view.append(el('div', { class: 'panel' }, el('h2', {}, 'Appearance'), el('p', { class: 'rule' }, 'Note paper stays white in either mode.'), seg,
+      el('p', { class: 'rule' }, 'New pages start at this size on this device (you can change it in the New page box, or later from Page setup).'), npRow));
     const kvBuild = el('span', {}, '…'), kvPersist = el('span', {}, '…');
     view.append(el('div', { class: 'panel' }, el('h2', {}, 'This device'),
       el('div', { class: 'kv' }, el('span', {}, 'Name'), el('span', {}, dev)),
