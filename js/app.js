@@ -95,7 +95,10 @@
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const textToHtml = (text) => text.split(/\n{2,}/).map((para) => '<p>' + esc(para).replace(/\n/g, '<br>') + '</p>').join('\n');
   const htmlOf = (p) => (p.html != null && p.html !== '') ? p.html : (p.md ? (window.marked ? marked.parse(p.md) : textToHtml(p.md)) : '');
-  const textOf = (p) => { const d = document.createElement('div'); d.innerHTML = htmlOf(p); const props = (p.props || []).map((x) => x.k + ' ' + x.v).join(' '); return ((d.textContent || '') + ' ' + props + ' ' + (p.kind === 'pdf' ? (p.pdfText || '') : '')).replace(/\s+/g, ' ').trim(); };
+  // Lines and paragraphs keep a break between them (a plain textContent would run "HR" and "Then" into "HRThen").
+  const BLOCK_END = /<br\s*\/?>|<\/(p|div|li|h[1-6]|tr|td|th|blockquote|pre)>/gi;
+  const linesOf = (html) => { const d = document.createElement('div'); d.innerHTML = String(html || '').replace(BLOCK_END, (m) => (/^<br/i.test(m) ? '\n' : m + '\n')); return (d.textContent || '').split('\n').map((l) => l.replace(/[ \t\u00a0]+/g, ' ').trim()).join('\n').replace(/\n{3,}/g, '\n\n').trim(); };
+  const textOf = (p) => { const d = document.createElement('div'); d.innerHTML = htmlOf(p).replace(BLOCK_END, '$& '); const props = (p.props || []).map((x) => x.k + ' ' + x.v).join(' '); return ((d.textContent || '') + ' ' + props + ' ' + (p.kind === 'pdf' ? (p.pdfText || '') : '')).replace(/\s+/g, ' ').trim(); };
   const wordCount = (html) => { const d = document.createElement('div'); d.innerHTML = html || ''; return ((d.textContent || '').match(/\S+/g) || []).length; };
   const linkIds = (html) => [...new Set([...(html || '').matchAll(/#page\/([0-9a-f-]{36})/g)].map((m) => m[1]))];
   // Pages keep a manual order within their section (pinned ones float to the top).
@@ -431,11 +434,11 @@
     } else if (p.kind === 'file' && p.assetId) {
       card.append(el('a', { class: 'filelink', href: assetUrl(p.assetId), target: '_blank', rel: 'noopener' }, icon('file'), el('span', {}, p.title)));
     } else {
-      const text = textOf(p);
-      card.append(el('div', { class: 'body' + (text.length < 220 ? ' short' : ''), onclick: () => quickLook(p) }, text || p.title));
+      const text = linesOf(htmlOf(p));
+      card.append(el('div', { class: 'body' + (text.length < 220 && text.split('\n').length < 6 ? ' short' : ''), onclick: () => quickLook(p) }, text || p.title));
     }
     const sugg = state.suggestIndex ? suggestFor(p, state.suggestIndex) : [];
-    if (sugg.length) card.append(el('div', { class: 'suggest' }, el('span', { class: 'suggest-label' }, 'File to'), ...sugg.map((e) => el('button', { class: 'chip', type: 'button', onclick: async () => { await pages.update(p.id, { inbox: 0, notebookId: e.nb.id, sectionId: e.sc.id }); onChanged(); toast('Filed to ' + e.sc.name); renderInbox(); } }, e.nb.name + ' › ' + e.sc.name))));
+    if (sugg.length) card.append(el('div', { class: 'suggest' }, el('span', { class: 'suggest-label' }, 'File to'), ...sugg.map((e) => el('button', { class: 'chip', type: 'button', onclick: async () => { await pages.update(p.id, { inbox: 0, notebookId: e.nb.id, sectionId: e.sc.id }); onChanged(); toast('Filed to ' + (e.sc.group ? e.sc.group + ' › ' : '') + e.sc.name); renderInbox(); } }, e.nb.name + ' › ' + (e.sc.group ? e.sc.group + ' › ' : '') + e.sc.name))));
     const fileBtn = el('button', { class: 'btn small', type: 'button', onclick: async () => { if (await fileInto(p.id)) renderInbox(); } }, 'File to…');
     const openBtn = el('button', { class: 'btn small', type: 'button', onclick: () => openPage(p.id) }, 'Open');
     const pinBtn = el('button', { class: 'btn small', type: 'button', onclick: async () => { await pages.update(p.id, { pinned: p.pinned ? 0 : 1 }); onChanged(); renderInbox(); } }, p.pinned ? 'Unpin' : 'Pin');

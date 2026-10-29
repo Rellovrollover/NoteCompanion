@@ -18,9 +18,10 @@
   const setProp = (props, k, v) => { const list = (props || []).filter((x) => x.k !== k); if (v) list.push({ k, v }); return list; };
   // Paragraphs, list items and cells keep a gap between them so a card never reads "floor.Trial: 65 trialSource: …".
   const textOf = (html) => { const d = document.createElement('div'); d.innerHTML = (html || '').replace(/<br\s*\/?>|<\/(p|li|h[1-6]|div|td|th|tr|blockquote)>/gi, ' $&'); return (d.textContent || '').replace(/\s+/g, ' ').trim(); };
-  const snippetOf = (html) => {
-    const d = document.createElement('div'); d.innerHTML = html || '';
-    const parts = [...d.querySelectorAll('p, li, h1, h2, h3, h4, td, blockquote')].filter((x) => !x.querySelector('p, li, td')).map((x) => x.textContent.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  const snippetOf = (html, title) => {
+    const d = document.createElement('div'); d.innerHTML = (html || '').replace(/<br\s*\/?>/gi, '\u2029');
+    const parts = [...d.querySelectorAll('p, li, h1, h2, h3, h4, td, blockquote')].filter((x) => !x.querySelector('p, li, td')).flatMap((x) => x.textContent.split('\u2029')).map((t) => t.replace(/\s+/g, ' ').trim()).filter(Boolean);
+    if (title && parts.length > 1 && parts[0].toLowerCase() === String(title).trim().toLowerCase()) parts.shift();
     if (!parts.length) return textOf(html);
     return parts.reduce((out, t) => !out ? t : out + (/[.!?:;]$/.test(out) ? ' ' : ' · ') + t, '');
   };
@@ -142,7 +143,7 @@
         } else {
           rows.sort(sorters[sort.pearls] || sorters.added);
           const grid = el('div', { class: 'tp-cards' });
-          for (const p of rows) grid.append(el('a', { class: 'tp-card', href: '#page/' + p.id }, el('span', { class: 'tp-card-spec' }, p.sec.name), el('b', {}, p.title || 'Untitled'), el('span', { class: 'tp-card-body' }, snippetOf(p.html).slice(0, 220))));
+          for (const p of rows) grid.append(el('a', { class: 'tp-card', href: '#page/' + p.id }, el('span', { class: 'tp-card-spec' }, p.sec.name), el('b', {}, p.title || 'Untitled'), el('span', { class: 'tp-card-body' }, snippetOf(p.html, p.title).slice(0, 220))));
           body.append(grid);
         }
       }
