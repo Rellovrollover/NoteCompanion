@@ -437,6 +437,7 @@
   function pageQuickMenu(p, after) {
     menu(p.title || 'Untitled', [
       { label: 'Open', fn: () => openPage(p.id) },
+      { label: 'Rename', fn: async () => { const n = await ask('Rename page', 'Title', p.title || '', 'Rename'); if (n !== undefined && n !== p.title) { await pages.update(p.id, { title: n }); p.title = n; if (state.pageId === p.id) { const t = $('#page-title'); if (t) t.value = n; } onChanged(); after && after(); } } },
       (!PANE && !isNarrow()) ? { label: 'Open in split view', fn: () => openSplit('#page/' + p.id) } : null,
       p.inbox ? { label: 'File to…', fn: async () => { if (await fileInto(p.id)) after && after(); } } : { label: 'Move to…', fn: async () => { const t = await pickSection('Move page to'); if (t) { await pages.update(p.id, { inbox: 0, notebookId: t.notebookId, sectionId: t.sectionId, order: Date.now() }); onChanged(); after && after(); } } },
       { label: p.pinned ? 'Unpin' : 'Pin', fn: async () => { await pages.update(p.id, { pinned: p.pinned ? 0 : 1 }); onChanged(); after && after(); } },
@@ -715,7 +716,7 @@
     for (const [i, nb] of nbs.entries()) {
       const secs = allSecs.filter((x) => x.notebookId === nb.id);
       const n = livePages.filter((q) => q.notebookId === nb.id).length;
-      grid.append(el('a', { class: 'nbcard' + (nb.id === state.nbId ? ' here' : ''), href: '#nb/' + nb.id, style: '--nb: ' + nbColour(nb, i) },
+      grid.append(el('a', { class: 'nbcard' + (nb.id === state.nbId ? ' here' : ''), href: '#nb/' + nb.id, 'data-menu': 'nb|' + nb.id, style: '--nb: ' + nbColour(nb, i) },
         el('span', { class: 'spine' }), el('span', { class: 'nbcard-body' }, el('span', { class: 'nbcard-name' }, nb.name), el('span', { class: 'nbcard-meta' }, secs.length + ' section' + (secs.length === 1 ? '' : 's') + ' · ' + n + ' page' + (n === 1 ? '' : 's') + (nb.current ? ' · current rotation' : ''))),
         el('button', { class: 'more', type: 'button', 'aria-label': 'Notebook options', onclick: (e) => { e.preventDefault(); e.stopPropagation(); notebookMenu(nb); } })));
     }
@@ -745,11 +746,11 @@
     const strip = el('div', { class: 'sectabs', 'data-nb': nb.id, 'data-sec': activeSecId || '' });
     const row1 = el('div', { class: 'tabrow' });
     let ci = 0;
-    const tabFor = (sc, i) => sectionDropTarget(el('a', { class: 'stab' + (active && active.id === sc.id ? ' active' : ''), href: '#section/' + sc.id, style: '--tab: ' + NB_COLOURS[i % NB_COLOURS.length], title: sc.name }, sc.name), sc.id);
+    const tabFor = (sc, i) => sectionDropTarget(el('a', { class: 'stab' + (active && active.id === sc.id ? ' active' : ''), href: '#section/' + sc.id, style: '--tab: ' + NB_COLOURS[i % NB_COLOURS.length], title: sc.name, 'data-menu': 'sec|' + sc.id }, sc.name), sc.id);
     for (const g of groups) {
       if (!g.name) { for (const sc of g.secs) row1.append(tabFor(sc, ci++)); continue; }
       const open = openGroup === g.name;
-      row1.append(el('button', { class: 'stab group' + (open ? ' active' : ''), type: 'button', style: '--tab: ' + NB_COLOURS[ci++ % NB_COLOURS.length], title: g.name,
+      row1.append(el('button', { class: 'stab group' + (open ? ' active' : ''), type: 'button', style: '--tab: ' + NB_COLOURS[ci++ % NB_COLOURS.length], title: g.name, 'data-menu': 'group|' + nb.id + '|' + g.name,
         onclick: () => { if (open && !(active && active.group === g.name)) { state.openGroup = null; } else { state.openGroup = { nb: nb.id, name: g.name }; } if (!open && g.secs[0] && !(active && active.group === g.name)) { go('#section/' + g.secs[0].id); return; } refreshTree(); } },
         el('span', { class: 'group-ico', html: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2h8.5A1.5 1.5 0 0 1 21 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>' }), g.name));
     }
@@ -781,7 +782,7 @@
     let ci = 0;
     for (const g of groupsOf(secs)) {
       if (g.name) grid.append(el('h2', { class: 'secgrid-group' }, g.name));
-      for (const sc of g.secs) { const n = livePages.filter((q) => q.sectionId === sc.id).length; grid.append(el('a', { class: 'seccard', href: '#section/' + sc.id, style: '--tab: ' + NB_COLOURS[ci++ % NB_COLOURS.length] }, el('span', { class: 'seccard-name' }, sc.name), el('span', { class: 'seccard-meta' }, n + ' page' + (n === 1 ? '' : 's')))); }
+      for (const sc of g.secs) { const n = livePages.filter((q) => q.sectionId === sc.id).length; grid.append(el('a', { class: 'seccard', href: '#section/' + sc.id, 'data-menu': 'sec|' + sc.id, style: '--tab: ' + NB_COLOURS[ci++ % NB_COLOURS.length] }, el('span', { class: 'seccard-name' }, sc.name), el('span', { class: 'seccard-meta' }, n + ' page' + (n === 1 ? '' : 's')))); }
     }
     if (!secs.length) grid.append(el('p', { class: 'sub' }, 'No sections yet — use + on the tab strip.'));
     view.append(grid);
@@ -1188,7 +1189,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
     const secPages = (await pages.forSection(sec.id)).sort(pinnedFirst);
     col.append(el('div', { class: 'pagecol-head' }, el('a', { href: '#section/' + sec.id, title: sec.name }, sec.name), el('button', { class: 'btn small', type: 'button', title: 'New page', onclick: () => newPage(nb.id, sec.id) }, '+')));
     const pl = el('div', { class: 'pagecol-list' });
-    for (const q of secPages) pl.append(dragPage(el('a', { class: 'pagecol-row' + (q.id === activeId ? ' active' : ''), href: '#page/' + q.id, title: q.title || 'Untitled' }, el('span', { class: 'pagecol-title' }, (q.pinned ? '📌 ' : '') + (q.title || 'Untitled')), el('span', { class: 'pagecol-when' }, fmtWhen(q.updated))), q));
+    for (const q of secPages) pl.append(dragPage(el('a', { class: 'pagecol-row' + (q.id === activeId ? ' active' : ''), href: '#page/' + q.id, title: q.title || 'Untitled', 'data-menu': 'page|' + q.id }, el('span', { class: 'pagecol-title' }, (q.pinned ? '📌 ' : '') + (q.title || 'Untitled')), el('span', { class: 'pagecol-when' }, fmtWhen(q.updated))), q));
     pl.append(dropEnd(el('div', { class: 'pagecol-end' }), sec.id));
     col.append(pl);
     return col;
@@ -2024,6 +2025,27 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
       visualViewport.addEventListener('resize', () => { const now = visualViewport.height; if (now > was + 120) setTimeout(() => { window.scrollTo(0, Math.max(0, window.scrollY)); document.documentElement.style.height = ''; }, 50); was = now; });
     }
     document.addEventListener('focusout', () => { setTimeout(() => { if (!document.activeElement || document.activeElement === document.body) window.scrollTo(0, Math.max(0, window.scrollY)); }, 80); });
+    // Right-click anywhere that has a menu opens it (desktop); typing areas keep the browser's own menu.
+    document.addEventListener('contextmenu', async (e) => {
+      if (e.defaultPrevented) return;
+      const t = e.target;
+      if (!t.closest || t.closest('input, textarea, select, [contenteditable="true"], .tox, .pdfhost, .apphost, .inkbar, .sheet')) return;
+      const m = t.closest('[data-menu]');
+      if (m) {
+        e.preventDefault();
+        const [kind, id, extra] = m.dataset.menu.split('|');
+        const again = () => route();
+        if (kind === 'nb') { const nb = await notebooks.get(id); if (nb) notebookMenu(nb); }
+        else if (kind === 'sec') { const sc = await sections.get(id); const nb = sc && await notebooks.get(sc.notebookId); if (sc && nb) sectionMenu(nb, sc); }
+        else if (kind === 'group') { const nb = await notebooks.get(id); if (nb) groupMenu(nb, extra, (await sections.forNotebook(nb.id)).filter((x) => x.group === extra)); }
+        else if (kind === 'page') { const p = await pages.get(id); if (p) pageQuickMenu(p, again); }
+        return;
+      }
+      // Rows that already carry a ··· button: right-click is the same as pressing it.
+      const row = t.closest('.nb-head, .sec-head, .group-head, .archived-row, .nbgrid a, .crumbs');
+      const more = row && (row.querySelector(':scope > .more, :scope > .more-page:not(.draw)'));
+      if (more) { e.preventDefault(); more.click(); }
+    });
     await G.init();
     if (window.NCGCal) { try { if (await NCGCal.init()) toast('Google Calendar connected'); } catch (e) { console.warn('google sign-in', e); } }
     await S.init();
