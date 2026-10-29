@@ -1863,7 +1863,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
     view.append(el('div', { class: 'panel' }, el('h2', {}, 'This device'),
       el('div', { class: 'kv' }, el('span', {}, 'Name'), el('span', {}, dev)),
       el('div', { class: 'kv' }, el('span', {}, 'Installed as app'), el('span', {}, (navigator.standalone || matchMedia('(display-mode: standalone)').matches) ? 'Yes' : 'No (use Add to Home Screen)')),
-      el('div', { class: 'kv' }, el('span', {}, 'Version'), (() => { const v = el('span', { id: 'kv-ver' }, '…'); if (window.caches) caches.keys().then((k) => { const n = k.filter((x) => /^nc-/.test(x)).sort().pop(); v.textContent = n ? n.replace(/^nc-/, '') : 'unknown'; }).catch(() => { v.textContent = 'unknown'; }); return v; })()),
+      el('div', { class: 'kv' }, el('span', {}, 'Version'), (() => { const v = el('span', { id: 'kv-ver' }, '…'); if (window.caches) caches.keys().then((k) => { const n = k.filter((x) => /^nc-\d/.test(x)).sort().pop(); v.textContent = n ? n.replace(/^nc-/, '') : 'unknown'; }).catch(() => { v.textContent = 'unknown'; }); return v; })()),
       el('div', { class: 'kv' }, el('span', {}, 'Offline cache'), el('span', { id: 'kv-sw' }, navigator.serviceWorker && navigator.serviceWorker.controller ? 'Ready' : 'Not yet; reload once')),
       el('div', { class: 'kv' }, el('span', {}, 'Build'), kvBuild),
       el('div', { class: 'kv' }, el('span', {}, 'Storage kept'), kvPersist),
@@ -2260,8 +2260,9 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
   if ('serviceWorker' in navigator && !PANE) {
     navigator.serviceWorker.register('./sw.js').then((reg) => {
       // An app left open all day still hears about a new build: look every 20 minutes and whenever it comes back to the front.
-      const check = () => { reg.update().catch(() => {}); };
-      setInterval(check, 20 * 60 * 1000);
+      let lastCheck = Date.now();
+      const check = () => { if (Date.now() - lastCheck < 15 * 60 * 1000) return; lastCheck = Date.now(); reg.update().catch(() => {}); };
+      setInterval(check, 30 * 60 * 1000);
       document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check(); });
       window.addEventListener('focus', check);
       reg.addEventListener('updatefound', () => {

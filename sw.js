@@ -2,27 +2,39 @@
 // 1. Caches the app shell so it opens with no connection.
 // 2. Serves local assets (images, audio, files) from IndexedDB at ./asset/<id>,
 //    so markdown can reference them with a plain relative URL on every device.
-const VERSION = 'nc-2026-10-31k';
-const SHELL = [
+const VERSION = 'nc-2026-10-31l';
+// Big libraries live in their own cache that only changes when they do, so an app update downloads just
+// the app's own files (a few hundred KB), not every library again.
+const VENDOR = 'nc-vendor-1';
+const APP_FILES = [
   './', './index.html', './manifest.webmanifest',
   './css/app.css',
   './js/config.js', './js/db.js', './js/graph.js', './js/sync.js', './js/pdf.js', './js/ink.js', './js/scan.js', './js/shift.js', './js/shop.js', './js/tp.js', './js/portfolio.js', './js/todo.js', './js/logbook.js', './js/famus.js', './js/symbols.js', './js/gcal.js', './js/onenote.js', './js/drop.js', './js/app.js',
+  './icons/brain-180.png', './icons/brain-192.png', './icons/brain-512.png'
+];
+const VENDOR_FILES = [
   './vendor/pdf-lib.min.js', './vendor/mammoth.min.js', './vendor/supabase.js', './vendor/pdfjs/pdf.min.mjs', './vendor/pdfjs/pdf.worker.min.mjs',
   ...['400-normal', '400-italic', '700-normal', '700-italic'].map((v) => './vendor/fonts/carlito-latin-' + v + '.woff2'),
   './vendor/dexie.min.js', './vendor/msal-browser.min.js', './vendor/marked.js', './vendor/turndown.js',
   './vendor/tinymce/tinymce.min.js', './vendor/tinymce/themes/silver/theme.min.js', './vendor/tinymce/models/dom/model.min.js', './vendor/tinymce/icons/default/icons.min.js',
   './vendor/tinymce/skins/ui/oxide/skin.min.css', './vendor/tinymce/skins/ui/oxide/content.min.css', './vendor/tinymce/skins/ui/oxide-dark/skin.min.css', './vendor/tinymce/skins/ui/oxide-dark/content.min.css',
   './vendor/tinymce/skins/content/default/content.min.css', './vendor/tinymce/skins/content/dark/content.min.css',
-  ...['lists', 'advlist', 'table', 'link', 'image', 'autolink', 'autoresize', 'searchreplace', 'codesample', 'quickbars', 'accordion'].map((p) => './vendor/tinymce/plugins/' + p + '/plugin.min.js'),
-  './icons/brain-180.png', './icons/brain-192.png', './icons/brain-512.png'
+  ...['lists', 'advlist', 'table', 'link', 'image', 'autolink', 'autoresize', 'searchreplace', 'codesample', 'quickbars', 'accordion'].map((p) => './vendor/tinymce/plugins/' + p + '/plugin.min.js')
 ];
 const BASE = new URL('./', self.location).pathname;
+const isVendor = (url) => url.pathname.startsWith(BASE + 'vendor/');
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil((async () => {
+    await (await caches.open(VERSION)).addAll(APP_FILES);
+    // Libraries: only fetch the ones this device doesn't already have.
+    const vc = await caches.open(VENDOR);
+    for (const f of VENDOR_FILES) { if (!(await vc.match(f))) { try { await vc.add(f); } catch (err) { /* fetched on first use instead */ } } }
+    await self.skipWaiting();
+  })());
 });
 self.addEventListener('activate', (e) => {
-  e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
+  e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== VERSION && k !== VENDOR).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
 });
 
 function readAsset(id) {
@@ -55,14 +67,29 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // App shell. Only this version's cache is consulted (never an older one that is still being cleared).
-  // The page itself is fetched network-first so a stale shell can't outlive an update; everything else cache-first.
-  e.respondWith(caches.open(VERSION).then((cache) => cache.match(req, { ignoreSearch: true }).then((hit) => {
-    const fetching = fetch(req).then((res) => {
+  // The page itself: network first so an update shows up, but if the network fails or answers with an
+  // error (offline, or GitHub's "rate limit exceeded" page) the saved copy opens instead.
+  if (req.mode === 'navigate') {
+    e.respondWith(caches.open(VERSION).then(async (cache) => {
+      const saved = (await cache.match(req, { ignoreSearch: true })) || (await cache.match('./index.html')) || (await cache.match('./'));
+      try {
+        const res = await fetch(req);
+        if (res && res.ok) { cache.put(req, res.clone()); return res; }
+        return saved || res;
+      } catch (err) { return saved || Response.error(); }
+    }));
+    return;
+  }
+  // Everything else: from the saved copy, with no re-download on every use. A new build brings new copies.
+  e.respondWith((async () => {
+    const name = isVendor(url) ? VENDOR : VERSION;
+    const cache = await caches.open(name);
+    const hit = (await cache.match(req, { ignoreSearch: true })) || (await caches.match(req, { ignoreSearch: true }));
+    if (hit) return hit;
+    try {
+      const res = await fetch(req);
       if (res && res.ok) cache.put(req, res.clone());
       return res;
-    }).catch(() => hit);
-    if (req.mode === 'navigate') return fetching.then((res) => res || hit);
-    return hit || fetching;
-  })));
+    } catch (err) { return Response.error(); }
+  })());
 });
