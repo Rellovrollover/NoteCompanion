@@ -1971,33 +1971,48 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
             el('li', {}, 'Credentials → Create credentials → OAuth client ID → Web application. Authorised JavaScript origin: ', el('code', {}, location.origin), '. Authorised redirect URI: ', el('code', {}, C.redirectUri), '.'),
             el('li', {}, 'Copy the Client ID and Client secret here, Save, Sign in with Google. Repeat the paste on each device (they stay on the device, not in OneDrive).')))));
     }
-    // Symbol shortcuts: built-in colon codes plus your own (kept in the "Symbol shortcuts" note).
+    // Symbol shortcuts: your OneNote / Table Designer codes plus extras, and any you add (kept in the "Symbol shortcuts" note).
     if (window.NCSymbols) {
       await NCSymbols.refresh(true);
       const symPanel = el('div', { class: 'panel help' });
-      const drawSym = async (filter) => {
+      let symFilter = '';
+      const drawSym = async () => {
         const list = NCSymbols.all();
-        const f = (filter || '').trim().toLowerCase().replace(/^:+|:+$/g, '');
-        const shown = list.filter((x) => !f || x.code.toLowerCase().includes(f) || (x.sym || '').includes(f) || (x.label || '').toLowerCase().includes(f) || x.group.toLowerCase().includes(f));
+        const f = symFilter.trim().toLowerCase();
+        const shown = list.filter((x) => !f || x.code.toLowerCase().includes(f) || (x.sym || '').includes(symFilter.trim()) || (x.label || '').toLowerCase().includes(f) || x.group.toLowerCase().includes(f));
         const page = await NCSymbols.findPage();
-        const search = el('input', { type: 'search', placeholder: 'Find a code or symbol…', value: filter || '', 'data-nosym': '1' });
-        search.addEventListener('input', () => { clearTimeout(search._t); search._t = setTimeout(async () => { await drawSym(search.value); const s2 = symPanel.querySelector('input[type=search]'); if (s2) { s2.focus(); s2.setSelectionRange(s2.value.length, s2.value.length); } }, 200); });
-        const code = el('input', { type: 'text', placeholder: 'code, e.g. hb', 'data-nosym': '1', autocapitalize: 'off', autocomplete: 'off' });
-        const sym = el('input', { type: 'text', placeholder: 'symbol, e.g. Hb or ⇉', autocomplete: 'off' });
-        const addSym = async () => { const c = code.value.trim().replace(/^:+|:+$/g, ''), v = sym.value.trim(); if (!c || !v) { toast('Give it a code and a symbol'); return; } if (/[\s:]/.test(c)) { toast('Codes can\u2019t contain spaces or colons'); return; } const next = NCSymbols.custom(); next[c] = v; await NCSymbols.saveCustom(next); onChanged(); toast(':' + c + ': → ' + v); drawSym(filter); };
+        const search = el('input', { type: 'search', placeholder: 'Find a code or symbol…', value: symFilter, 'data-nosym': '1' });
+        search.addEventListener('input', () => { clearTimeout(search._t); search._t = setTimeout(async () => { symFilter = search.value; await drawSym(); const s2 = symPanel.querySelector('input[type=search]'); if (s2) { s2.focus(); s2.setSelectionRange(s2.value.length, s2.value.length); } }, 200); });
+        const code = el('input', { type: 'text', placeholder: 'Type, e.g. :hb: or ->', 'data-nosym': '1', autocapitalize: 'off', autocomplete: 'off' });
+        const sym = el('input', { type: 'text', placeholder: 'Becomes, e.g. Hb or ⇉', autocomplete: 'off' });
+        const save = async (next, msg) => { await NCSymbols.saveCustom(next); onChanged(); if (msg) toast(msg); drawSym(); };
+        const addSym = async () => {
+          const c = NCSymbols.normalise(code.value), v = sym.value.trim();
+          if (!c || !v) { toast('Fill in both: what you type and what it becomes'); return; }
+          if (/\s/.test(c) || (NCSymbols.isColon(c) && c.slice(1, -1).includes(':'))) { toast('No spaces, and only the colons at each end'); return; }
+          if (!NCSymbols.isColon(c) && c.length < 2) { toast('Plain shortcuts need at least two characters, e.g. ->'); return; }
+          const next = NCSymbols.custom(); next.set(c, v); await save(next, c + ' → ' + v);
+        };
         sym.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addSym(); } });
+        const importFile = el('input', { type: 'file', accept: '.json,application/json', hidden: '' });
+        importFile.addEventListener('change', async () => {
+          const f2 = importFile.files[0]; importFile.value = ''; if (!f2) return;
+          try { const { next, n } = NCSymbols.fromDesigner(JSON.parse(await f2.text())); if (!n) { toast('Nothing new in that file — your codes already match'); return; } await save(next, 'Imported ' + n + ' shortcut' + (n === 1 ? '' : 's') + ' from the Table Designer'); } catch (e) { toast('That isn’t a shortcuts.json from the Table Designer'); }
+        });
+        const exportJson = () => { const blob = new Blob([JSON.stringify(NCSymbols.toDesigner(), null, 1)], { type: 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'shortcuts.json'; document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 3000); };
         const groups = [...new Set(shown.map((x) => x.group))];
         symPanel.replaceChildren(el('h2', {}, 'Symbol shortcuts'),
-          el('p', {}, 'Type a colon code in any note or text box and it turns into the symbol, like OneNote AutoCorrect: ', el('b', {}, ':d:'), ' →, ', el('b', {}, ':a:'), ' ←, ', el('b', {}, ':w:'), ' ↑, ', el('b', {}, ':s:'), ' ↓, ', el('b', {}, ':alpha:'), ' α, ', el('b', {}, ':Delta:'), ' Δ. In a note, typing a colon after a space also suggests codes as you go.'),
+          el('p', {}, 'The same typing shortcuts as OneNote and your Table Designer: type ', el('b', {}, ':d:'), ' → ', el('b', {}, ':a:'), ' ← ', el('b', {}, ':w:'), ' ↑ ', el('b', {}, ':s:'), ' ↓, ', el('b', {}, ':alpha:'), ' α, ', el('b', {}, ':delta:'), ' Δ, ', el('b', {}, '-->'), ' → or ', el('b', {}, '>>'), ' for a bullet, in any note or text box. It changes as soon as you finish the code; Ctrl+Z straight after puts back what you typed. In a note, a colon after a space suggests codes as you go.'),
           el('div', { class: 'formrow' }, search),
           el('div', { class: 'formrow sym-add' }, code, sym, el('button', { class: 'btn', type: 'button', onclick: addSym }, 'Add / change')),
-          el('p', { class: 'rule' }, 'Your own codes (and any built-in ones you change) live in the note ', page ? el('a', { href: '#page/' + page.id }, '“Symbol shortcuts”') : '“Symbol shortcuts”', ', so they sync to every device; you can edit that table by hand too.'),
+          el('div', { class: 'toolrow' }, el('button', { class: 'btn small', type: 'button', onclick: () => importFile.click() }, 'Import shortcuts.json from the Table Designer'), el('button', { class: 'btn small', type: 'button', onclick: exportJson }, 'Save as shortcuts.json'), importFile),
+          el('p', { class: 'rule' }, 'Anything you add or change lives in the note ', page ? el('a', { href: '#page/' + page.id }, '“Symbol shortcuts”') : '“Symbol shortcuts”', ', so it syncs to every device. To use the same list in the Table Designer, save it as shortcuts.json into the Designer’s library folder (OneDrive › UKMLAce), replacing the old one.'),
           ...groups.map((g) => el('div', { class: 'sym-group' }, el('h3', {}, g), el('div', { class: 'sym-grid' }, ...shown.filter((x) => x.group === g).map((x) => el('span', { class: 'sym-item' + (x.mine ? ' mine' : ''), title: x.label || '' },
-            el('b', { class: 'sym-glyph' }, x.sym || '—'), el('code', {}, ':' + x.code + ':'),
-            x.mine ? el('button', { class: 'sym-x', type: 'button', title: NCSymbols.DEFAULTS[x.code] ? 'Back to the built-in symbol' : 'Remove', 'aria-label': 'Remove', onclick: async () => { const next = NCSymbols.custom(); delete next[x.code]; await NCSymbols.saveCustom(next); onChanged(); drawSym(filter); } }, '×') : null))))),
+            el('b', { class: 'sym-glyph' }, x.sym || '—'), el('code', {}, x.code),
+            x.mine ? el('button', { class: 'sym-x', type: 'button', title: x.base ? 'Back to ' + NCSymbols.base(x.code) : 'Remove', 'aria-label': 'Remove', onclick: async () => { const next = NCSymbols.custom(); next.delete(x.code); await save(next); } }, '×') : null))))),
           ...(shown.length ? [] : [el('p', { class: 'sub' }, 'No code matches that.')]));
       };
-      await drawSym('');
+      await drawSym();
       view.append(symPanel);
     }
     view.append(el('div', { class: 'panel help' }, el('h2', {}, 'Instant capture relay'),
