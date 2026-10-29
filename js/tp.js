@@ -139,7 +139,18 @@
           const table = el('table', { class: 'dbtable tp-table' }, el('thead', {}, el('tr', {}, el('th', {}, 'Trial'), el('th', {}, 'Year'), el('th', {}, 'Specialty'), el('th', {}, 'Topic'), el('th', {}, 'Finding'))));
           const tb = el('tbody', {});
           for (const p of rows) tb.append(el('tr', { onclick: () => ui.go('#page/' + p.id) }, el('td', { class: 'tcell' }, el('b', {}, p.title || 'Untitled')), el('td', {}, prop(p, 'Year')), el('td', {}, p.sec.name), el('td', {}, prop(p, 'Topic')), el('td', { class: 'tp-finding' }, findingOf(p))));
-          table.append(tb); body.append(el('div', { class: 'dbwrap' }, table));
+          table.append(tb); body.append(el('div', { class: 'dbwrap tp-wide' }, table));
+          // Phones: a card per trial instead of a squeezed table — name, year, specialty, topic and the finding.
+          const cards = el('div', { class: 'tp-tlist' });
+          for (const p of rows) {
+            const topic = prop(p, 'Topic'), finding = findingOf(p);
+            cards.append(el('a', { class: 'tp-tcard', href: '#page/' + p.id },
+              el('span', { class: 'tp-tcard-top' }, el('span', { class: 'tp-card-spec' }, p.sec.name), prop(p, 'Year') ? el('span', { class: 'tp-year' }, prop(p, 'Year')) : null),
+              el('b', {}, p.title || 'Untitled'),
+              topic ? el('span', { class: 'tp-tcard-topic' }, topic) : null,
+              finding ? el('span', { class: 'tp-card-body tp-clamp' }, finding) : null));
+          }
+          body.append(cards);
         } else {
           rows.sort(sorters[sort.pearls] || sorters.added);
           const grid = el('div', { class: 'tp-cards' });
