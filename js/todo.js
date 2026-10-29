@@ -79,8 +79,44 @@
         window.NCGCal && NCGCal.state().signedIn ? { label: 'Put in Google Calendar' + (i.due ? ' (' + fmtDue(i.due) + ')' : ' (today)'), fn: async () => { try { await NCGCal.createEvent({ title: i.text, date: i.due || t0 }); ui.toast('Added to your calendar'); } catch (e) { ui.toast(e.message); } } } : null,
         { label: i.due ? 'Change due date (' + fmtDue(i.due) + ')' : 'Set due date', fn: async () => { const v = await ui.ask('Due', 'today, tomorrow, fri, 3/11 or 2026-11-03', i.due); if (v === undefined) return; const q = parseQuick('x @' + (v || 'none')); i.due = v ? (q.due || '') : ''; save(); draw(); } },
         { label: 'Edit text', fn: async () => { const v = await ui.ask('Edit', '', i.text, 'Save'); if (v) { i.text = v; save(); draw(); } } },
-        { label: 'Delete', danger: true, fn: () => { items.splice(idx, 1); save(); draw(); } }
+        { label: 'Delete', danger: true, fn: () => removeItem(i) }
       ]);
+    }
+    // Delete with an Undo, and tick / untick — shared by the menu and the swipes.
+    function removeItem(i) {
+      const idx = items.indexOf(i); if (idx < 0) return;
+      items.splice(idx, 1); save(); draw();
+      ui.toast('Deleted ' + (i.text.length > 30 ? i.text.slice(0, 30) + '…' : i.text), { label: 'Undo', fn: () => { items.splice(Math.min(idx, items.length), 0, i); save(); draw(); } });
+    }
+    function toggleItem(i) { i.done = !i.done; i.doneOn = i.done ? t0 : ''; save(); draw(); }
+    // Swipe a row (touch): left = delete, right = done (or back to the list if it was done).
+    function swipeable(r, i) {
+      const wrap = el('div', { class: 'todo-swipe' }, el('div', { class: 'todo-under done-u' }, i.done ? '↩ Not done' : '✓ Done'), el('div', { class: 'todo-under del-u' }, 'Delete'));
+      wrap.append(r);
+      let sx = 0, sy = 0, dx = 0, dragging = null, armed = false, moved = false;
+      r.addEventListener('touchstart', (e) => { const t = e.touches[0]; sx = t.clientX; sy = t.clientY; dx = 0; dragging = null; armed = false; moved = false; }, { passive: true });
+      r.addEventListener('touchmove', (e) => {
+        const t = e.touches[0]; dx = t.clientX - sx; const dy = t.clientY - sy;
+        if (dragging === null) { if (Math.abs(dx) > 10 || Math.abs(dy) > 10) { dragging = Math.abs(dx) > Math.abs(dy) * 1.2; if (dragging) { moved = true; r.style.transition = 'none'; } } else return; }
+        if (!dragging) return;
+        e.preventDefault();
+        r.style.transform = 'translateX(' + dx + 'px)';
+        wrap.classList.toggle('to-right', dx > 0); wrap.classList.toggle('to-left', dx < 0);
+        const now = Math.abs(dx) > r.offsetWidth * 0.3;
+        if (now !== armed) { armed = now; wrap.classList.toggle('armed', armed); if (armed && navigator.vibrate) navigator.vibrate(8); }
+      }, { passive: false });
+      const end = () => {
+        if (!dragging) { dragging = null; return; }
+        r.style.transition = '';
+        const w = r.offsetWidth;
+        if (dx < -w * 0.3) { r.style.transform = 'translateX(' + -w + 'px)'; setTimeout(() => removeItem(i), 150); }
+        else if (dx > w * 0.3) { r.style.transform = 'translateX(' + w + 'px)'; setTimeout(() => toggleItem(i), 150); }
+        else { r.style.transform = ''; wrap.classList.remove('to-left', 'to-right', 'armed'); }
+        dragging = null; setTimeout(() => { moved = false; }, 350);
+      };
+      r.addEventListener('touchend', end); r.addEventListener('touchcancel', end);
+      r.addEventListener('click', (e) => { if (moved) { e.preventDefault(); e.stopPropagation(); moved = false; } }, true);
+      return wrap;
     }
     function row(i) {
       const r = el('div', { class: 'todo-item p-' + i.pri + (i.done ? ' done' : '') + (i.due && !i.done && i.due < t0 ? ' late' : '') });
@@ -91,7 +127,7 @@
       } });
       const meta = el('span', { class: 'todo-meta' }, i.due && !i.done ? el('span', { class: 'todo-due' }, fmtDue(i.due)) : null);
       r.append(box, el('button', { class: 'todo-text', type: 'button', onclick: () => itemMenu(i) }, i.text, meta));
-      return r;
+      return swipeable(r, i);
     }
     function draw() {
       wrap.innerHTML = '';

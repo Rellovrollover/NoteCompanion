@@ -1320,7 +1320,7 @@
         el('div', { class: 'actions' }, el('button', { class: 'btn', type: 'button', onclick: () => close(undefined) }, 'Cancel')));
     });
     if (paper === undefined) return;
-    const p = paper === 'todo' ? await pages.create({ notebookId, sectionId, title: '', html: '<h3>Now</h3><ul></ul><h3>Today</h3><ul></ul>', ptype: 'todo' }) : await pages.create({ notebookId, sectionId, title: '', html: '', paper });
+    const p = paper === 'todo' ? await pages.create({ notebookId, sectionId, title: '', html: '<h3>To do</h3><ul></ul>', ptype: 'todo' }) : await pages.create({ notebookId, sectionId, title: '', html: '', paper });
     state.expanded.add(notebookId); state.expanded.add(sectionId);
     onChanged(); state.focusNew = true; go('#page/' + p.id);
   }

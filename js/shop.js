@@ -265,7 +265,7 @@
           if (dx < -w * 0.3) { row.style.transform = 'translateX(' + -w + 'px)'; setTimeout(() => removeItem(r), 150); }
           else if (dx > w * 0.3) { row.style.transform = ''; toggleItem(r); }
           else { row.style.transform = ''; wrap.classList.remove('to-left', 'to-right', 'armed'); }
-          dragging = null;
+          dragging = null; setTimeout(() => { moved = false; }, 350);
         };
         row.addEventListener('touchend', end); row.addEventListener('touchcancel', end);
         row.addEventListener('click', (e) => { if (moved) { e.preventDefault(); e.stopPropagation(); moved = false; } }, true);

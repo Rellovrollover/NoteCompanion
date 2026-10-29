@@ -1162,3 +1162,14 @@ input.topsearch.desktop-only { display: none !important; }
 .recent-clear { font-size: .85rem; margin-left: 4px; }
 .organiser-foot { text-align: center; margin-top: 6px; }
 .appico.k-organiser { --ac: #4b5bb5; }
+
+/* To-do rows: swipe left = delete, right = done */
+.todo-swipe { position: relative; overflow: hidden; }
+.todo-swipe + .todo-swipe { border-top: 1px solid var(--line); }
+.todo-swipe > .todo-item { position: relative; z-index: 1; touch-action: pan-y; }
+.todo-swipe > .todo-item:not(.p-high):not(.p-med):not(.p-low), .todo-swipe > .todo-item.done { background: var(--paper); }
+.todo-under { position: absolute; inset: 0; display: flex; align-items: center; padding: 0 18px; font-weight: 600; color: #fff; visibility: hidden; opacity: .7; transition: opacity .12s; }
+.todo-under.done-u { background: #1f8a4c; justify-content: flex-start; }
+.todo-under.del-u { background: var(--bad); justify-content: flex-end; }
+.todo-swipe.to-right .todo-under.done-u, .todo-swipe.to-left .todo-under.del-u { visibility: visible; }
+.todo-swipe.armed .todo-under { opacity: 1; }
