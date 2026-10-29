@@ -183,26 +183,37 @@
   // ---- Offline route 2: OneNote's File → Export → Notebook or Section → Single File Web Page (.mht) ----
   // One MIME archive: the page HTML (quoted-printable) plus every image (base64). A notebook export is
   // one long stream of pages with no section markers, so it lands in one section to be sorted afterwards.
+  // A section with pictures is a multipart archive; one with none (or a single page) is often just the page
+  // itself with a few headers on top and no boundary at all. Both are read here.
   function parseMht(bytes) {
     const latin = new TextDecoder('latin1').decode(bytes);
-    const bm = /boundary="?([^"\r\n]+)"?/i.exec(latin.slice(0, 2000));
-    if (!bm) throw new Error('Not a .mht file');
-    const parts = latin.split('--' + bm[1]).slice(1).filter((x) => !/^--\s*$/.test(x.trim()));
-    const out = [];
-    for (const part of parts) {
-      const sep = part.indexOf('\r\n\r\n') >= 0 ? '\r\n\r\n' : '\n\n';
-      const i = part.indexOf(sep); if (i < 0) continue;
+    const top = latin.slice(0, 4000);
+    const headerOf = (head, name) => { const m = new RegExp('^' + name + ':\\s*([^\\r\\n]*(?:\\r?\\n[ \\t][^\\r\\n]*)*)', 'im').exec(head); return m ? m[1].replace(/\r?\n[ \t]+/g, ' ').trim() : ''; };
+    const split = (part) => {
+      const sep = part.indexOf('\r\n\r\n') >= 0 && (part.indexOf('\n\n') < 0 || part.indexOf('\r\n\r\n') <= part.indexOf('\n\n')) ? '\r\n\r\n' : '\n\n';
+      const i = part.indexOf(sep); if (i < 0) return null;
       const head = part.slice(0, i), body = part.slice(i + sep.length);
-      const h = (name) => { const m = new RegExp('^' + name + ':\\s*(.+)$', 'im').exec(head); return m ? m[1].trim() : ''; };
-      out.push({ location: h('Content-Location'), type: h('Content-Type'), encoding: h('Content-Transfer-Encoding').toLowerCase(), body });
+      return { location: headerOf(head, 'Content-Location'), type: headerOf(head, 'Content-Type'), encoding: headerOf(head, 'Content-Transfer-Encoding').toLowerCase(), body };
+    };
+    const bm = /boundary\s*=\s*(?:"([^"]+)"|([^;\s]+))/i.exec(top);
+    if (!bm) {
+      const one = split(latin);
+      if (one && (/text\/html/i.test(one.type) || /<html[\s>]/i.test(one.body.slice(0, 2000)))) return [Object.assign(one, { type: one.type || 'text/html' })];
+      if (/<html[\s>]/i.test(top)) return [{ location: '', type: 'text/html', encoding: '', body: latin }];
+      throw new Error('Not a OneNote web page export (.mht)');
     }
+    const parts = latin.split('--' + (bm[1] || bm[2])).slice(1).filter((x) => !/^--\s*$/.test(x.trim()));
+    const out = [];
+    for (const part of parts) { const r = split(part.replace(/^\r?\n/, '')); if (r) out.push(r); }
     return out;
   }
-  function decodeQP(text) {
+  const decoderFor = (type) => { const m = /charset\s*=\s*"?([\w-]+)/i.exec(type || ''); try { return new TextDecoder(m ? m[1] : 'utf-8'); } catch (e) { return new TextDecoder('utf-8'); } };
+  function decodeQP(text, type) {
     const bin = text.replace(/=\r?\n/g, '').replace(/=([0-9A-F]{2})/gi, (_, hx) => String.fromCharCode(parseInt(hx, 16)));
     const bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    return new TextDecoder('utf-8').decode(bytes);
+    return decoderFor(type).decode(bytes);
   }
+  const latinBytes = (text) => { const bytes = new Uint8Array(text.length); for (let i = 0; i < text.length; i++) bytes[i] = text.charCodeAt(i); return bytes; };
   function decodeB64(text) {
     const bin = atob(text.replace(/[^A-Za-z0-9+/=]/g, ''));
     const bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
@@ -260,11 +271,12 @@
     for (const pEl of [...root.querySelectorAll('p')]) if (!pEl.textContent.replace(/ /g, '').trim() && !pEl.querySelector('img')) pEl.remove();
     return root.innerHTML.trim();
   }
-  async function importMht(file, notebookId, sectionName, onProgress) {
+  // opts.again: import pages even if this notebook already has them from an earlier import of the same file.
+  async function importMht(file, notebookId, sectionName, onProgress, opts = {}) {
     const parts = parseMht(new Uint8Array(await file.arrayBuffer()));
     const htmlPart = parts.find((x) => /text\/html/i.test(x.type));
-    if (!htmlPart) throw new Error('No page content found in ' + file.name);
-    const html = htmlPart.encoding === 'quoted-printable' ? decodeQP(htmlPart.body) : htmlPart.encoding === 'base64' ? new TextDecoder().decode(decodeB64(htmlPart.body)) : htmlPart.body;
+    if (!htmlPart) throw new Error('No page content found in it');
+    const html = htmlPart.encoding === 'quoted-printable' ? decodeQP(htmlPart.body, htmlPart.type) : htmlPart.encoding === 'base64' ? decoderFor(htmlPart.type).decode(decodeB64(htmlPart.body)) : decoderFor(htmlPart.type).decode(latinBytes(htmlPart.body));
     const imageParts = new Map(parts.filter((x) => /^image\//i.test(x.type)).map((x) => [x.location.split('/').pop().toLowerCase(), x]));
     const assetCache = new Map();
     const imageFor = async (src) => {
@@ -276,10 +288,14 @@
     };
     const doc = new DOMParser().parseFromString(html, 'text/html');
     // Each page is a top-level box: <div style='direction:ltr;border-width:100%'>.
-    const pageDivs = [...doc.body.children].filter((el) => el.tagName === 'DIV');
-    if (!pageDivs.length) throw new Error('No pages found in ' + file.name);
+    let pageDivs = [...doc.body.children].filter((el) => el.tagName === 'DIV');
+    // Not the usual layout: treat the whole page body as one page rather than give up.
+    if (!pageDivs.length && doc.body.textContent.trim()) { const d = doc.createElement('div'); d.append(...doc.body.childNodes); doc.body.append(d); pageDivs = [d]; }
+    if (!pageDivs.length) throw new Error('It has no pages in it (an empty section?)');
+    const existed = (await sections.forNotebook(notebookId)).some((x) => { const m = /^(.*?)\s*»\s*(.+)$/.exec(sectionName); return x.name === (m ? m[2].trim() : sectionName.trim()) && (x.group || '') === (m ? m[1].trim() : ''); });
     const sec = await sectionNamed(notebookId, sectionName);
-    const already = new Set((await window.NCDB.db.pages.toArray()).filter((q) => q.onenoteId && q.onenoteId.startsWith('mht:') && !q.deleted).map((q) => q.onenoteId));
+    // Only pages already in THIS notebook count as imported, so the same file can go into another notebook.
+    const already = new Set(opts.again ? [] : (await window.NCDB.db.pages.toArray()).filter((q) => q.onenoteId && q.onenoteId.startsWith('mht:') && !q.deleted && q.notebookId === notebookId).map((q) => q.onenoteId));
     let n = 0, skipped = 0;
     for (const [idx, pd] of pageDivs.entries()) {
       // Title: the first 20pt paragraph. Date and time: the grey paragraphs that follow it.
@@ -299,7 +315,7 @@
       n++; if (onProgress) onProgress(n + skipped, pageDivs.length);
     }
     S.schedule();
-    return { section: sec, count: n, skipped };
+    return { section: sec, count: n, skipped, total: pageDivs.length, existed };
   }
 
   // Minimal .zip reader (stored or deflated entries) so a folder of exports can be dropped in as one file.

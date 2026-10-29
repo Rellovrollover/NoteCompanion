@@ -1847,6 +1847,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
     // Offline OneNote route: Word exports of sections.
     const docxStatus = el('p', { class: 'rule' }, '');
     const docxBar = el('div', { class: 'progress', hidden: '' }, el('div', { class: 'progress-fill' }));
+    const docxReport = el('div', { class: 'imp-report' });
     const docxInput = el('input', { type: 'file', accept: '.docx,.mht,.mhtml,.zip,application/vnd.openxmlformats-officedocument.wordprocessingml.document,message/rfc822,multipart/related,application/zip', multiple: '', hidden: '' });
     const docxDrop = el('div', { class: 'dropzone', onclick: () => docxInput.click() }, el('b', {}, 'Drop OneNote exports here'), el('span', {}, ' or click to choose .mht or .docx files, or a zip of them'));
     const runDocx = async (files) => {
@@ -1865,18 +1866,32 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
           el('div', { class: 'actions' }, el('button', { class: 'btn', type: 'button', onclick: () => close(undefined) }, 'Cancel')));
       });
       if (!target) return;
-      docxBar.hidden = false; let total = 0;
+      docxBar.hidden = false; let total = 0, failed = 0;
+      docxReport.replaceChildren();
+      // One line per file that stays on screen: what came in, what was already here, what failed and why.
+      const line = (f, secName, r, err) => {
+        const row = el('div', { class: 'imp-row' + (err ? ' bad' : r.count ? ' ok' : ' skip') });
+        const fill = (r2, err2) => {
+          row.className = 'imp-row' + (err2 ? ' bad' : r2.count ? ' ok' : ' skip');
+          if (err2) { row.replaceChildren(el('span', { class: 'imp-ico' }, '✗'), el('span', {}, el('b', {}, f.name), ' — ', err2.message)); return; }
+          const where = (r2.section.group ? r2.section.group + ' › ' : '') + r2.section.name;
+          if (r2.count) { row.replaceChildren(el('span', { class: 'imp-ico' }, '✓'), el('span', {}, el('b', {}, where), ' — ' + r2.count + ' new page' + (r2.count === 1 ? '' : 's') + (r2.skipped ? ', ' + r2.skipped + ' already here' : '') + (r2.existed ? ' (added to the section that was already there)' : ''), ' ', el('a', { href: '#section/' + r2.section.id }, 'Open'))); return; }
+          row.replaceChildren(el('span', { class: 'imp-ico' }, '↷'), el('span', {}, el('b', {}, where), ' — ' + (r2.skipped === 1 ? 'its 1 page was' : 'all ' + r2.skipped + ' pages were') + ' already imported into this notebook, so nothing new. ', el('a', { href: '#section/' + r2.section.id }, 'Open'), ' · ',
+            el('button', { class: 'linkbtn', type: 'button', onclick: async (e) => { e.target.disabled = true; try { const r3 = await window.NCOneNote.importMht(f, target.id, secName, null, { again: true }); fill(r3, null); onChanged(); } catch (x) { fill(null, x); } } }, 'Import again as copies')));
+        };
+        fill(r, err); docxReport.append(row);
+      };
       for (const [i, f] of files.entries()) {
         const secName = f.name.replace(/\.(docx|mht|mhtml)$/i, '');
         docxStatus.textContent = 'Reading ' + secName + '… (' + (i + 1) + ' of ' + files.length + ')';
         try {
           const prog = (n, of) => { docxBar.firstChild.style.width = Math.round(((i + n / of) / files.length) * 100) + '%'; docxStatus.textContent = secName + ': ' + n + ' / ' + of + ' pages'; };
           const r = /\.docx$/i.test(f.name) ? await window.NCOneNote.importDocxSection(f, target.id, secName, prog) : await window.NCOneNote.importMht(f, target.id, secName, prog);
-          total += r.count;
-        } catch (err) { console.warn(err); toast('Failed on ' + f.name + ': ' + err.message); }
+          total += r.count; line(f, secName, Object.assign({ skipped: 0 }, r), null);
+        } catch (err) { console.warn(err); failed++; line(f, secName, null, err); }
       }
       docxBar.firstChild.style.width = '100%';
-      docxStatus.textContent = 'Done: ' + total + ' pages into "' + target.name + '".';
+      docxStatus.textContent = 'Done: ' + total + ' new page' + (total === 1 ? '' : 's') + ' into "' + target.name + '"' + (failed ? ' · ' + failed + ' file' + (failed === 1 ? '' : 's') + ' failed, see below' : '') + '.';
       state.expanded.add(target.id); onChanged(); toast('Notebook updated: ' + target.name, { label: 'Open', fn: () => go('#notes') });
     };
     docxInput.addEventListener('change', () => { runDocx(docxInput.files); docxInput.value = ''; });
@@ -1885,7 +1900,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
     docxDrop.addEventListener('drop', (e) => { e.preventDefault(); docxDrop.classList.remove('over'); runDocx(e.dataTransfer.files); });
     view.append(el('div', { class: 'panel help' }, el('h2', {}, 'Import from OneNote without the API'),
       el('p', {}, 'If Microsoft is rate-limiting, export from the OneNote desktop app instead. Best: ', el('b', {}, 'File → Export → Section → Single File Web Page (*.mht)'), ' — one file per section, drop them all here at once and each becomes a section of that name. A whole-notebook .mht works too but OneNote drops the section boundaries, so it lands in one section to sort afterwards. Word (.docx) exports are accepted as well. Pages, formatting, tables and images come across; ink and PDF printouts become pictures; attached files are not in the export.'),
-      docxDrop, docxInput, docxBar, docxStatus));
+      docxDrop, docxInput, docxBar, docxStatus, docxReport));
     // Clean-up: deleted records linger as tombstones so every device learns of the deletion; purge them when done.
     const purgeStatus = el('p', { class: 'rule' }, '');
     const purgeBtn = el('button', { class: 'btn', type: 'button', onclick: async () => {
