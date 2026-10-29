@@ -176,7 +176,7 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 700; letter-spacing: 0; tex
 .page-view { gap: 10px; }
 .crumbs { font-size: .82rem; color: var(--muted); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .crumbs button { border: 0; background: transparent; color: var(--accent); cursor: pointer; padding: 2px 4px; border-radius: 4px; font-size: inherit; }
-.title-input { width: 100%; border: 0; background: transparent; font: 600 1.7rem/1.2 var(--serif); color: var(--fg); padding: 2px 0; letter-spacing: -0.01em; }
+.title-input { width: 100%; border: 0; background: transparent; font: 600 1.7rem/1.2 var(--serif); color: var(--fg); padding: 2px 0; letter-spacing: -0.01em; display: block; resize: none; overflow: hidden; box-sizing: border-box; overflow-wrap: break-word; }
 .title-input::placeholder { color: var(--faint); }
 .toolrow { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 9px; overflow: hidden; }

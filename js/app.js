@@ -1686,8 +1686,12 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
     crumbs.append(el('button', { class: 'done-page', type: 'button', 'aria-label': 'Done', title: 'Save and close', html: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>', onclick: () => { destroyEditor(); go(p.kind === 'app' ? '#apps' : p.inbox ? '#inbox' : (p.sectionId ? '#section/' + p.sectionId : '#notes')); } }));
     view.append(crumbs);
 
-    const title = el('input', { class: 'title-input', id: 'page-title', type: 'text', placeholder: 'Untitled', value: p.title || '' });
-    title.addEventListener('input', () => { p.title = title.value; queueSave({ title: title.value }); if (state.editor && state.pageId === p.id) drawBreaks(state.editor, p); });
+    // The title wraps onto more lines rather than running off the edge (a textarea that grows; Enter still moves to the note).
+    const title = el('textarea', { class: 'title-input', id: 'page-title', rows: '1', placeholder: 'Untitled', enterkeyhint: 'next', autocomplete: 'off' });
+    title.value = p.title || '';
+    const fitTitle = () => { if (!title.isConnected) { removeEventListener('resize', fitTitle); return; } title.style.height = 'auto'; title.style.height = title.scrollHeight + 'px'; };
+    addEventListener('resize', fitTitle); requestAnimationFrame(fitTitle); setTimeout(fitTitle, 300);
+    title.addEventListener('input', () => { if (/[\r\n]/.test(title.value)) title.value = title.value.replace(/\s*[\r\n]+\s*/g, ' '); fitTitle(); p.title = title.value; queueSave({ title: title.value }); if (state.editor && state.pageId === p.id) drawBreaks(state.editor, p); });
     title.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); if (state.editor) state.editor.focus(); } });
     view.append(title);
 
