@@ -227,7 +227,7 @@
         } catch (err) { rec = null; ui.toast('Speech isn\u2019t available here — use the keyboard mic'); }
       });
       wrap.append(el('div', { class: 'shop-add' }, el('div', { class: 'shop-entry' }, entry, mic),
-        el('p', { class: 'sub' }, SR ? 'Enter to add, commas for several, or tap the mic and say them. It stops after a pause; tap again to finish sooner.' : 'Enter to add, commas for several. The keyboard mic works for speaking them.')));
+        el('p', { class: 'sub' }, (SR ? 'Enter to add, commas for several, or tap the mic and say them (it stops after a pause). ' : 'Enter to add, commas for several; the keyboard mic works for speaking them. ') + 'Swipe an item right when you\u2019ve got it, left to delete.')));
       // Regulars: one tap to add.
       if (view === 'lidl') {
         const regs = regulars();
@@ -239,10 +239,42 @@
             regs.length > 12 ? el('button', { class: 'chip shop-reg more', type: 'button', onclick: () => { wrap.dataset.allRegs = showAll ? '' : '1'; draw(); } }, showAll ? 'Fewer' : 'More (' + (Math.min(regs.length, 40) - 12) + ')') : null));
         }
       }
-      const rowEl = (r, alt) => el('div', { class: 'shop-row' + (r.done ? ' done' : '') },
+      // Swipe a row: right = got it (or put back), left = delete (with Undo).
+      const listOf = (r) => (book.elsewhere.includes(r) ? book.elsewhere : cur());
+      const removeItem = async (r) => { const a = listOf(r), i = a.indexOf(r); if (i < 0) return; a.splice(i, 1); await save(); draw(); ui.toast('Deleted ' + r.name, { label: 'Undo', fn: async () => { a.splice(Math.min(i, a.length), 0, r); await save(); draw(); } }); };
+      const toggleItem = async (r) => { r.done = !r.done; confirmMove = false; await save(); draw(); };
+      const swipeRow = (row, r) => {
+        const wrap = el('div', { class: 'shop-swipe' }, el('div', { class: 'shop-under got' }, r.done ? '↩ Put back' : '✓ Got it'), el('div', { class: 'shop-under del' }, 'Delete'));
+        wrap.append(row);
+        let sx = 0, sy = 0, dx = 0, dragging = null, armed = false, moved = false;
+        row.addEventListener('touchstart', (e) => { const t = e.touches[0]; sx = t.clientX; sy = t.clientY; dx = 0; dragging = null; armed = false; moved = false; }, { passive: true });
+        row.addEventListener('touchmove', (e) => {
+          const t = e.touches[0]; dx = t.clientX - sx; const dy = t.clientY - sy;
+          if (dragging === null) { if (Math.abs(dx) > 10 || Math.abs(dy) > 10) { dragging = Math.abs(dx) > Math.abs(dy) * 1.2; if (dragging) { moved = true; row.style.transition = 'none'; } } else return; }
+          if (!dragging) return;
+          e.preventDefault();
+          row.style.transform = 'translateX(' + dx + 'px)';
+          wrap.classList.toggle('to-right', dx > 0); wrap.classList.toggle('to-left', dx < 0);
+          const now = Math.abs(dx) > row.offsetWidth * 0.3;
+          if (now !== armed) { armed = now; wrap.classList.toggle('armed', armed); if (armed && navigator.vibrate) navigator.vibrate(8); }
+        }, { passive: false });
+        const end = () => {
+          if (!dragging) { dragging = null; return; }
+          row.style.transition = '';
+          const w = row.offsetWidth;
+          if (dx < -w * 0.3) { row.style.transform = 'translateX(' + -w + 'px)'; setTimeout(() => removeItem(r), 150); }
+          else if (dx > w * 0.3) { row.style.transform = ''; toggleItem(r); }
+          else { row.style.transform = ''; wrap.classList.remove('to-left', 'to-right', 'armed'); }
+          dragging = null;
+        };
+        row.addEventListener('touchend', end); row.addEventListener('touchcancel', end);
+        row.addEventListener('click', (e) => { if (moved) { e.preventDefault(); e.stopPropagation(); moved = false; } }, true);
+        return wrap;
+      };
+      const rowEl = (r, alt) => swipeRow(el('div', { class: 'shop-row' + (r.done ? ' done' : '') },
         el('button', { class: 'shop-tick', type: 'button', 'aria-label': r.done ? 'Untick' : 'Tick', onclick: async () => { r.done = !r.done; confirmMove = false; await save(); draw(); } }, el('span', {})),
         el('button', { class: 'shop-body', type: 'button', onclick: () => editSheet(r) }, el('span', { class: 'shop-name' }, r.name), r.note ? el('span', { class: 'shop-note' }, r.note) : null),
-        el('div', { class: 'shop-side' }, alt ? el('button', { class: 'shop-store', type: 'button', onclick: async () => { r.store = STORES[(STORES.indexOf(r.store || 'Aldi') + 1) % STORES.length]; await save(); draw(); } }, r.store || 'Aldi') : null, el('span', { class: 'shop-qty' }, '×' + (r.qty || 1))));
+        el('div', { class: 'shop-side' }, alt ? el('button', { class: 'shop-store', type: 'button', onclick: async () => { r.store = STORES[(STORES.indexOf(r.store || 'Aldi') + 1) % STORES.length]; await save(); draw(); } }, r.store || 'Aldi') : null, el('span', { class: 'shop-qty' }, '×' + (r.qty || 1)))), r);
       const group = (title, rows, alt) => { const sec = el('section', { class: 'shop-aisle' }, el('h3', {}, el('span', {}, title), el('span', { class: 'sub' }, rows.filter((x) => !x.done).length + ' of ' + rows.length))); const box = el('div', { class: 'shop-rows' }); for (const r of rows.slice().sort((a, b) => (a.done ? 1 : 0) - (b.done ? 1 : 0))) box.append(rowEl(r, alt)); sec.append(box); return sec; };
       if (view === 'lidl') {
         wrap.append(el('div', { class: 'shop-listhead' }, el('b', {}, 'This list'), el('span', { class: 'sub' }, 'started ' + fmtDate(book.current.date))));

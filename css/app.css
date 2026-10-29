@@ -1053,3 +1053,14 @@ input.topsearch.desktop-only { display: none !important; }
   .tp .tagchips::-webkit-scrollbar { display: none; }
   .tp .tagchips .chip { flex: none; }
 }
+
+/* Shopping rows: swipe right = got it, left = delete */
+.shop-swipe { position: relative; overflow: hidden; }
+.shop-rows > .shop-swipe + .shop-swipe { border-top: 1px solid var(--line); }
+.shop-swipe .shop-row { border-top: 0; background: var(--paper); position: relative; z-index: 1; transition: transform .16s ease; touch-action: pan-y; }
+.shop-under { position: absolute; inset: 0; display: flex; align-items: center; padding: 0 18px; font-weight: 600; color: #fff; visibility: hidden; }
+.shop-under.got { background: var(--ok, #1f8a4c); justify-content: flex-start; }
+.shop-under.del { background: var(--bad, #c0392b); justify-content: flex-end; }
+.shop-swipe.to-right .shop-under.got, .shop-swipe.to-left .shop-under.del { visibility: visible; }
+.shop-swipe .shop-under { opacity: .7; transition: opacity .12s; }
+.shop-swipe.armed .shop-under { opacity: 1; }
