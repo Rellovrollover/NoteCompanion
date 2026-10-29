@@ -1499,6 +1499,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
         ed.ui.registry.addButton('todo', { icon: 'checklist', tooltip: 'To-do item', onAction: () => toggleTodo(ed) });
         ed.ui.registry.addMenuButton('callout', { icon: 'info', tooltip: 'Callout', fetch: (cb) => cb(Object.entries(CALLOUTS).map(([k, v]) => ({ type: 'menuitem', text: v, onAction: () => { insertCallout(ed, k); scheduleSave(); } })).concat([{ type: 'menuitem', text: 'Remove callout', onAction: () => { const c = ed.dom.getParent(ed.selection.getNode(), '.callout'); if (c) { ed.dom.remove(c, true); ed.undoManager.add(); scheduleSave(); } } }])) });
         ed.ui.registry.addButton('pagelink', { text: '[[', tooltip: 'Link to a page', onAction: () => insertPageLink(ed) });
+        if (window.NCSymbols) NCSymbols.attachEditor(ed);
         // Slash commands
         ed.ui.registry.addAutocompleter('slash', {
           trigger: '/', minChars: 0, columns: 1,
@@ -1969,6 +1970,35 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
             el('li', {}, 'APIs & Services → OAuth consent screen: External, app name 2nd Brain, your email for both contacts; add yourself under Test users; then ', el('b', {}, 'Publish app'), ' (so the sign-in does not expire weekly — Google shows an "unverified app" screen the first time; choose Advanced → continue).'),
             el('li', {}, 'Credentials → Create credentials → OAuth client ID → Web application. Authorised JavaScript origin: ', el('code', {}, location.origin), '. Authorised redirect URI: ', el('code', {}, C.redirectUri), '.'),
             el('li', {}, 'Copy the Client ID and Client secret here, Save, Sign in with Google. Repeat the paste on each device (they stay on the device, not in OneDrive).')))));
+    }
+    // Symbol shortcuts: built-in colon codes plus your own (kept in the "Symbol shortcuts" note).
+    if (window.NCSymbols) {
+      await NCSymbols.refresh(true);
+      const symPanel = el('div', { class: 'panel help' });
+      const drawSym = async (filter) => {
+        const list = NCSymbols.all();
+        const f = (filter || '').trim().toLowerCase().replace(/^:+|:+$/g, '');
+        const shown = list.filter((x) => !f || x.code.toLowerCase().includes(f) || (x.sym || '').includes(f) || (x.label || '').toLowerCase().includes(f) || x.group.toLowerCase().includes(f));
+        const page = await NCSymbols.findPage();
+        const search = el('input', { type: 'search', placeholder: 'Find a code or symbol…', value: filter || '', 'data-nosym': '1' });
+        search.addEventListener('input', () => { clearTimeout(search._t); search._t = setTimeout(async () => { await drawSym(search.value); const s2 = symPanel.querySelector('input[type=search]'); if (s2) { s2.focus(); s2.setSelectionRange(s2.value.length, s2.value.length); } }, 200); });
+        const code = el('input', { type: 'text', placeholder: 'code, e.g. hb', 'data-nosym': '1', autocapitalize: 'off', autocomplete: 'off' });
+        const sym = el('input', { type: 'text', placeholder: 'symbol, e.g. Hb or ⇉', autocomplete: 'off' });
+        const addSym = async () => { const c = code.value.trim().replace(/^:+|:+$/g, ''), v = sym.value.trim(); if (!c || !v) { toast('Give it a code and a symbol'); return; } if (/[\s:]/.test(c)) { toast('Codes can\u2019t contain spaces or colons'); return; } const next = NCSymbols.custom(); next[c] = v; await NCSymbols.saveCustom(next); onChanged(); toast(':' + c + ': → ' + v); drawSym(filter); };
+        sym.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addSym(); } });
+        const groups = [...new Set(shown.map((x) => x.group))];
+        symPanel.replaceChildren(el('h2', {}, 'Symbol shortcuts'),
+          el('p', {}, 'Type a colon code in any note or text box and it turns into the symbol, like OneNote AutoCorrect: ', el('b', {}, ':d:'), ' →, ', el('b', {}, ':a:'), ' ←, ', el('b', {}, ':w:'), ' ↑, ', el('b', {}, ':s:'), ' ↓, ', el('b', {}, ':alpha:'), ' α, ', el('b', {}, ':Delta:'), ' Δ. In a note, typing a colon after a space also suggests codes as you go.'),
+          el('div', { class: 'formrow' }, search),
+          el('div', { class: 'formrow sym-add' }, code, sym, el('button', { class: 'btn', type: 'button', onclick: addSym }, 'Add / change')),
+          el('p', { class: 'rule' }, 'Your own codes (and any built-in ones you change) live in the note ', page ? el('a', { href: '#page/' + page.id }, '“Symbol shortcuts”') : '“Symbol shortcuts”', ', so they sync to every device; you can edit that table by hand too.'),
+          ...groups.map((g) => el('div', { class: 'sym-group' }, el('h3', {}, g), el('div', { class: 'sym-grid' }, ...shown.filter((x) => x.group === g).map((x) => el('span', { class: 'sym-item' + (x.mine ? ' mine' : ''), title: x.label || '' },
+            el('b', { class: 'sym-glyph' }, x.sym || '—'), el('code', {}, ':' + x.code + ':'),
+            x.mine ? el('button', { class: 'sym-x', type: 'button', title: NCSymbols.DEFAULTS[x.code] ? 'Back to the built-in symbol' : 'Remove', 'aria-label': 'Remove', onclick: async () => { const next = NCSymbols.custom(); delete next[x.code]; await NCSymbols.saveCustom(next); onChanged(); drawSym(filter); } }, '×') : null))))),
+          ...(shown.length ? [] : [el('p', { class: 'sub' }, 'No code matches that.')]));
+      };
+      await drawSym('');
+      view.append(symPanel);
     }
     view.append(el('div', { class: 'panel help' }, el('h2', {}, 'Instant capture relay'),
       el('p', {}, 'Fastest route from the iPhone Share Sheet: two taps, no browser. A Shortcut drops the item into a private GitHub repo and this app collects it on its next sync. Free; the repo is just a mailbox.'),

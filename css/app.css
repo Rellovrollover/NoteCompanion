@@ -1023,3 +1023,15 @@ input.topsearch.desktop-only { display: none !important; }
 .tree .secgroup.holds-here > .group-head { background: color-mix(in srgb, var(--nb) 10%, var(--paper)); }
 .tree .secgroup.holds-here > .group-head .group-name { color: color-mix(in srgb, var(--nb) 75%, var(--fg)); }
 .tree .secgroup.holds-here > .group-head .group-name::after { content: " ●"; font-size: .6em; vertical-align: 2px; }
+
+/* Symbol shortcuts (Settings) */
+.sym-add input:first-child { max-width: 9em; }
+.sym-add input { min-width: 0; }
+.sym-group h3 { font-size: .75rem; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin: 14px 0 6px; }
+.sym-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+.sym-item { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 9px; padding: 4px 8px; background: var(--paper); font-size: .85rem; }
+.sym-item.mine { border-color: var(--accent); background: var(--accent-soft); }
+.sym-glyph { font-size: 1.05rem; min-width: 1.1em; text-align: center; }
+.sym-item code { color: var(--muted); font-size: .8rem; }
+.sym-x { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 1rem; padding: 0 0 0 2px; line-height: 1; }
+.sym-x:hover { color: var(--bad, #c0392b); }
