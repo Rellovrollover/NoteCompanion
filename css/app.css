@@ -1064,3 +1064,31 @@ input.topsearch.desktop-only { display: none !important; }
 .shop-swipe.to-right .shop-under.got, .shop-swipe.to-left .shop-under.del { visibility: visible; }
 .shop-swipe .shop-under { opacity: .7; transition: opacity .12s; }
 .shop-swipe.armed .shop-under { opacity: 1; }
+
+/* Inbox app tiles: 2×2 on phones, one row of 4 on wider screens. Compact: name and one live line. */
+.inbox-apps { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0; }
+@media (min-width: 900px) { .inbox-apps { grid-template-columns: repeat(4, 1fr); } }
+.inbox-app { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 50px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); font: inherit; color: var(--fg); text-align: left; cursor: pointer; }
+.inbox-app:hover { background: var(--raised); }
+.inbox-app:active { transform: scale(.985); }
+.inbox-app .appico { width: 30px; height: 30px; flex: none; padding: 5px; border-radius: 9px; background: var(--accent-soft); }
+.inbox-app-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+.inbox-app-text b { font-size: .92rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.inbox-app-live { font-size: .76rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+.inbox-app.nolive .inbox-app-live { display: none; }
+.pinchip { font-size: .78rem; }
+.pinchip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.apptile .actions .spacer { flex: 1; }
+
+/* iPhone home-screen app: keep the bottom bar on the real bottom edge (iOS can anchor it to a shorter
+   viewport, leaving a band underneath). */
+@media (display-mode: standalone) { html, body { min-height: 100lvh; } }
+@media (max-width: 899px) { .tabbar { bottom: calc(-1 * var(--vv-gap, 0px)); } }
+.content > .view > div:empty { display: none; }
+.content > .view > div > .gcal-strip { margin-bottom: 0; }
+@media (max-width: 899px) {
+  .composer { padding: 9px; gap: 8px; }
+  .composer textarea { min-height: 44px; height: 44px; padding: 10px 12px; }
+  .composer .bar .btn { min-height: 38px; padding-top: 7px; padding-bottom: 7px; }
+  .view-head h1 { margin-bottom: 2px; }
+}

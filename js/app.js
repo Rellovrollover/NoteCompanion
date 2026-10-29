@@ -385,6 +385,7 @@
     const cur = (await allNotebooks()).find((n) => n.current);
     view.append(el('div', { class: 'view-head' }, el('h1', {}, 'Inbox')));
     if (window.NCGCal) { const cal = el('div', {}); view.append(cal); NCGCal.strip(cal).catch(() => {}); }
+    const appsBox = await inboxApps(); if (appsBox) view.append(appsBox);
     view.append(composer);
     state.suggestIndex = await buildSuggestIndex();
     const cards = el('div', { class: 'cards' });
@@ -1047,7 +1048,7 @@
     // Built-in views always have a tile.
     if (!apps.some((a) => a.app === 'logbook')) { const t = await pages.create({ kind: 'app', inbox: 0, title: 'Logbook', app: 'logbook', url: '', html: '<p>Your own procedure and experience log — a view over the Logbook notebook.</p>' }); apps.push(t); S.schedule(); }
     // A built-in tile made on two devices before they had synced: keep the oldest, remove the copies.
-    for (const key of ['shop', 'tp', 'portfolio', 'logbook', 'famus']) {
+    for (const key of ['shop', 'tp', 'portfolio', 'logbook', 'famus', 'shift']) {
       const same = apps.filter((a) => a.app === key).sort((a, b) => (a.created || 0) - (b.created || 0) || String(a.id).localeCompare(String(b.id)));
       if (same.length < 2) continue;
       const keep = same[0], extra = same.slice(1);
@@ -1056,7 +1057,13 @@
       for (const x of extra) await pages.remove(x.id);
       apps = apps.filter((a) => !extra.includes(a)); S.schedule();
     }
+    if (!apps.some((a) => a.app === 'shift')) { const t = await pages.create({ kind: 'app', inbox: 0, title: 'Shift Companion', app: 'shift', url: '', html: '<p>On-call queue and ward jobs. Jobs live on this device only, never synced; cleared after 7 days unless kept.</p>', created: 1 }); apps.push(t); S.schedule(); }
     if (!apps.some((a) => a.app === 'famus')) { const t = await pages.create({ kind: 'app', inbox: 0, title: 'FAMUS scan log', app: 'famus', url: '', html: '<p>FAMUS thoracic scan log — the v1.9 reporting sheet, kept as one table note.</p>' }); apps.push(t); S.schedule(); }
+    // First time on any device: put four apps on the Inbox (change them on the Apps page).
+    if (!apps.some((a) => a.inboxPin != null) && !(await meta.get('inboxPinsInit'))) {
+      let n = 1; for (const key of ['shift', 'shop', 'tp', 'famus']) { const a = apps.find((x) => x.app === key); if (a) { await pages.update(a.id, { inboxPin: n }); a.inboxPin = n++; } }
+      await meta.set('inboxPinsInit', true); S.schedule();
+    }
     return apps.sort((a, b) => (b.pinned || 0) - (a.pinned || 0) || (a.title || '').localeCompare(b.title || ''));
   }
   // Import a seed file (a notebook of pages) into NoteCompanion; idempotent by page id.
@@ -1085,6 +1092,48 @@
   }
   const SEED_FILES = { 'Trials & Pearls': 'seed/trials-pearls.json' };
   const appIcon = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/></svg>';
+  async function toggleInboxPin(a) {
+    if (a.inboxPin > 0) { await pages.update(a.id, { inboxPin: 0 }); }
+    else {
+      const on = (await pages.live()).filter((q) => q.kind === 'app' && q.inboxPin > 0);
+      if (on.length >= 4) { toast('The Inbox shows 4 apps — take one off first'); return; }
+      await pages.update(a.id, { inboxPin: Math.max(0, ...on.map((q) => q.inboxPin)) + 1 });
+    }
+    await meta.set('inboxPinsInit', true); S.schedule(); if (state.view === 'apps') renderApps();
+  }
+  // The Inbox's app tiles: name plus one short live line (what's left to buy, open jobs, scans so far…).
+  const liveCache = new Map();
+  async function appLive(a) {
+    const hit = liveCache.get(a.id); if (hit && Date.now() - hit.at < 20000) return hit.text;
+    let text = '';
+    try {
+      let ref = a.pageRef ? await pages.get(a.pageRef) : null;
+      // Not opened on this device yet: find the note it views by its kind, and remember it on the tile.
+      const kinds = { famus: 'famus-table', logbook: 'logbook-table' };
+      if ((!ref || ref.deleted) && kinds[a.app]) { ref = await window.NCDB.db.pages.filter((q) => q.ptype === kinds[a.app] && !q.deleted).first(); if (ref) { await pages.update(a.id, { pageRef: ref.id }); a.pageRef = ref.id; } }
+      if (a.app === 'shift') { const open = await window.NCDB.db.shift.filter((j) => j.status !== 'done').count(); text = open ? open + ' job' + (open === 1 ? '' : 's') + ' open' : 'No open jobs'; }
+      else if (a.app === 'shop' && ref && window.NCShop) { const b = NCShop.parseBook(ref.html); const n = b.current.items.filter((i) => !i.done).length, e = b.elsewhere.filter((i) => !i.done).length; text = (n ? n + ' to get' : 'List empty') + (e ? ' · ' + e + ' elsewhere' : ''); }
+      else if (a.app === 'famus' && ref && window.NCFamus) { const n = NCFamus.parse(ref.html).scans.length; text = n + ' of 10 scans'; }
+      else if (a.app === 'logbook' && ref && window.NCLogbook) { const n = NCLogbook.parse(ref.html).length; text = n + ' logged'; }
+      else if (a.app === 'tp') { const nb = (await notebooks.all()).find((x) => x.name === 'Trials & Pearls'); if (nb) { const all = await window.NCDB.db.pages.where('notebookId').equals(nb.id).filter((q) => !q.deleted && q.kind !== 'app').toArray(); const pe = all.filter((q) => q.ptype === 'pearl').length; text = (all.length - pe) + ' trials · ' + pe + ' pearls'; } }
+    } catch (e) { text = ''; }
+    liveCache.set(a.id, { text, at: Date.now() });
+    return text;
+  }
+  async function inboxApps() {
+    const apps = (await pages.live()).filter((q) => q.kind === 'app' && q.inboxPin > 0).sort((a, b) => a.inboxPin - b.inboxPin).slice(0, 4);
+    if (!apps.length) return null;
+    const route = { shift: '#shift', shop: '#shop', tp: '#tp', portfolio: '#portfolio', logbook: '#logbook', famus: '#famus' };
+    const box = el('div', { class: 'inbox-apps' });
+    for (const a of apps) {
+      const live = el('span', { class: 'inbox-app-live' }, '');
+      const tile = el('button', { class: 'inbox-app', type: 'button', onclick: () => (route[a.app] ? go(route[a.app]) : openPage(a.id)) },
+        el('span', { class: 'appico', html: appIcon }), el('span', { class: 'inbox-app-text' }, el('b', {}, a.title === 'Shopping List Manager' ? 'Shopping' : a.title), live));
+      box.append(tile);
+      appLive(a).then((t) => { live.textContent = t; if (!t) tile.classList.add('nolive'); });
+    }
+    return box;
+  }
   async function renderApps() {
     state.view = 'apps';
     const apps = await appPages();
@@ -1099,28 +1148,28 @@
         const np = await pages.create({ kind: 'app', inbox: 0, title: name, url: url || '', html: '' }); S.schedule(); go('#page/' + np.id);
       } }, '+ Add link'))), fileIn);
     const grid = el('div', { class: 'appgrid' });
-    grid.append(el('div', { class: 'apptile builtin' },
-      el('div', { class: 'apphead' }, el('span', { class: 'appico', html: appIcon }), el('b', {}, 'Shift Companion')),
-      el('div', { class: 'appdesc' }, 'On-call queue and ward jobs. Lives on this device only, never synced; cleared after 7 days unless kept.'),
-      el('div', { class: 'actions' }, el('a', { class: 'btn small primary', href: '#shift' }, 'Open'), el('span', { class: 'sub' }, 'built in'))));
+    const pinned = apps.filter((x) => x.inboxPin > 0).length;
+    const pinChip = (a) => el('button', { class: 'chip pinchip' + (a.inboxPin > 0 ? ' on' : ''), type: 'button', title: a.inboxPin > 0 ? 'Shown on the Inbox — tap to remove' : 'Show on the Inbox (up to 4)', onclick: () => toggleInboxPin(a) }, a.inboxPin > 0 ? '✓ On Inbox' : '+ Inbox');
     for (const a of apps) {
       const tile = el('div', { class: 'apptile' + (a.pinned ? ' pinned' : '') },
         el('div', { class: 'apphead' }, el('span', { class: 'appico', html: appIcon }), el('b', {}, a.title)),
         el('div', { class: 'appdesc' }, textOf(a).slice(0, 120)),
         el('div', { class: 'actions' },
-          a.app === 'shop' ? el('a', { class: 'btn small primary', href: '#shop' }, 'Open') : a.app === 'tp' ? el('a', { class: 'btn small primary', href: '#tp' }, 'Open') : a.app === 'portfolio' ? el('a', { class: 'btn small primary', href: '#portfolio' }, 'Open') : a.app === 'logbook' ? el('a', { class: 'btn small primary', href: '#logbook' }, 'Open') : a.app === 'famus' ? el('a', { class: 'btn small primary', href: '#famus' }, 'Open') : (a.assetId || a.embed) ? el('button', { class: 'btn small primary', type: 'button', onclick: () => openPage(a.id) }, 'Open') : a.url ? el('a', { class: 'btn small primary', href: a.url, target: '_blank', rel: 'noopener' }, 'Open') : el('span', { class: 'sub' }, 'No link yet'),
-          (a.app === 'shop' || a.app === 'tp' || a.app === 'portfolio' || a.app === 'logbook' || a.app === 'famus') ? el('span', { class: 'sub' }, a.app === 'shop' || a.app === 'famus' || a.app === 'logbook' ? 'a view of a note' : 'a view of a notebook') : (a.assetId || a.embed) ? el('span', { class: 'sub' }, a.assetId ? 'runs inside' : 'embedded') : el('button', { class: 'btn small', type: 'button', onclick: () => openPage(a.id) }, 'Notes'),
+          a.app === 'shift' ? el('a', { class: 'btn small primary', href: '#shift' }, 'Open') : a.app === 'shop' ? el('a', { class: 'btn small primary', href: '#shop' }, 'Open') : a.app === 'tp' ? el('a', { class: 'btn small primary', href: '#tp' }, 'Open') : a.app === 'portfolio' ? el('a', { class: 'btn small primary', href: '#portfolio' }, 'Open') : a.app === 'logbook' ? el('a', { class: 'btn small primary', href: '#logbook' }, 'Open') : a.app === 'famus' ? el('a', { class: 'btn small primary', href: '#famus' }, 'Open') : (a.assetId || a.embed) ? el('button', { class: 'btn small primary', type: 'button', onclick: () => openPage(a.id) }, 'Open') : a.url ? el('a', { class: 'btn small primary', href: a.url, target: '_blank', rel: 'noopener' }, 'Open') : el('span', { class: 'sub' }, 'No link yet'),
+          a.app === 'shift' ? el('span', { class: 'sub' }, 'built in') : (a.app === 'shop' || a.app === 'tp' || a.app === 'portfolio' || a.app === 'logbook' || a.app === 'famus') ? el('span', { class: 'sub' }, a.app === 'shop' || a.app === 'famus' || a.app === 'logbook' ? 'a view of a note' : 'a view of a notebook') : (a.assetId || a.embed) ? el('span', { class: 'sub' }, a.assetId ? 'runs inside' : 'embedded') : el('button', { class: 'btn small', type: 'button', onclick: () => openPage(a.id) }, 'Notes'),
           SEED_FILES[a.title] && a.app !== 'tp' ? el('button', { class: 'btn small', type: 'button', onclick: async (e) => { e.target.disabled = true; toast('Importing…'); try { const r = await importSeed(SEED_FILES[a.title]); toast(r.added ? 'Imported ' + r.added + ' pages into ' + r.notebook.name : 'Already imported (' + r.total + ' pages)'); } catch (err) { toast(err.message); } e.target.disabled = false; } }, 'Import into 2nd Brain') : null));
+      tile.querySelector('.actions').append(el('span', { class: 'spacer' }), pinChip(a));
       grid.append(gestures(tile, { onDelete: async () => { if (await confirm('Remove "' + a.title + '" from the hub?', null, 'Remove')) { await pages.remove(a.id); S.schedule(); renderApps(); } }, onLongPress: () => menu(a.title, [
         (a.assetId || a.embed) ? { label: 'Open', fn: () => openPage(a.id) } : { label: 'Open notes', fn: () => openPage(a.id) },
         a.assetId ? { label: 'Replace HTML file…', fn: () => { const inp = el('input', { type: 'file', accept: '.html,.htm,text/html' }); inp.addEventListener('change', async () => { const f = inp.files[0]; if (!f) return; const na = await storeAsset(f, f.name); if (a.assetId) await assets.remove(a.assetId); await pages.update(a.id, { assetId: na.id }); S.schedule(); toast('Updated ' + a.title); renderApps(); }); inp.click(); } } : null,
         a.url ? { label: a.embed ? 'Open in its own tab instead' : 'Open inside 2nd Brain (embed)', fn: async () => { await pages.update(a.id, { embed: a.embed ? 0 : 1 }); S.schedule(); renderApps(); } } : null,
         { label: 'Change link', fn: async () => { const u = await ask('Link', 'https://…', a.url || '', 'Save'); if (u !== undefined) { await pages.update(a.id, { url: u }); S.schedule(); renderApps(); } } },
+        { label: a.inboxPin > 0 ? 'Remove from the Inbox' : 'Show on the Inbox', fn: () => toggleInboxPin(a) },
         { label: a.pinned ? 'Unpin' : 'Pin', fn: async () => { await pages.update(a.id, { pinned: a.pinned ? 0 : 1 }); S.schedule(); renderApps(); } },
         { label: 'Remove from hub', danger: true, fn: async () => { if (await confirm('Remove "' + a.title + '"?', null, 'Remove')) { await pages.remove(a.id); S.schedule(); renderApps(); } } }
       ]) }));
     }
-    view.append(grid, el('p', { class: 'rule' }, 'Open launches the app in its own tab; Notes is a page for how it works and how to update it. Press and hold a tile for more.'));
+    view.append(el('p', { class: 'rule' }, '“+ Inbox” puts an app on the Inbox page (up to 4; ' + pinned + ' there now).'), grid, el('p', { class: 'rule' }, 'Open launches the app in its own tab; Notes is a page for how it works and how to update it. Press and hold a tile for more.'));
     content.replaceChildren(view); syncNav();
   }
 
@@ -1409,6 +1458,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
     if (p.kind === 'app' && p.app === 'portfolio') { go('#portfolio'); return; }
     if (p.kind === 'app' && p.app === 'logbook') { go('#logbook'); return; }
     if (p.kind === 'app' && p.app === 'famus') { go('#famus'); return; }
+    if (p.kind === 'app' && p.app === 'shift') { go('#shift'); return; }
     if (p.kind === 'app' && (p.assetId || p.embed)) {
       view.classList.add('app-view');
       const host = el('div', { class: 'apphost' });
@@ -2259,6 +2309,18 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
       topSearch.addEventListener('keydown', (e) => { if (e.key === 'Enter') { clearTimeout(t); state.query = topSearch.value; if (state.view === 'search') { const inp = $('#search-input'); if (inp) { inp.value = topSearch.value; inp.dispatchEvent(new Event('input')); } } else go('#search'); } if (e.key === 'Escape') { topSearch.value = ''; topSearch.blur(); } });
       document.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); topSearch.focus(); topSearch.select(); } });
     }
+    // iOS home-screen apps sometimes lay the page out shorter than the screen, so the bottom bar floats above a
+    // band. Measure what is really visible and drop the bar by the difference.
+    const fixGap = () => {
+      if (!window.visualViewport) return;
+      const gap = Math.round(visualViewport.height + visualViewport.offsetTop - window.innerHeight);
+      document.documentElement.style.setProperty('--vv-gap', (gap > 8 && gap < 140 ? gap : 0) + 'px');
+    };
+    fixGap();
+    for (const ev of ['resize', 'orientationchange', 'pageshow']) window.addEventListener(ev, () => setTimeout(fixGap, 60));
+    document.addEventListener('visibilitychange', () => setTimeout(fixGap, 120));
+    document.addEventListener('focusout', () => setTimeout(fixGap, 350));
+    if (window.visualViewport) { visualViewport.addEventListener('resize', fixGap); visualViewport.addEventListener('scroll', fixGap); }
     // iOS can leave the page's fixed bars anchored to a keyboard-sized viewport after the keyboard goes; nudge it back.
     if (window.visualViewport) {
       let was = visualViewport.height;
