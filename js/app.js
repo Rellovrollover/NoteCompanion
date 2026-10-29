@@ -520,6 +520,9 @@
   // ---------- notebook tree ----------
   const chevron = (open) => el('span', { class: 'chev' + (open ? ' open' : ''), html: '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>' });
   const toggle = (id) => { state.expanded.has(id) ? state.expanded.delete(id) : state.expanded.add(id); refreshTree(); };
+  // Section groups you folded stay folded (on this device), even with a section inside them open.
+  const groupClosed = (() => { try { return new Set(JSON.parse(localStorage.getItem('nc-gclosed') || '[]')); } catch (e) { return new Set(); } })();
+  const saveGroupClosed = () => { try { localStorage.setItem('nc-gclosed', JSON.stringify([...groupClosed].slice(-200))); } catch (e) { /* ignore */ } };
   const nbColour = (nb, i) => nb.color || NB_COLOURS[(i == null ? 0 : i) % NB_COLOURS.length];
   // Notebooks in display order: the current rotation is pinned to the top, the rest by their manual order.
   async function sortedNotebooks() { return (await notebooks.all()).sort((a, b) => (b.current || 0) - (a.current || 0) || (a.order || 0) - (b.order || 0) || a.name.localeCompare(b.name)); }
@@ -655,10 +658,15 @@
     for (const g of groupsOf(secs, nb)) {
       if (!g.name) { for (const sc of g.secs) body.append(renderSec(sc, false)); continue; }
       const gid = 'g:' + nb.id + ':' + g.name;
-      const gopen = state.expanded.has(gid) || g.secs.some((sc) => sc.id === state.sectionId);
-      const gEl = el('div', { class: 'secgroup' + (gopen ? ' open' : '') });
+      // A group holding the open section starts open, but you can still fold it; it reopens when you go to
+      // a different section inside it.
+      const holdsActive = g.secs.some((sc) => sc.id === state.sectionId);
+      if (holdsActive && state.sectionId !== state.treeSecSeen && groupClosed.delete(gid)) saveGroupClosed();
+      const gopen = state.expanded.has(gid) || (holdsActive && !groupClosed.has(gid));
+      const toggleGroup = () => { if (gopen) { state.expanded.delete(gid); groupClosed.add(gid); } else { groupClosed.delete(gid); state.expanded.add(gid); } saveGroupClosed(); refreshTree(); };
+      const gEl = el('div', { class: 'secgroup' + (gopen ? ' open' : '') + (holdsActive && !gopen ? ' holds-here' : '') });
       const gcount = g.secs.reduce((n, sc) => n + (pagesBySec.get(sc.id) || 0), 0);
-      const ghead = el('div', { class: 'group-head', role: 'button', tabindex: '0', onclick: () => toggle(gid), onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(gid); } } },
+      const ghead = el('div', { class: 'group-head', role: 'button', tabindex: '0', 'aria-expanded': gopen ? 'true' : 'false', title: gopen ? 'Fold group' : 'Open group', onclick: toggleGroup, onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleGroup(); } } },
         chevron(gopen), lvlIcon('group'),
         el('span', { class: 'group-name', title: g.name }, g.name), el('span', { class: 'sec-count' }, g.secs.length + ' · ' + gcount),
         el('button', { class: 'more', type: 'button', 'aria-label': 'Group options', onclick: (e) => { e.stopPropagation(); groupMenu(nb, g.name, g.secs); } }));
@@ -670,6 +678,7 @@
       if (gopen) { const inner = el('div', { class: 'group-body' }); for (const sc of g.secs) inner.append(renderSec(sc, true)); inner.append(el('button', { class: 'addrow', type: 'button', onclick: async () => { const n = await ask('New section in ' + g.name, 'Section name'); if (n) { const sc = await sections.create(nb.id, n); await sections.update(sc.id, { group: g.name }); state.expanded.add(gid); state.expanded.add(sc.id); onChanged(); } } }, '+ New section here')); gEl.append(inner); }
       body.append(gEl);
     }
+    if (selected) state.treeSecSeen = state.sectionId;
     const addsec = el('button', { class: 'addrow addsec', type: 'button', onclick: async () => { const n = await ask('New section in ' + nb.name, 'Section name'); if (n) { const sc = await sections.create(nb.id, n); state.expanded.add(sc.id); onChanged(); } } }, '+ New section');
     addsec.addEventListener('dragover', (e) => { if (e.dataTransfer.types.includes('text/nc-section')) { e.preventDefault(); addsec.classList.add('dropinto'); } });
     addsec.addEventListener('dragleave', () => addsec.classList.remove('dropinto'));
