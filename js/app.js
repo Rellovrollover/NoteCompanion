@@ -17,7 +17,7 @@
     return n;
   };
   const content = $('#content');
-  const state = { view: 'inbox', pageId: null, editor: null, saveTimer: null, expanded: new Set(), query: '', focusNew: false, openedHtml: '', openedPage: null, versionTimer: null, sectionView: {}, nbId: null };
+  const state = { view: 'inbox', pageId: null, editor: null, saveTimer: null, expanded: new Set(), query: '', focusNew: false, openedHtml: '', openedPage: null, versionTimer: null, sectionView: {}, nbId: null, secSel: new Set(), secAnchor: null };
   try { state.nbId = localStorage.getItem('nc-nb') || null; } catch (e) { /* ignore */ }
   const setNotebook = (id) => { if (state.nbId === id) return false; state.nbId = id; state.nbCollapsed = false; try { localStorage.setItem('nc-nb', id || ''); } catch (e) { /* ignore */ } return true; };
   const isNarrow = () => matchMedia('(max-width: 899px)').matches;
@@ -160,6 +160,13 @@
   };
   const icon = (name) => el('span', { class: 'ic', html: '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + ICONS[name] + '</svg>' });
   const setBtn = (btn, name, label) => { btn.replaceChildren(icon(name), el('span', {}, label)); };
+  // Level icons: notebook › section group (stacked pages) › section (a page).
+  const LVL = {
+    notebook: '<path d="M7 3.5h10.5A1.5 1.5 0 0 1 19 5v14.5H7.5A2.5 2.5 0 0 1 5 17V5.5a2 2 0 0 1 2-2z"/><path d="M5 17a2.5 2.5 0 0 1 2.5-2.5H19M9 3.5v11"/>',
+    group: '<path d="M9.5 6.5V5A1.5 1.5 0 0 1 11 3.5h5.5l3 3V15a1.5 1.5 0 0 1-1.5 1.5h-1.5"/><path d="M12.5 7.5H6.5A1.5 1.5 0 0 0 5 9v10.5A1.5 1.5 0 0 0 6.5 21h8.5a1.5 1.5 0 0 0 1.5-1.5v-8z"/><path d="M12.5 7.5v4h4"/>',
+    section: '<path d="M13.5 3.5h-6A1.5 1.5 0 0 0 6 5v14a1.5 1.5 0 0 0 1.5 1.5h9A1.5 1.5 0 0 0 18 19V8z"/><path d="M13.5 3.5V8H18M9 12.5h6M9 16h4"/>'
+  };
+  const lvlIcon = (kind) => el('span', { class: 'lvl-ico lvl-' + kind + (kind === 'group' ? ' group-ico' : ''), 'aria-hidden': 'true', html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">' + LVL[kind] + '</svg>' });
 
   // Swipe left to reveal Delete; press and hold (or right-click) for a menu.
   function gestures(front, { onDelete, onLongPress }) {
@@ -528,7 +535,13 @@
     if (nb) setNotebook(nb.id);
     return nb;
   }
-  const groupsOf = (secs) => { const groups = []; const seen = new Map(); for (const s of secs) { const g = s.group || ''; if (!seen.has(g)) { seen.set(g, { name: g, secs: [] }); groups.push(seen.get(g)); } seen.get(g).secs.push(s); } return groups; };
+  // Groups come from the sections in them, plus any declared on the notebook that are still empty.
+  const groupsOf = (secs, nb) => { const groups = []; const seen = new Map(); for (const s of secs) { const g = s.group || ''; if (!seen.has(g)) { seen.set(g, { name: g, secs: [] }); groups.push(seen.get(g)); } seen.get(g).secs.push(s); } for (const g of (nb && nb.groups) || []) if (g && !seen.has(g)) { seen.set(g, { name: g, secs: [] }); groups.push(seen.get(g)); } return groups; };
+  async function declareGroup(nb, name, drop) {
+    const fresh = await notebooks.get(nb.id); const list = ((fresh && fresh.groups) || []).filter((g) => g !== name && g !== drop);
+    if (name) list.push(name);
+    await notebooks.update(nb.id, { groups: list }); nb.groups = list;
+  }
   // Sections are kept in a dense 1..n order per notebook; imports and drags call this.
   async function renumber(nbId) {
     const secs = await sections.forNotebook(nbId);
@@ -545,10 +558,15 @@
   // Drop section `id` just before `beforeId` (or at the end of the group when beforeId is null), adopting that group.
   async function placeSection(id, beforeId, group) {
     const s = await sections.get(id); if (!s) return;
-    const secs = (await sections.forNotebook(s.notebookId)).filter((x) => x.id !== id);
+    const all = await sections.forNotebook(s.notebookId);
+    const ids = state.secSel.size > 1 && state.secSel.has(id) ? all.filter((x) => state.secSel.has(x.id)).map((x) => x.id) : [id];
+    if (beforeId && ids.includes(beforeId)) return;
+    const moving = all.filter((x) => ids.includes(x.id));
+    const secs = all.filter((x) => !ids.includes(x.id));
     const at = beforeId ? secs.findIndex((x) => x.id === beforeId) : -1;
-    if (at >= 0) secs.splice(at, 0, s); else { let last = -1; secs.forEach((x, k) => { if ((x.group || '') === (group || '')) last = k; }); secs.splice(last + 1, 0, s); }
-    for (const [k, x] of secs.entries()) await sections.update(x.id, Object.assign({ order: k + 1 }, x.id === id ? { group: group || '' } : {}));
+    if (at >= 0) secs.splice(at, 0, ...moving); else { let last = -1; secs.forEach((x, k) => { if ((x.group || '') === (group || '')) last = k; }); if (last < 0 && group) last = secs.length - 1; secs.splice(last + 1, 0, ...moving); }
+    for (const [k, x] of secs.entries()) await sections.update(x.id, Object.assign({ order: k + 1 }, ids.includes(x.id) ? { group: group || '' } : {}));
+    if (ids.length > 1) { state.secSel.clear(); toast('Moved ' + ids.length + ' sections'); }
     onChanged();
   }
   function dragSection(secEl, s, nb) {
@@ -559,6 +577,26 @@
     head.addEventListener('dragover', (e) => { if (e.dataTransfer.types.includes('text/nc-section')) { e.preventDefault(); secEl.classList.add('dropbefore'); } });
     head.addEventListener('dragleave', () => secEl.classList.remove('dropbefore'));
     head.addEventListener('drop', async (e) => { e.preventDefault(); secEl.classList.remove('dropbefore'); const id = e.dataTransfer.getData('text/nc-section'); if (id && id !== s.id) await placeSection(id, s.id, s.group || ''); });
+  }
+  // Several sections picked in the sidebar: move them to a group or another notebook, or delete them.
+  function sectionBulkMenu(nb, secs) {
+    const picked = secs.filter((x) => state.secSel.has(x.id));
+    const n = picked.length;
+    menu(n + ' section' + (n === 1 ? '' : 's') + ' selected', [
+      { label: 'Move to group…', fn: async () => { const g = await pickGroup(nb, ''); if (g === undefined) return; await placeSection(picked[0].id, null, g); state.expanded.add('g:' + nb.id + ':' + g); } },
+      { label: 'Move to another notebook…', fn: async () => {
+        const nbs = (await sortedNotebooks()).filter((x) => x.id !== nb.id); if (!nbs.length) { toast('No other notebook yet'); return; }
+        menu('Move ' + n + ' sections to', nbs.map((x) => ({ label: x.name, fn: async () => { let k = 0; for (const sc of picked) { await sections.update(sc.id, { notebookId: x.id, group: '', order: Date.now() + k++ }); for (const q of await pages.forSection(sc.id)) await pages.update(q.id, { notebookId: x.id }); } state.secSel.clear(); onChanged(); toast('Moved ' + n + ' sections to ' + x.name); } })));
+      } },
+      { label: 'Clear selection', fn: () => { state.secSel.clear(); refreshTree(); } },
+      { label: 'Delete ' + n + ' section' + (n === 1 ? '' : 's'), danger: true, fn: async () => { if (await confirm('Delete ' + n + ' section' + (n === 1 ? '' : 's') + '?', 'Their pages go too.', 'Delete')) { for (const sc of picked) await sections.remove(sc.id); state.secSel.clear(); onChanged(); } } }
+    ]);
+  }
+  function sectionBulkBar(nb, secs) {
+    const n = secs.filter((x) => state.secSel.has(x.id)).length;
+    return el('div', { class: 'secbulk' }, el('span', {}, n + ' selected'), el('span', { class: 'spacer' }),
+      el('button', { class: 'btn small', type: 'button', onclick: () => sectionBulkMenu(nb, secs) }, 'Actions…'),
+      el('button', { class: 'btn small', type: 'button', title: 'Clear selection', onclick: () => { state.secSel.clear(); refreshTree(); } }, '✕'));
   }
   async function buildTree() {
     const wrap = el('div', { class: 'tree' });
@@ -578,19 +616,27 @@
     // Notebook header: click a closed notebook to select it; click the selected one to fold or unfold it.
     const pick = () => { if (selected) { state.nbCollapsed = !state.nbCollapsed; } else { setNotebook(nb.id); state.nbCollapsed = false; } refreshTree(); };
     const head = el('div', { class: 'nb-head', role: 'button', tabindex: '0', title: selected ? (open ? 'Collapse' : 'Expand') : 'Open ' + nb.name, onclick: pick, onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } } },
-      el('span', { class: 'spine' }), selected ? chevron(open) : null,
+      el('span', { class: 'spine' }), selected ? chevron(open) : null, lvlIcon('notebook'),
       el('span', { class: 'nb-text' }, el('span', { class: 'nb-name' }, nb.name), el('span', { class: 'nb-sub' }, nb.current ? el('span', { class: 'badge-current' }, 'current') : null, el('span', { class: 'nb-meta' }, secs.length + (secs.length === 1 ? ' section' : ' sections') + ' · ' + nPages + (nPages === 1 ? ' page' : ' pages')))),
       el('button', { class: 'more', type: 'button', 'aria-label': 'Notebook options', onclick: (e) => { e.stopPropagation(); notebookMenu(nb); } }));
     nbEl.append(head);
     if (!open) { wrap.append(nbEl); continue; }
     const body = el('div', { class: 'nb-body' });
+    const visualOrder = groupsOf(secs, nb).flatMap((g) => g.secs.map((x) => x.id));
+    for (const id of [...state.secSel]) if (!secs.some((x) => x.id === id)) state.secSel.delete(id);
+    if (state.secSel.size) body.append(sectionBulkBar(nb, secs));
     const renderSec = (sc, inGroup) => {
       const sopen = state.expanded.has(sc.id);
       const count = pagesBySec.get(sc.id) || 0;
-      const secEl = el('div', { class: 'sec' + (sopen ? ' open' : '') + (inGroup ? ' grouped' : '') + (state.view === 'section' && state.sectionId === sc.id ? ' here' : '') });
-      secEl.append(el('div', { class: 'sec-head' },
-        el('button', { class: 'sec-toggle', type: 'button', 'aria-label': 'Expand', onclick: () => toggle(sc.id) }, chevron(sopen)),
-        el('button', { class: 'sec-name', type: 'button', title: sc.name, onclick: () => go('#section/' + sc.id) }, sc.name),
+      const secEl = el('div', { class: 'sec' + (sopen ? ' open' : '') + (inGroup ? ' grouped' : '') + (state.view === 'section' && state.sectionId === sc.id ? ' here' : '') + (state.secSel.has(sc.id) ? ' picked' : '') });
+      secEl.append(el('div', { class: 'sec-head', 'data-sec': sc.id },
+        el('button', { class: 'sec-toggle', type: 'button', 'aria-label': 'Expand', onclick: () => toggle(sc.id) }, chevron(sopen)), lvlIcon('section'),
+        el('button', { class: 'sec-name', type: 'button', title: sc.name + ' — Ctrl-click or Shift-click to select several', onclick: (e) => {
+          if (e.ctrlKey || e.metaKey) { if (state.secSel.has(sc.id)) state.secSel.delete(sc.id); else state.secSel.add(sc.id); state.secAnchor = sc.id; refreshTree(); return; }
+          if (e.shiftKey) { const order = visualOrder; const a = order.indexOf(state.secAnchor || state.sectionId || sc.id), b = order.indexOf(sc.id); if (a >= 0 && b >= 0) { if (!(e.ctrlKey || e.metaKey)) state.secSel.clear(); for (let k = Math.min(a, b); k <= Math.max(a, b); k++) state.secSel.add(order[k]); } else state.secSel.add(sc.id); refreshTree(); return; }
+          if (state.secSel.size) { state.secSel.clear(); }
+          state.secAnchor = sc.id; go('#section/' + sc.id);
+        } }, sc.name),
         el('span', { class: 'sec-count' }, count ? String(count) : ''),
         el('button', { class: 'more', type: 'button', 'aria-label': 'Section options', onclick: (e) => { e.stopPropagation(); sectionMenu(nb, sc); } })));
       if (!isNarrow()) { dragSection(secEl, sc, nb); sectionDropTarget(secEl.firstChild, sc.id); }
@@ -604,14 +650,14 @@
       }
       return secEl;
     };
-    for (const g of groupsOf(secs)) {
+    for (const g of groupsOf(secs, nb)) {
       if (!g.name) { for (const sc of g.secs) body.append(renderSec(sc, false)); continue; }
       const gid = 'g:' + nb.id + ':' + g.name;
       const gopen = state.expanded.has(gid) || g.secs.some((sc) => sc.id === state.sectionId);
       const gEl = el('div', { class: 'secgroup' + (gopen ? ' open' : '') });
       const gcount = g.secs.reduce((n, sc) => n + (pagesBySec.get(sc.id) || 0), 0);
       const ghead = el('div', { class: 'group-head', role: 'button', tabindex: '0', onclick: () => toggle(gid), onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(gid); } } },
-        chevron(gopen), el('span', { class: 'group-ico', html: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2h8.5A1.5 1.5 0 0 1 21 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>' }),
+        chevron(gopen), lvlIcon('group'),
         el('span', { class: 'group-name', title: g.name }, g.name), el('span', { class: 'sec-count' }, g.secs.length + ' · ' + gcount),
         el('button', { class: 'more', type: 'button', 'aria-label': 'Group options', onclick: (e) => { e.stopPropagation(); groupMenu(nb, g.name, g.secs); } }));
       // Dropping a section on a group header files it at the end of that group.
@@ -661,7 +707,7 @@
       nb.current ? null : { label: 'Move up', fn: () => moveNotebook(nb, -1) },
       nb.current ? null : { label: 'Move down', fn: () => moveNotebook(nb, 1) },
       { label: 'Add section', fn: async () => { const n = await ask('New section in ' + nb.name, 'Section name'); if (n) { const s = await sections.create(nb.id, n); state.expanded.add(nb.id); state.expanded.add(s.id); onChanged(); } } },
-      { label: 'Add section group', fn: async () => { const g = await ask('New section group', 'Group name'); if (!g) return; const n = await ask('First section in ' + g, 'Section name', 'General'); if (n) { const s = await sections.create(nb.id, n); await sections.update(s.id, { group: g }); state.expanded.add(nb.id); state.expanded.add('g:' + nb.id + ':' + g); onChanged(); } } },
+      { label: 'Add section group', fn: async () => { const g = await ask('New section group', 'Group name'); if (!g) return; await declareGroup(nb, g); state.expanded.add(nb.id); state.expanded.add('g:' + nb.id + ':' + g); onChanged(); toast('Group added — drag sections onto it, or select several and Move to group'); } },
       { label: nb.current ? 'Unset as current rotation' : 'Set as current rotation', fn: async () => {
         for (const o of await notebooks.all()) if (o.current && o.id !== nb.id) await notebooks.update(o.id, { current: 0 });
         await notebooks.update(nb.id, { current: nb.current ? 0 : 1 }); onChanged(); toast(nb.current ? 'Cleared' : nb.name + ' is the current rotation');
@@ -672,7 +718,8 @@
   }
   async function pickGroup(nb, current) {
     const secs = await sections.forNotebook(nb.id);
-    const groups = [...new Set(secs.map((x) => x.group).filter(Boolean))].sort();
+    const fresh = await notebooks.get(nb.id);
+    const groups = [...new Set(secs.map((x) => x.group).filter(Boolean).concat((fresh && fresh.groups) || []))].sort();
     return new Promise((resolve) => menu('Section group', [
       ...groups.filter((g) => g !== current).map((g) => ({ label: g, fn: () => resolve(g) })),
       { label: 'New group…', accent: true, fn: async () => { const n = await ask('New section group', 'Group name'); resolve(n || undefined); } },
@@ -682,8 +729,9 @@
   function groupMenu(nb, name, secs) {
     menu(nb.name + ' › ' + name, [
       { label: 'New section in this group', fn: async () => { const n = await ask('New section in ' + name, 'Section name'); if (n) { const sc = await sections.create(nb.id, n); await sections.update(sc.id, { group: name }); state.expanded.add('g:' + nb.id + ':' + name); state.expanded.add(sc.id); onChanged(); } } },
-      { label: 'Rename group', fn: async () => { const n = await ask('Rename group', '', name, 'Rename'); if (n && n !== name) { for (const sc of secs) await sections.update(sc.id, { group: n }); state.expanded.add('g:' + nb.id + ':' + n); onChanged(); } } },
-      { label: 'Ungroup (sections stay)', danger: true, fn: async () => { if (await confirm('Ungroup "' + name + '"?', 'The sections stay in the notebook, just not grouped.', 'Ungroup')) { for (const sc of secs) await sections.update(sc.id, { group: '' }); onChanged(); } } }
+      { label: 'Rename group', fn: async () => { const n = await ask('Rename group', '', name, 'Rename'); if (n && n !== name) { for (const sc of secs) await sections.update(sc.id, { group: n }); if ((nb.groups || []).includes(name)) await declareGroup(nb, n, name); state.expanded.add('g:' + nb.id + ':' + n); onChanged(); } } },
+      secs.length ? { label: 'Ungroup (sections stay)', danger: true, fn: async () => { if (await confirm('Ungroup "' + name + '"?', 'The sections stay in the notebook, just not grouped.', 'Ungroup')) { for (const sc of secs) await sections.update(sc.id, { group: '' }); await declareGroup(nb, '', name); onChanged(); } } }
+        : { label: 'Delete empty group', danger: true, fn: async () => { await declareGroup(nb, '', name); onChanged(); } }
     ]);
   }
   function sectionMenu(nb, s) {
@@ -740,7 +788,7 @@
   async function sectionTabs(nb, activeSecId) {
     if (!nb) return null;
     const secs = await sections.forNotebook(nb.id);
-    const groups = groupsOf(secs);
+    const groups = groupsOf(secs, nb);
     const active = secs.find((x) => x.id === activeSecId) || null;
     const openGroup = active && active.group ? active.group : (state.openGroup && state.openGroup.nb === nb.id ? state.openGroup.name : null);
     const strip = el('div', { class: 'sectabs', 'data-nb': nb.id, 'data-sec': activeSecId || '' });
@@ -752,7 +800,7 @@
       const open = openGroup === g.name;
       row1.append(el('button', { class: 'stab group' + (open ? ' active' : ''), type: 'button', style: '--tab: ' + NB_COLOURS[ci++ % NB_COLOURS.length], title: g.name, 'data-menu': 'group|' + nb.id + '|' + g.name,
         onclick: () => { if (open && !(active && active.group === g.name)) { state.openGroup = null; } else { state.openGroup = { nb: nb.id, name: g.name }; } if (!open && g.secs[0] && !(active && active.group === g.name)) { go('#section/' + g.secs[0].id); return; } refreshTree(); } },
-        el('span', { class: 'group-ico', html: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2h8.5A1.5 1.5 0 0 1 21 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>' }), g.name));
+        lvlIcon('group'), g.name));
     }
     row1.append(el('button', { class: 'stab add', type: 'button', title: 'New section', onclick: async () => { const n = await ask('New section in ' + nb.name, 'Section name'); if (n) { const sc = await sections.create(nb.id, n); onChanged(); go('#section/' + sc.id); } } }, '+'));
     strip.append(row1);
@@ -780,8 +828,9 @@
     const livePages = (await pages.live()).filter((q) => q.notebookId === nb.id);
     const grid = el('div', { class: 'secgrid' });
     let ci = 0;
-    for (const g of groupsOf(secs)) {
+    for (const g of groupsOf(secs, nb)) {
       if (g.name) grid.append(el('h2', { class: 'secgrid-group' }, g.name));
+      if (g.name && !g.secs.length) grid.append(el('p', { class: 'sub' }, 'Empty group — drag sections onto it in the sidebar, or use its ··· menu.'));
       for (const sc of g.secs) { const n = livePages.filter((q) => q.sectionId === sc.id).length; grid.append(el('a', { class: 'seccard', href: '#section/' + sc.id, 'data-menu': 'sec|' + sc.id, style: '--tab: ' + NB_COLOURS[ci++ % NB_COLOURS.length] }, el('span', { class: 'seccard-name' }, sc.name), el('span', { class: 'seccard-meta' }, n + ' page' + (n === 1 ? '' : 's')))); }
     }
     if (!secs.length) grid.append(el('p', { class: 'sub' }, 'No sections yet — use + on the tab strip.'));
@@ -2026,6 +2075,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
     }
     document.addEventListener('focusout', () => { setTimeout(() => { if (!document.activeElement || document.activeElement === document.body) window.scrollTo(0, Math.max(0, window.scrollY)); }, 80); });
     // Right-click anywhere that has a menu opens it (desktop); typing areas keep the browser's own menu.
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && state.secSel.size && !document.querySelector('#sheet-host:not([hidden])')) { state.secSel.clear(); refreshTree(); } });
     document.addEventListener('contextmenu', async (e) => {
       if (e.defaultPrevented) return;
       const t = e.target;
@@ -2041,6 +2091,8 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
         else if (kind === 'page') { const p = await pages.get(id); if (p) pageQuickMenu(p, again); }
         return;
       }
+      const sh = t.closest('.sec-head[data-sec]');
+      if (sh && state.secSel.size > 1 && state.secSel.has(sh.dataset.sec)) { e.preventDefault(); const sc = await sections.get(sh.dataset.sec); const nb = sc && await notebooks.get(sc.notebookId); if (nb) sectionBulkMenu(nb, await sections.forNotebook(nb.id)); return; }
       // Rows that already carry a ··· button: right-click is the same as pressing it.
       const row = t.closest('.nb-head, .sec-head, .group-head, .archived-row, .nbgrid a, .crumbs');
       const more = row && (row.querySelector(':scope > .more, :scope > .more-page:not(.draw)'));

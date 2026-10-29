@@ -30,18 +30,41 @@
   // with Claude adds a trial, a pearl or a portfolio entry: it drops "<stamp>.page.json" in the relay.
   //   { notebook, group?, section, title, html? | text?, props?: [{k,v}] | {k:v}, tags?, ptype?, pinned?, id?, created? }
   // Without a notebook it lands in the Inbox. An array files several. An existing id is updated, not duplicated.
+  // Notebook by name: exact first, then one whose name starts with or contains it ("FY2" finds "FY2 Notebook").
+  async function findNotebook(name) {
+    const { notebooks } = window.NCDB;
+    const all = (await notebooks.all()).concat(await notebooks.archived());
+    const n = String(name).toLowerCase();
+    return all.find((x) => x.name.toLowerCase() === n) || all.find((x) => x.name.toLowerCase().startsWith(n)) || all.find((x) => x.name.toLowerCase().includes(n)) || null;
+  }
+  // { ..., images: [{ name, mime, data (base64) }] } — each becomes a file in the app; "{{img:name}}" in the html
+  // is replaced by that picture, and any not placed are added at the end.
+  async function placeImages(html, images) {
+    if (!images || !images.length) return html;
+    let out = html, extra = '';
+    for (const im of images) {
+      const bin = Uint8Array.from(atob(im.data), (c) => c.charCodeAt(0));
+      const a = await assets.create(new Blob([bin], { type: im.mime || 'image/jpeg' }), im.name || 'image.jpg');
+      const tag = '<p><img src="asset/' + a.id + '" alt="' + escapeHtml(im.alt || im.name || '') + '"></p>';
+      const key = '{{img:' + im.name + '}}';
+      if (out.includes(key)) out = out.split('<p>' + key + '</p>').join(tag).split(key).join(tag); else extra += tag;
+    }
+    return out + extra;
+  }
+
   async function placePage(spec) {
     const { notebooks, sections } = window.NCDB;
     const props = Array.isArray(spec.props) ? spec.props : Object.entries(spec.props || {}).map(([k, v]) => ({ k, v: String(v) }));
-    const html = spec.html != null ? spec.html : textToHtml(String(spec.text || ''));
+    let html = spec.html != null ? spec.html : textToHtml(String(spec.text || ''));
+    html = await placeImages(html, spec.images);
     const fields = { title: spec.title || (spec.text || '').split('\n')[0].slice(0, 80) || 'Untitled', html, props, tags: spec.tags || [], pinned: spec.pinned ? 1 : 0 };
     if (spec.ptype) fields.ptype = spec.ptype;
-    if (spec.notebook) {
-      let nb = (await notebooks.all()).find((n) => n.name.toLowerCase() === String(spec.notebook).toLowerCase());
-      if (!nb) nb = await notebooks.create(spec.notebook);
+    let nb = spec.notebook ? await findNotebook(spec.notebook) : null;
+    if (spec.notebook && !nb && !spec.inboxIfMissing) nb = await notebooks.create(spec.notebook);
+    if (nb) {
       const group = spec.group || '';
       let sec = (await sections.forNotebook(nb.id)).find((s) => (s.group || '') === group && s.name.toLowerCase() === String(spec.section || 'General').toLowerCase());
-      if (!sec) { sec = await sections.create(nb.id, spec.section || 'General'); if (group) await sections.update(sec.id, { group }); }
+      if (!sec) { sec = await sections.create(nb.id, spec.section || 'General'); if (group) await sections.update(sec.id, { group, view: spec.sectionView || undefined }); }
       Object.assign(fields, { notebookId: nb.id, sectionId: sec.id, inbox: 0 });
     } else fields.inbox = 1;
     const have = spec.id ? await pages.get(spec.id) : null;
