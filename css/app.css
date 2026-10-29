@@ -1114,3 +1114,18 @@ input.topsearch.desktop-only { display: none !important; }
   .inbox-app-text b { font-size: 1.04rem; }
   .inbox-app-live { font-size: .86rem; }
 }
+
+/* To-do (simplified): a bar, the add box with a priority, one list tinted by priority */
+.todo .todo-bar { height: 6px; }
+.todo-priseg { display: inline-flex; justify-self: start; border: 1px solid var(--line-strong); border-radius: 10px; overflow: hidden; margin-top: -8px; }
+.todo-priseg button { border: 0; background: var(--paper); font: inherit; font-size: .86rem; padding: 6px 14px; color: var(--muted); cursor: pointer; }
+.todo-priseg button + button { border-left: 1px solid var(--line-strong); }
+.todo-priseg button.on { color: var(--fg); font-weight: 600; }
+.todo-priseg button.p-high.on { background: color-mix(in srgb, var(--bad) 18%, var(--paper)); }
+.todo-priseg button.p-med.on { background: color-mix(in srgb, var(--warn) 20%, var(--paper)); }
+.todo-priseg button.p-low.on { background: color-mix(in srgb, var(--good) 18%, var(--paper)); }
+.todo-item.p-high { background: color-mix(in srgb, var(--bad) 11%, var(--paper)); box-shadow: inset 4px 0 0 color-mix(in srgb, var(--bad) 70%, transparent); }
+.todo-item.p-med { background: color-mix(in srgb, var(--warn) 11%, var(--paper)); box-shadow: inset 4px 0 0 color-mix(in srgb, var(--warn) 70%, transparent); }
+.todo-item.p-low { background: color-mix(in srgb, var(--good) 10%, var(--paper)); box-shadow: inset 4px 0 0 color-mix(in srgb, var(--good) 65%, transparent); }
+.todo-item.done { background: var(--paper); box-shadow: none; }
+.todo-item.pri .todo-box { border-color: var(--line-strong); }
