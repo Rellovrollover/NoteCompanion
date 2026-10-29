@@ -1046,6 +1046,16 @@
     }
     // Built-in views always have a tile.
     if (!apps.some((a) => a.app === 'logbook')) { const t = await pages.create({ kind: 'app', inbox: 0, title: 'Logbook', app: 'logbook', url: '', html: '<p>Your own procedure and experience log — a view over the Logbook notebook.</p>' }); apps.push(t); S.schedule(); }
+    // A built-in tile made on two devices before they had synced: keep the oldest, remove the copies.
+    for (const key of ['shop', 'tp', 'portfolio', 'logbook', 'famus']) {
+      const same = apps.filter((a) => a.app === key).sort((a, b) => (a.created || 0) - (b.created || 0) || String(a.id).localeCompare(String(b.id)));
+      if (same.length < 2) continue;
+      const keep = same[0], extra = same.slice(1);
+      const ref = keep.pageRef || (extra.find((x) => x.pageRef) || {}).pageRef;
+      if (ref && !keep.pageRef) { await pages.update(keep.id, { pageRef: ref }); keep.pageRef = ref; }
+      for (const x of extra) await pages.remove(x.id);
+      apps = apps.filter((a) => !extra.includes(a)); S.schedule();
+    }
     if (!apps.some((a) => a.app === 'famus')) { const t = await pages.create({ kind: 'app', inbox: 0, title: 'FAMUS scan log', app: 'famus', url: '', html: '<p>FAMUS thoracic scan log — the v1.9 reporting sheet, kept as one table note.</p>' }); apps.push(t); S.schedule(); }
     return apps.sort((a, b) => (b.pinned || 0) - (a.pinned || 0) || (a.title || '').localeCompare(b.title || ''));
   }
@@ -1803,6 +1813,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
     view.append(el('div', { class: 'panel' }, el('h2', {}, 'This device'),
       el('div', { class: 'kv' }, el('span', {}, 'Name'), el('span', {}, dev)),
       el('div', { class: 'kv' }, el('span', {}, 'Installed as app'), el('span', {}, (navigator.standalone || matchMedia('(display-mode: standalone)').matches) ? 'Yes' : 'No (use Add to Home Screen)')),
+      el('div', { class: 'kv' }, el('span', {}, 'Version'), (() => { const v = el('span', { id: 'kv-ver' }, '…'); if (window.caches) caches.keys().then((k) => { const n = k.filter((x) => /^nc-/.test(x)).sort().pop(); v.textContent = n ? n.replace(/^nc-/, '') : 'unknown'; }).catch(() => { v.textContent = 'unknown'; }); return v; })()),
       el('div', { class: 'kv' }, el('span', {}, 'Offline cache'), el('span', { id: 'kv-sw' }, navigator.serviceWorker && navigator.serviceWorker.controller ? 'Ready' : 'Not yet; reload once')),
       el('div', { class: 'kv' }, el('span', {}, 'Build'), kvBuild),
       el('div', { class: 'kv' }, el('span', {}, 'Storage kept'), kvPersist),
@@ -2198,6 +2209,11 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
   // ---------- service worker ----------
   if ('serviceWorker' in navigator && !PANE) {
     navigator.serviceWorker.register('./sw.js').then((reg) => {
+      // An app left open all day still hears about a new build: look every 20 minutes and whenever it comes back to the front.
+      const check = () => { reg.update().catch(() => {}); };
+      setInterval(check, 20 * 60 * 1000);
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check(); });
+      window.addEventListener('focus', check);
       reg.addEventListener('updatefound', () => {
         const w = reg.installing;
         w && w.addEventListener('statechange', () => {
