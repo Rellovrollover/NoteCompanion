@@ -886,6 +886,10 @@ input.topsearch.desktop-only { display: none !important; }
 .lvl-ico svg { width: 100%; height: 100%; }
 .tree .nb-head .lvl-notebook { width: 19px; height: 19px; color: color-mix(in srgb, var(--nb) 75%, var(--fg)); margin-right: 2px; }
 .tree .nb:not(.selected) .nb-head .lvl-notebook { margin-left: 6px; }
-.tree .group-head .lvl-group, .stab .lvl-group { width: 18px; height: 18px; color: color-mix(in srgb, var(--nb) 70%, var(--fg)); }
+.tree .group-head .lvl-group, .stab .lvl-group { width: 19px; height: 19px; color: color-mix(in srgb, var(--nb) 70%, var(--fg)); }
 .tree .sec-head .lvl-section { width: 15px; height: 15px; color: color-mix(in srgb, var(--nb) 45%, var(--muted)); margin-left: -2px; }
 .stab .lvl-group { margin-right: 4px; vertical-align: -3px; display: inline-flex; color: inherit; }
+.tree .sec-head .lvl-section { width: 16px; height: 16px; }
+.tree .page-row .lvl-page { width: 14px; height: 14px; color: var(--muted); opacity: .75; }
+.tree .page-row.active .lvl-page { color: var(--accent); opacity: 1; }
+.tree .page-row.pinned .lvl-page { color: var(--warn); opacity: 1; }

@@ -16,8 +16,15 @@
   const NB = 'Trials & Pearls';
   const prop = (p, k) => { const f = (p.props || []).find((x) => x.k === k); return f ? f.v : ''; };
   const setProp = (props, k, v) => { const list = (props || []).filter((x) => x.k !== k); if (v) list.push({ k, v }); return list; };
-  const textOf = (html) => { const d = document.createElement('div'); d.innerHTML = html || ''; return (d.textContent || '').replace(/\s+/g, ' ').trim(); };
-  const findingOf = (p) => { const d = document.createElement('div'); d.innerHTML = p.html || ''; const h = [...d.querySelectorAll('h2')].find((x) => /finding/i.test(x.textContent)); const para = h ? h.nextElementSibling : d.querySelector('p'); return para ? para.textContent.trim() : textOf(p.html).slice(0, 200); };
+  // Paragraphs, list items and cells keep a gap between them so a card never reads "floor.Trial: 65 trialSource: …".
+  const textOf = (html) => { const d = document.createElement('div'); d.innerHTML = (html || '').replace(/<br\s*\/?>|<\/(p|li|h[1-6]|div|td|th|tr|blockquote)>/gi, ' $&'); return (d.textContent || '').replace(/\s+/g, ' ').trim(); };
+  const snippetOf = (html) => {
+    const d = document.createElement('div'); d.innerHTML = html || '';
+    const parts = [...d.querySelectorAll('p, li, h1, h2, h3, h4, td, blockquote')].filter((x) => !x.querySelector('p, li, td')).map((x) => x.textContent.replace(/\s+/g, ' ').trim()).filter(Boolean);
+    if (!parts.length) return textOf(html);
+    return parts.reduce((out, t) => !out ? t : out + (/[.!?:;]$/.test(out) ? ' ' : ' · ') + t, '');
+  };
+  const findingOf = (p) => { const d = document.createElement('div'); d.innerHTML = p.html || ''; const h = [...d.querySelectorAll('h2')].find((x) => /finding/i.test(x.textContent)); const para = h ? h.nextElementSibling : d.querySelector('p'); return para ? para.textContent.trim() : snippetOf(p.html).slice(0, 200); };
   const TRIAL_TEMPLATE = '<h2>Findings</h2><p></p><table><tbody><tr><td><strong>Population</strong></td><td></td></tr><tr><td><strong>Intervention</strong></td><td></td></tr><tr><td><strong>Comparator</strong></td><td></td></tr><tr><td><strong>Outcome</strong></td><td></td></tr></tbody></table><h2>Notes</h2><p></p>';
 
   async function notebook() { return (await notebooks.all()).find((n) => n.name === NB) || (await notebooks.archived()).find((n) => n.name === NB) || null; }
@@ -102,7 +109,7 @@
         } else {
           rows.sort((a, b) => (b.updated || 0) - (a.updated || 0));
           const grid = el('div', { class: 'tp-cards' });
-          for (const p of rows) grid.append(el('a', { class: 'tp-card', href: '#page/' + p.id }, el('span', { class: 'tp-card-spec' }, p.sec.name), el('b', {}, p.title || 'Untitled'), el('span', { class: 'tp-card-body' }, textOf(p.html).slice(0, 220))));
+          for (const p of rows) grid.append(el('a', { class: 'tp-card', href: '#page/' + p.id }, el('span', { class: 'tp-card-spec' }, p.sec.name), el('b', {}, p.title || 'Untitled'), el('span', { class: 'tp-card-body' }, snippetOf(p.html).slice(0, 220))));
           body.append(grid);
         }
       }
