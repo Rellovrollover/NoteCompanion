@@ -189,19 +189,45 @@
       const entry = el('input', { class: 'shift-quick', type: 'text', placeholder: view === 'else' ? 'Add something to get elsewhere…' : 'Add items… e.g. milk, 2 tins chopped tomatoes', autocomplete: 'off', enterkeyhint: 'done' });
       entry.addEventListener('keydown', async (e) => { if (e.key === 'Enter' && entry.value.trim()) { e.preventDefault(); const v = entry.value; entry.value = ''; await addText(v, false); const again = wrap.querySelector('.shop-add input'); if (again) again.focus(); } });
       const mic = SR ? el('button', { class: 'shop-mic' + (rec ? ' on' : ''), type: 'button', 'aria-label': 'Speak items', title: 'Speak items — e.g. “milk, eggs and bread”', html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>' }) : null;
+      // Listening waits for a proper pause before it stops: 2.5 s after you last spoke (7 s to get started),
+      // and if the phone's recogniser gives up sooner on its own, it quietly carries on listening. Tap the
+      // mic again to finish straight away. Never more than 45 s.
       if (mic) mic.addEventListener('click', () => {
-        if (rec) { rec.stop(); return; }
+        if (rec) { rec.finish(); return; }
+        const PAUSE = 2500, START = 7000, MAX = 45000;
+        let said = '', session = '', timer = null, done = false, restarts = 0;
+        const began = Date.now();
+        const text = () => (said + ' ' + session).replace(/\s+/g, ' ').trim();
+        const arm = (ms) => { clearTimeout(timer); timer = setTimeout(() => rec && rec.finish(), ms); };
+        const close = async () => {
+          if (done) return; done = true; clearTimeout(timer);
+          rec = null; mic.classList.remove('on'); entry.placeholder = 'Add items… e.g. milk, 2 tins chopped tomatoes';
+          const t = text(); entry.value = ''; if (t) await addText(t, true);
+        };
+        const listen = () => {
+          const r = new SR(); r.lang = 'en-GB'; r.interimResults = true; r.continuous = true; r.maxAlternatives = 1;
+          session = '';
+          // Rebuilt from the whole result list each time, so a phone that repeats results can't double them up.
+          r.onresult = (e) => { session = Array.from(e.results).map((x) => x[0].transcript).join(' '); entry.value = text(); arm(PAUSE); };
+          r.onerror = (e) => { if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { done = true; clearTimeout(timer); rec = null; mic.classList.remove('on'); ui.toast('Microphone not allowed — the keyboard mic works too'); } else if (e.error !== 'no-speech' && e.error !== 'aborted') ui.toast('Didn\u2019t catch that'); };
+          r.onend = () => {
+            said = text(); session = '';
+            if (done) return;
+            // Stopped by itself before our pause ran out: keep listening (a few times at most).
+            if (rec && !rec.stopping && Date.now() - began < MAX && restarts < 6) { restarts++; try { rec.r = listen(); return; } catch (x) { /* fall through */ } }
+            close();
+          };
+          r.start();
+          return r;
+        };
         try {
-          rec = new SR(); rec.lang = 'en-GB'; rec.interimResults = true; rec.continuous = false; rec.maxAlternatives = 1;
-          let finalText = '';
-          rec.onresult = (e) => { let interim = ''; for (let i = e.resultIndex; i < e.results.length; i++) { const r = e.results[i]; if (r.isFinal) finalText += ' ' + r[0].transcript; else interim += ' ' + r[0].transcript; } entry.value = (finalText + interim).trim(); };
-          rec.onerror = (e) => { if (e.error === 'not-allowed' || e.error === 'service-not-allowed') ui.toast('Microphone not allowed — the keyboard mic works too'); else if (e.error !== 'no-speech' && e.error !== 'aborted') ui.toast('Didn’t catch that'); };
-          rec.onend = async () => { rec = null; mic.classList.remove('on'); const t = (finalText || entry.value).trim(); entry.value = ''; if (t) await addText(t, true); };
-          rec.start(); mic.classList.add('on'); entry.placeholder = 'Listening… say the items';
-        } catch (err) { rec = null; ui.toast('Speech isn’t available here — use the keyboard mic'); }
+          rec = { stopping: false, r: null, finish() { this.stopping = true; clearTimeout(timer); try { this.r.stop(); } catch (x) { close(); } setTimeout(() => close(), 1500); } };
+          rec.r = listen(); mic.classList.add('on'); entry.placeholder = 'Listening… say the items, then pause';
+          arm(START); setTimeout(() => rec && rec.finish(), MAX);
+        } catch (err) { rec = null; ui.toast('Speech isn\u2019t available here — use the keyboard mic'); }
       });
       wrap.append(el('div', { class: 'shop-add' }, el('div', { class: 'shop-entry' }, entry, mic),
-        el('p', { class: 'sub' }, SR ? 'Enter to add, commas for several, or tap the mic and say them.' : 'Enter to add, commas for several. The keyboard mic works for speaking them.')));
+        el('p', { class: 'sub' }, SR ? 'Enter to add, commas for several, or tap the mic and say them. It stops after a pause; tap again to finish sooner.' : 'Enter to add, commas for several. The keyboard mic works for speaking them.')));
       // Regulars: one tap to add.
       if (view === 'lidl') {
         const regs = regulars();
