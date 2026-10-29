@@ -1161,7 +1161,6 @@
         const np = await pages.create({ kind: 'app', inbox: 0, title: name, url: url || '', html: '' }); S.schedule(); go('#page/' + np.id);
       } }, '+ Add link'))), fileIn);
     const grid = el('div', { class: 'appgrid' });
-    const pinned = apps.filter((x) => x.inboxPin > 0).length;
     const pinChip = (a) => el('button', { class: 'chip pinchip' + (a.inboxPin > 0 ? ' on' : ''), type: 'button', title: a.inboxPin > 0 ? 'Shown on the Inbox — tap to remove' : 'Show on the Inbox (up to 4)', onclick: () => toggleInboxPin(a) }, a.inboxPin > 0 ? '✓ On Inbox' : '+ Inbox');
     for (const a of apps) {
       const tile = el('div', { class: 'apptile' + (a.pinned ? ' pinned' : '') },
@@ -1182,7 +1181,7 @@
         { label: 'Remove from hub', danger: true, fn: async () => { if (await confirm('Remove "' + a.title + '"?', null, 'Remove')) { await pages.remove(a.id); S.schedule(); renderApps(); } } }
       ]) }));
     }
-    view.append(el('p', { class: 'rule' }, '“+ Inbox” puts an app on the Inbox page (up to 4; ' + pinned + ' there now).'), grid, el('p', { class: 'rule' }, 'Open launches the app in its own tab; Notes is a page for how it works and how to update it. Press and hold a tile for more.'));
+    view.append(grid);
     content.replaceChildren(view); syncNav();
   }
 
