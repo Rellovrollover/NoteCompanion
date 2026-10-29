@@ -232,8 +232,9 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 700; letter-spacing: 0; tex
 .tabbar { display: none; }
 
 /* Toast + sheet */
-.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); background: var(--fg); color: var(--bg); padding: 10px 16px; border-radius: 999px; font-size: .9rem; z-index: 60; display: flex; gap: 12px; align-items: center; max-width: calc(100vw - 32px); box-shadow: 0 6px 24px rgba(0,0,0,.25); }
-.toast button { border: 0; background: transparent; color: inherit; font-weight: 700; cursor: pointer; text-decoration: underline; }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); background: var(--fg); color: var(--bg); padding: 10px 16px; border-radius: 20px; font-size: .9rem; z-index: 60; display: flex; gap: 12px; align-items: center; width: max-content; max-width: calc(100vw - 32px); box-sizing: border-box; box-shadow: 0 6px 24px rgba(0,0,0,.25); }
+.toast-msg { min-width: 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+.toast button { flex: none; border: 0; background: transparent; color: inherit; font-weight: 700; cursor: pointer; text-decoration: underline; }
 .sheet-host { position: fixed; inset: 0; z-index: 50; background: rgba(20,22,28,.45); display: flex; align-items: flex-end; justify-content: center; }
 .sheet { background: var(--paper); width: min(100%, 34rem); max-height: 86vh; overflow-y: auto; border-radius: 16px 16px 0 0; padding: 14px 18px calc(18px + env(safe-area-inset-bottom, 0px)); display: grid; gap: 12px; box-shadow: 0 -8px 30px rgba(0,0,0,.25); }
 .sheet h2 { font-size: 1.15rem; }

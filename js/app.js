@@ -30,7 +30,7 @@
   // ---------- small UI helpers ----------
   let toastTimer = null;
   function toast(msg, action) {
-    const t = $('#toast'); t.innerHTML = ''; t.append(msg);
+    const t = $('#toast'); t.innerHTML = ''; t.append(el('span', { class: 'toast-msg' }, msg));
     if (action) t.append(el('button', { type: 'button', onclick: () => { action.fn(); t.hidden = true; } }, action.label));
     t.hidden = false; clearTimeout(toastTimer);
     if (!action || !action.sticky) toastTimer = setTimeout(() => { t.hidden = true; }, action ? 8000 : 2600);

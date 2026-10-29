@@ -17,13 +17,13 @@
   const CATS = ['Fresh Produce', 'Tins and Pantry stuff', 'Dairy', 'Meat', 'Bakery', 'Home Baking', 'Alcohol/Drinks', 'Freezer', 'Cleaning', 'Non-Lidl'];
   const STORES = ['Aldi', 'Tesco', 'Other'];
   const KEYS = {
-    'Fresh Produce': ['orange', 'apple', 'banana', 'grape', 'berr', 'lemon', 'lime', 'pear', 'plum', 'peach', 'mango', 'melon', 'pineapple', 'avocado', 'tomato', 'cucumber', 'lettuce', 'salad', 'spinach', 'kale', 'greens', 'broccoli', 'cauliflower', 'carrot', 'onion', 'garlic', 'ginger', 'chilli', 'pepper', 'potato', 'mushroom', 'courgette', 'aubergine', 'leek', 'celery', 'coriander', 'parsley', 'basil', 'mint', 'herb', 'fruit', 'veg', 'cabbage', 'sprout', 'beetroot', 'spring onion', 'corn', 'asparagus', 'squash', 'kiwi', 'cherry'],
+    'Fresh Produce': ['orange', 'apple', 'banana', 'grape', 'berr', 'lemon', 'lime', 'pear', 'plum', 'peach', 'mango', 'melon', 'pineapple', 'avocado', 'tomato', 'cucumber', 'lettuce', 'salad', 'spinach', 'kale', 'greens', 'broccoli', 'cauliflower', 'carrot', 'onion', 'garlic', 'ginger', 'chilli', 'pepper', 'potato', 'mushroom', 'courgette', 'aubergine', 'leek', 'celery', 'coriander', 'parsley', 'basil', 'mint', 'herb', 'fruit', 'veg', 'cabbage', 'sprout', 'beetroot', 'spring onion', 'corn', 'asparagus', 'butternut', 'butternut squash', 'kiwi', 'cherry'],
     'Tins and Pantry stuff': ['tin', 'canned', 'chopped tomato', 'passata', 'bean', 'chickpea', 'lentil', 'pasta', 'spaghetti', 'noodle', 'rice', 'couscous', 'oat', 'porridge', 'cereal', 'granola', 'peanut butter', 'jam', 'honey', 'marmite', 'spread', 'oil', 'olive', 'vinegar', 'soy', 'sauce', 'ketchup', 'mayo', 'mustard', 'stock', 'gravy', 'spice', 'paprika', 'cumin', 'curry', 'salt', 'tea', 'coffee', 'hot chocolate', 'crisps', 'nuts', 'biscuit', 'cracker', 'chocolate', 'sweets', 'soup', 'tuna', 'sweetcorn', 'coconut milk', 'puree', 'pesto', 'popcorn', 'protein bar'],
     'Dairy': ['milk', 'butter', 'cheese', 'cheddar', 'feta', 'mozzarella', 'parmesan', 'halloumi', 'yoghurt', 'yogurt', 'cream', 'egg', 'custard', 'skyr', 'quark'],
     'Meat': ['chicken', 'beef', 'pork', 'lamb', 'mince', 'steak', 'bacon', 'sausage', 'ham', 'turkey', 'salmon', 'cod', 'fish', 'prawn', 'chorizo', 'salami', 'meatball', 'burger', 'gammon', 'tofu', 'quorn'],
     'Bakery': ['bread', 'loaf', 'roll', 'bagel', 'croissant', 'wrap', 'pitta', 'tortilla', 'naan', 'bun', 'brioche', 'crumpet', 'muffin', 'cake', 'doughnut', 'baguette', 'sourdough', 'pastry', 'scone'],
     'Home Baking': ['flour', 'yeast', 'sugar', 'baking powder', 'bicarb', 'icing', 'vanilla', 'cocoa', 'cornflour', 'raisin', 'sultana', 'choc chip', 'sprinkles', 'golden syrup', 'treacle'],
-    'Alcohol/Drinks': ['beer', 'lager', 'cider', 'wine', 'prosecco', 'gin', 'vodka', 'rum', 'whisky', 'water', 'sparkling', 'juice', 'squash', 'cordial', 'coke', 'cola', 'lemonade', 'tonic', 'energy drink', 'smoothie', 'oat milk', 'almond milk', 'soya'],
+    'Alcohol/Drinks': ['beer', 'lager', 'cider', 'wine', 'prosecco', 'gin', 'vodka', 'rum', 'whisky', 'water', 'sparkling', 'juice', 'squash', 'cordial', 'coke', 'cola', 'lemonade', 'tonic', 'energy drink', 'drink', 'smoothie', 'oat milk', 'almond milk', 'soya'],
     'Freezer': ['frozen', 'ice cream', 'lolly', 'pizza', 'fish finger', 'chips', 'hash brown', 'waffle', 'garlic bread'],
     'Cleaning': ['washing up', 'bleach', 'sponge', 'cloth', 'kitchen roll', 'toilet roll', 'loo roll', 'bin bag', 'bin liner', 'detergent', 'washing powder', 'washing liquid', 'laundry', 'softener', 'soap', 'shampoo', 'conditioner', 'toothpaste', 'toothbrush', 'deodorant', 'tissue', 'wipes', 'spray', 'cleaner', 'dishwasher', 'foil', 'cling film', 'baking paper', 'freezer bag', 'razor', 'shower gel', 'hand wash']
   };
@@ -174,7 +174,11 @@
       }
       if (!added.length && !already.length) return;
       await save(); draw();
-      const msg = (added.length ? 'Added ' + added.map((r) => r.name).join(', ') : '') + (already.length ? (added.length ? ' · ' : '') + already.join(', ') + ' already on' : '');
+      // One item: say which aisle it went to. Several: just how many, so the message stays short.
+      const where = (r) => (view === 'else' ? 'Elsewhere' : (r.cat || 'Tins and Pantry stuff'));
+      const short = (n) => (n.length > 40 ? n.slice(0, 38).trimEnd() + '…' : n);
+      let msg = added.length === 1 ? 'Added ' + short(added[0].name) + ' to ' + where(added[0]) : added.length ? 'Added ' + added.length + ' items' : '';
+      if (already.length) msg += (msg ? ' · ' : '') + (already.length === 1 ? already[0] : already.length + ' items') + ' already on';
       ui.toast(msg, added.length ? { label: 'Undo', fn: async () => { for (const r of added) { const a = view === 'else' ? book.elsewhere : cur(); const i = a.indexOf(r); if (i >= 0) a.splice(i, 1); } await save(); draw(); } } : undefined);
     }
     let rec = null;
@@ -235,7 +239,7 @@
           const showAll = wrap.dataset.allRegs === '1';
           const shown = showAll ? regs.slice(0, 40) : regs.slice(0, 12);
           wrap.append(el('div', { class: 'shop-regs' }, el('span', { class: 'shop-regs-label' }, 'Regulars'),
-            ...shown.map((r) => el('button', { class: 'chip shop-reg', type: 'button', title: 'On ' + r.n + ' list' + (r.n === 1 ? '' : 's'), onclick: async () => { const item = { name: r.name, qty: 1, note: '', done: false, list: 'lidl', cat: r.cat || guessCat(r.name), store: 'Aldi' }; const dup = cur().find((i) => keyOf(i.name) === keyOf(r.name)); if (dup) dup.done = false; else cur().push(item); await save(); draw(); ui.toast('Added ' + r.name, { label: 'Undo', fn: async () => { if (dup) dup.done = true; else { const i = cur().indexOf(item); if (i >= 0) cur().splice(i, 1); } await save(); draw(); } }); } }, '+ ' + r.name)),
+            ...shown.map((r) => el('button', { class: 'chip shop-reg', type: 'button', title: 'On ' + r.n + ' list' + (r.n === 1 ? '' : 's'), onclick: async () => { const item = { name: r.name, qty: 1, note: '', done: false, list: 'lidl', cat: r.cat || guessCat(r.name), store: 'Aldi' }; const dup = cur().find((i) => keyOf(i.name) === keyOf(r.name)); if (dup) dup.done = false; else cur().push(item); await save(); draw(); ui.toast('Added ' + r.name + ' to ' + ((dup || item).cat || 'Tins and Pantry stuff'), { label: 'Undo', fn: async () => { if (dup) dup.done = true; else { const i = cur().indexOf(item); if (i >= 0) cur().splice(i, 1); } await save(); draw(); } }); } }, '+ ' + r.name)),
             regs.length > 12 ? el('button', { class: 'chip shop-reg more', type: 'button', onclick: () => { wrap.dataset.allRegs = showAll ? '' : '1'; draw(); } }, showAll ? 'Fewer' : 'More (' + (Math.min(regs.length, 40) - 12) + ')') : null));
         }
       }
