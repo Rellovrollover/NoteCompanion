@@ -1381,6 +1381,8 @@
     img { max-width: 100%; height: auto; border-radius: 8px; vertical-align: top; }
     table { border-collapse: collapse; width: 100%; } td, th { border: 1px solid #b9b4a8; padding: 0 8px; line-height: var(--pitch); vertical-align: top; } th { background: rgba(127,127,127,.12); }
     a.wikilink { color: #1f3a5f; text-decoration: none; border-bottom: 1px dashed currentColor; }
+    a.maplink { color: #1f6b46; text-decoration: none; border-bottom: 1px dashed currentColor; cursor: pointer; }
+    a.maplink::before { content: ''; display: inline-block; width: .62em; height: .62em; margin-right: .22em; border-radius: 50% 50% 50% 0; background: currentColor; transform: rotate(-45deg) translateY(-.08em); }
     li[data-todo] { list-style: none; position: relative; padding-left: 1.7em; margin-left: -1.4em; }
     li[data-todo]::before { content: ""; position: absolute; left: 0; top: .28em; width: 1em; height: 1em; border: 1.6px solid #7a7f88; border-radius: 4px; box-sizing: border-box; background: transparent; }
     li[data-todo="done"]::before { background: #2d7a4f; border-color: #2d7a4f; }
@@ -1398,6 +1400,34 @@
     details { border-left: 3px solid #b9b4a8; padding-left: 12px; }
     details > summary { font-weight: 600; line-height: var(--pitch); cursor: pointer; }
   `;
+  // Places: UK postcodes in a note become links that open Google Maps with directions; any other address can be
+  // linked by selecting it and tapping the map pin. Nothing is looked up until you tap one.
+  const mapsUrl = (q) => 'https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(q);
+  const POSTCODE = /\b([A-Z]{1,2}[0-9][A-Z0-9]?) ?([0-9][ABD-HJLNP-UW-Z]{2})\b/;
+  function linkPostcodes(ed) {
+    const doc = ed.getDoc(), body = ed.getBody(); if (!doc || !body) return 0;
+    const hits = [];
+    const walk = doc.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) if (POSTCODE.test(n.nodeValue) && !(n.parentElement && n.parentElement.closest('a, code, pre'))) hits.push(n);
+    let made = 0;
+    for (let node of hits) {
+      let m;
+      while (node && (m = POSTCODE.exec(node.nodeValue))) {
+        const start = m.index, text = m[0];
+        const after = node.splitText(start); const rest = after.splitText(text.length);
+        const a = doc.createElement('a'); a.className = 'maplink'; a.href = mapsUrl(m[1] + ' ' + m[2]); a.title = 'Open in Google Maps'; a.textContent = text;
+        after.replaceWith(a); node = rest; made++;
+      }
+    }
+    return made;
+  }
+  function linkSelectionToMaps(ed) {
+    const text = ed.selection.getContent({ format: 'text' }).replace(/\s+/g, ' ').trim();
+    if (!text) { toast('Select an address first, then tap the pin'); return; }
+    ed.insertContent('<a class="maplink" href="' + esc(mapsUrl(text)) + '" title="Open in Google Maps">' + esc(text) + '</a>');
+    ed.undoManager.add();
+    toast('Linked to Google Maps — tap it to get directions');
+  }
   const PAPERS = { plain: 'Plain', ruled: 'Lined', grid: 'Graph', dots: 'Dotted' };
   function applyPaper(ed, paper) {
     const doc = ed.getDoc(); if (!doc) return;
@@ -1470,7 +1500,7 @@
     #printout mark { background: #fde68a; }
     #printout .callout { border-radius: 10px; padding: 11px 14px; border: 1px solid #ccc; }
     #printout details { border-left: 3px solid #b9b4a8; padding-left: 12px; } #printout details > summary { font-weight: 600; }
-    #printout a { color: inherit; }
+    #printout a { color: inherit; text-decoration: none; }
   `;
   function printNote(p) {
     const html = state.editor && state.pageId === p.id ? state.editor.getContent() : htmlOf(p);
@@ -1756,7 +1786,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
       plugins: 'lists advlist table link image autolink autoresize searchreplace codesample quickbars accordion',
       menubar: false, statusbar: false, toolbar_mode: 'sliding', toolbar_sticky: true, toolbar_sticky_offset: 52,
       toolbar: 'undo redo | blocks | bold italic underline strikethrough | forecolor backcolor | bullist numlist todo | outdent indent | alignleft aligncenter alignright | callout accordion table image link pagelink | fontsize fontfamily | codesample removeformat searchreplace',
-      quickbars_selection_toolbar: 'bold italic underline | forecolor backcolor | quicklink',
+      quickbars_selection_toolbar: 'bold italic underline | forecolor backcolor | quicklink maplink',
       quickbars_insert_toolbar: false, quickbars_image_toolbar: 'alignleft aligncenter alignright | imageoptions',
       autoresize_bottom_margin: 24, autoresize_overflow_padding: 14, min_height: isNarrow() ? 360 : 460,
       convert_urls: false, paste_data_images: true, automatic_uploads: true, image_title: false, image_dimensions: false,
@@ -1771,6 +1801,8 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
         ed.ui.registry.addButton('todo', { icon: 'checklist', tooltip: 'To-do item', onAction: () => toggleTodo(ed) });
         ed.ui.registry.addMenuButton('callout', { icon: 'info', tooltip: 'Callout', fetch: (cb) => cb(Object.entries(CALLOUTS).map(([k, v]) => ({ type: 'menuitem', text: v, onAction: () => { insertCallout(ed, k); scheduleSave(); } })).concat([{ type: 'menuitem', text: 'Remove callout', onAction: () => { const c = ed.dom.getParent(ed.selection.getNode(), '.callout'); if (c) { ed.dom.remove(c, true); ed.undoManager.add(); scheduleSave(); } } }])) });
         ed.ui.registry.addButton('pagelink', { text: '[[', tooltip: 'Link to a page', onAction: () => insertPageLink(ed) });
+        ed.ui.registry.addIcon('mappin', '<svg width="24" height="24" viewBox="0 0 24 24"><path d="M12 21s-6.5-6.2-6.5-11a6.5 6.5 0 1 1 13 0c0 4.8-6.5 11-6.5 11z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="10" r="2.3" fill="currentColor"/></svg>');
+        ed.ui.registry.addButton('maplink', { icon: 'mappin', tooltip: 'Link to Google Maps', onAction: () => { linkSelectionToMaps(ed); scheduleSave(); } });
         if (window.NCSymbols) NCSymbols.attachEditor(ed);
         // Slash commands
         ed.ui.registry.addAutocompleter('slash', {
@@ -1781,10 +1813,13 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
         ed.on('click', (e) => {
           const a = e.target.closest && e.target.closest('a.wikilink');
           if (a) { e.preventDefault(); go(a.getAttribute('href')); return; }
+          const mp = e.target.closest && e.target.closest('a.maplink');
+          if (mp) { e.preventDefault(); window.open(mp.getAttribute('href'), '_blank', 'noopener'); return; }
           const li = e.target.closest && e.target.closest('li[data-todo]');
           if (li && e.target === li && e.offsetX < 24) { ed.dom.setAttrib(li, 'data-todo', li.getAttribute('data-todo') === 'done' ? '' : 'done'); ed.undoManager.add(); scheduleSave(); }
         });
         ed.on('input change undo redo SetContent ExecCommand', () => { if (ed.initialized) scheduleSave(); });
+        ed.on('blur', () => { if (linkPostcodes(ed)) { ed.undoManager.add(); scheduleSave(); } });
         // Page-end lines follow the text as it grows; the sheet re-fits if the window changes width.
         let brk = 0; const breaks = () => { cancelAnimationFrame(brk); brk = requestAnimationFrame(() => drawBreaks(ed, p)); };
         ed.on('input change undo redo SetContent NodeChange ResizeEditor', breaks);
@@ -1803,13 +1838,13 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
         });
         // Pasted HTML with pictures hosted elsewhere: copy them into the note so it works offline.
         ed.on('PastePostProcess', () => setTimeout(() => localiseImages(ed, scheduleSave), 0));
-        ed.on('init', () => { ed.setContent(initial); applyPage(ed, p); ed.undoManager.clear(); ed.setDirty(false); if (focusNew && !p.title) setTimeout(() => title.focus(), 60);
+        ed.on('init', () => { ed.setContent(initial); linkPostcodes(ed); applyPage(ed, p); ed.undoManager.clear(); ed.setDirty(false); if (focusNew && !p.title) setTimeout(() => title.focus(), 60);
           ensureAssets(p, (aid) => { try { for (const img of ed.getDoc().querySelectorAll('img[src*="asset/' + aid + '"]')) img.src = img.src.split('?')[0] + '?v=' + Date.now(); } catch (e) { /* editor gone */ } }); });
       }
     });
     state.editor = editors && editors[0];
     if (!state.editor) return;
-    state.openedPage = p; state.openedHtml = initial;
+    state.openedPage = p; state.openedHtml = (() => { try { return state.editor.getContent(); } catch (e) { return initial; } })();
     if (window.NCInk) state.ink = NCInk.attach(host, p.ink, (ink) => queueSave({ ink }), { onMode: (on) => { const b = $('#btn-draw'); if (b) b.classList.toggle('on', on); refreshUndoButtons(); } });
     state.versionTimer = setInterval(() => snapshotIfChanged().catch(() => {}), 10 * 60 * 1000);
     function toggleTodo(ed) {

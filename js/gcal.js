@@ -166,6 +166,7 @@
     try { const evs = await events(from, to, 250); await meta.set('gcalRange', { at: Date.now(), from: key, days, events: evs }); return evs; }
     catch (e) { console.warn('calendar range failed', e); return usable ? cached.events : []; }
   }
+  const mapsDir = (q) => 'https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(q);
   const fmtD = (d, opts) => d.toLocaleDateString('en-GB', Object.assign({ weekday: 'short', day: 'numeric', month: 'short' }, opts || {}));
   function whenText(ev) {
     if (ev.allDay) {
@@ -213,8 +214,9 @@
       for (const n of body.querySelectorAll('.sel')) n.classList.remove('sel');
       if (node) node.classList.add('sel');
       detail.replaceChildren(el('i', { class: 'tl-dot', style: ev.color ? 'background:' + ev.color : '' }),
-        el('div', { class: 'tl-dtext' }, el('b', {}, ev.title), el('span', {}, whenText(ev)), ev.location ? el('span', {}, ev.location) : null, el('span', { class: 'tl-cal' }, ev.cal)),
-        ev.link ? el('a', { class: 'btn small', href: ev.link, target: '_blank', rel: 'noopener' }, 'Open in Google Calendar') : null);
+        el('div', { class: 'tl-dtext' }, el('b', {}, ev.title), el('span', {}, whenText(ev)), ev.location ? el('a', { class: 'tl-place', href: mapsDir(ev.location), target: '_blank', rel: 'noopener', title: 'Directions in Google Maps' }, ev.location) : null, el('span', { class: 'tl-cal' }, ev.cal)),
+        el('div', { class: 'tl-acts' }, ev.location ? el('a', { class: 'btn small', href: mapsDir(ev.location), target: '_blank', rel: 'noopener' }, 'Directions') : null,
+          ev.link ? el('a', { class: 'btn small', href: ev.link, target: '_blank', rel: 'noopener' }, 'Open in Google Calendar') : null));
     };
     function render(evs) {
       lastEvs = evs;
