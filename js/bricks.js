@@ -84,6 +84,9 @@
     return loading;
   }
   const keyOf = (u, slot) => u + '-' + slot;
+  // 'full' = whole compartment free, 'half' = front half free (divider in), 'reserved', or '' = in use.
+  const baseFree = (k) => ((BASE && BASE.free) || {})[k] || ((BASE && BASE.reserved) || {})[k] || '';
+  const FREE_LABEL = { full: 'Free compartment', half: 'Front half free', reserved: 'Reserved' };
   const locShort = (c) => c.u + ' · ' + c.slot;
   const slotLabel = (s) => (s[0] === 'S' ? 'Small ' : 'Medium ') + s.slice(1);
   const pnBase = (p) => String(p || '').toLowerCase().replace(/\.dat$/, '').replace(/(pr|pat|pb|ps|px|p)\d.*$/, '').replace(/[a-z]$/, '');
@@ -98,8 +101,9 @@
     S.pn = Object.assign({}, BASE.pn || {});
     S.comps = BASE.comps.map((c, i) => {
       const k = keyOf(c.u, c.slot), e = ed[k];
-      const o = Object.assign({}, c, { key: k, i, edited: !!e });
-      if (e) { o.cat = e.cat || (e.parts && e.parts.length ? (c.cat === 'Empty' ? 'Other' : c.cat) : 'Empty'); o.alias = e.alias || ''; o.parts = e.parts && e.parts.length ? e.parts.slice() : ['Empty']; Object.assign(S.pn, e.pn || {}); }
+      const o = Object.assign({}, c, { key: k, i, edited: !!e, free: baseFree(k) });
+      if (e && e.free !== undefined) o.free = e.free || '';
+      if (e && e.parts) { o.cat = e.cat || (e.parts && e.parts.length ? (c.cat === 'Empty' ? 'Other' : c.cat) : 'Empty'); o.alias = e.alias || ''; o.parts = e.parts && e.parts.length ? e.parts.slice() : ['Empty']; Object.assign(S.pn, e.pn || {}); }
       return o;
     });
     S.byKey = Object.fromEntries(S.comps.map((c) => [c.key, c]));
@@ -234,13 +238,14 @@
       if (ui.select && S.byKey[ui.select.key]) { const c = S.byKey[ui.select.key]; if (ui.select.other) { colour = 'other'; colourSeg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.c === 'other')); } select(c, ui.select.name || null, false); ui.select = null; }
     }
     function drawModes() {
-      modeSeg.replaceChildren(...[['search', 'Search'], ['browse', 'Browse'], ['log', 'Can’t find' + (bk.log.length ? ' (' + bk.log.length + ')' : '')]].map(([k, label]) =>
+      modeSeg.replaceChildren(...[['search', 'Search'], ['browse', 'Browse'], ['free', 'Free slots'], ['log', 'Can’t find' + (bk.log.length ? ' (' + bk.log.length + ')' : '')]].map(([k, label]) =>
         el('button', { type: 'button', class: mode === k ? 'on' : '', onclick: () => { mode = k; setPref('mode', k); renderPanel(); if (k === 'search') q.focus(); } }, label)));
     }
     function renderPanel() {
       drawModes();
       if (mode === 'browse') return renderBrowse();
       if (mode === 'log') return renderLog();
+      if (mode === 'free') return renderFree();
       const s = q.value.trim();
       results = s ? search(s) : [];
       resEl = el('ul', { class: 'bk-results', role: 'listbox' });
@@ -256,7 +261,7 @@
         const hk = colour === 'other' ? helmerFor(e) : null;
         const li = el('li', { role: 'option', 'data-i': i, onclick: () => pick(i) },
           pic(e.name, 'bk-thumb', colour === 'other' ? '4' : null),
-          el('span', { class: 'bk-rname', html: hl(e.name, s) + (e.pn ? ' <span class="bk-pn">' + esc(e.pn) + (e.sure ? '' : '?') + '</span>' : '') }),
+          el('span', { class: 'bk-rname', html: hl(e.name, s) + (e.comp.free === 'full' && !hk ? ' <span class="bk-badge warn">drawer empty</span>' : '') + (e.pn ? ' <span class="bk-pn">' + esc(e.pn) + (e.sure ? '' : '?') + '</span>' : '') }),
           el('span', { class: 'bk-rcat' }, e.cat),
           el('span', { class: 'bk-rloc' + (hk ? ' blue' : '') }, hk || locShort(e.comp)));
         resEl.append(li);
@@ -282,6 +287,17 @@
       else list.append(el('p', { class: 'bk-hint' }, 'Pick a category to see its compartments, with pictures.'));
       panel.replaceChildren(cats, list);
     }
+    function renderFree() {
+      const fr = S.comps.filter((c) => c.free);
+      const n = (v) => fr.filter((c) => c.free === v).length;
+      const box = el('div', { class: 'bk-free' }, el('p', { class: 'bk-hint' }, n('full') + ' whole compartment' + (n('full') === 1 ? '' : 's') + ' free, ' + n('half') + ' with the front half free' + (n('reserved') ? ', ' + n('reserved') + ' reserved' : '') + '. Change one with Edit on its card.'));
+      for (const u of S.units) {
+        const mine = fr.filter((c) => c.u === u.id); if (!mine.length) continue;
+        box.append(el('h4', {}, u.id + ' · ' + u.title), el('div', { class: 'bk-freerow' }, ...mine.map((c) => el('button', { type: 'button', class: 'bk-freebtn ' + c.free, title: FREE_LABEL[c.free], onclick: () => select(c, null, false) }, c.slot + (c.free === 'half' ? ' ½' : c.free === 'reserved' ? ' · reserved' : '')))));
+      }
+      if (!fr.length) box.append(el('p', { class: 'bk-hint' }, 'No free compartments recorded.'));
+      panel.replaceChildren(box);
+    }
     async function addLog(t) { t = String(t || '').trim(); if (!t) return; bk.log.push({ t, when: new Date().toISOString().slice(0, 10) }); await save(); }
     function renderLog() {
       drawModes();
@@ -306,7 +322,7 @@
       const c = m && S.byKey['D' + m[1] + '-' + m[2] + m[3]];
       if (!c) { ui.toast('No compartment “' + where + '” — use the form D3 S57'); return; }
       const [name, pn] = x.t.split('|').map((s) => s.trim());
-      setComp(c, { cat: c.cat === 'Empty' ? 'Other' : c.cat, alias: c.alias, parts: [...c.parts.filter((p) => p !== 'Empty'), name], pn: pn ? { [name]: { pn, sure: true } } : {} });
+      setComp(c, { cat: c.cat === 'Empty' ? 'Other' : c.cat, alias: c.alias, parts: [...c.parts.filter((p) => p !== 'Empty'), name], pn: pn ? { [name]: { pn, sure: true } } : {}, free: c.free === 'reserved' ? 'reserved' : '' });
       bk.log.splice(i, 1); await save(); rebuild();
       ui.toast('Placed in ' + locShort(c)); mode = 'log'; renderPanel(); select(S.byKey[c.key], name, false);
     }
@@ -315,8 +331,9 @@
       const prev = bk.edits[c.key] || {};
       const pn = Object.assign({}, prev.pn || {}, v.pn || {});
       for (const n of Object.keys(pn)) if (!v.parts.includes(n)) delete pn[n];
-      const same = base && base.cat === v.cat && (base.alias || '') === (v.alias || '') && JSON.stringify(base.parts) === JSON.stringify(v.parts) && !Object.keys(pn).length;
-      if (same) delete bk.edits[c.key]; else bk.edits[c.key] = { cat: v.cat, alias: v.alias || '', parts: v.parts, pn };
+      const free = v.free !== undefined ? v.free : c.free;
+      const same = base && base.cat === v.cat && (base.alias || '') === (v.alias || '') && JSON.stringify(base.parts) === JSON.stringify(v.parts) && !Object.keys(pn).length && free === baseFree(c.key);
+      if (same) delete bk.edits[c.key]; else bk.edits[c.key] = { cat: v.cat, alias: v.alias || '', parts: v.parts, pn, free };
     }
     function rebuild() { build(bk); if (selected) selected.comp = S.byKey[selected.comp.key]; drawMap(); }
 
@@ -337,12 +354,13 @@
       mapEl.replaceChildren(el('div', { class: 'bk-cabinets' },
         el('div', {}, el('h3', {}, 'Orange drawers — D1 to D3 on top, D4 to D6 below'), units),
         el('div', {}, el('h3', {}, 'Helmer — other colours, from the bottom'), helmer)),
-        el('div', { class: 'bk-legend' }, el('span', {}, el('i', { class: 'hit' }), 'found here'), el('span', {}, el('i', { class: 'done' }), 'moved into new system'), el('span', {}, el('i', { class: 'empty' }), 'empty')));
+        el('div', { class: 'bk-legend' }, el('span', {}, el('i', { class: 'hit' }), 'found here'), el('span', {}, el('i', { class: 'done' }), 'moved into new system'), el('span', {}, el('i', { class: 'free' }), 'free'), el('span', {}, el('i', { class: 'free half' }), 'front half free'), el('span', {}, el('i', { class: 'reserved' }), 'reserved'), el('span', {}, el('i', { class: 'empty' }), 'empty')));
       if (selected) highlight();
     }
     function cellFor(key) {
       const c = S.byKey[key]; if (!c) return el('span', { class: 'bk-cell empty' });
-      return el('button', { type: 'button', class: 'bk-cell' + (c.cat === 'Empty' ? ' empty' : '') + (moved.has(key) ? ' done' : ''), 'data-key': key, title: key + (c.cat === 'Empty' ? ' — empty' : ' — ' + c.parts.slice(0, 3).join(', ') + (c.parts.length > 3 ? '…' : '')), onclick: () => select(c, null, true) });
+      const fr = c.free ? ' ' + (c.free === 'full' ? 'free' : c.free === 'half' ? 'free half' : 'reserved') : '';
+      return el('button', { type: 'button', class: 'bk-cell' + (c.cat === 'Empty' ? ' empty' : '') + (moved.has(key) ? ' done' : '') + fr, 'data-key': key, title: key + (c.free ? ' — ' + FREE_LABEL[c.free].toLowerCase() : '') + (c.cat === 'Empty' ? (c.free ? '' : ' — empty') : ' — ' + c.parts.slice(0, 3).join(', ') + (c.parts.length > 3 ? '…' : '')), onclick: () => select(c, null, true) });
     }
     function highlight() {
       mapEl.querySelectorAll('.hit, .peek').forEach((x) => x.classList.remove('hit', 'peek'));
@@ -379,6 +397,7 @@
         detail.append(el('h2', {}, name), el('p', { class: 'bk-cat' }, comp.cat + ' · other colour'), pnLine(name), el('p', { class: 'bk-alt' }, 'In a core colour it goes in ', el('b', {}, locShort(comp)), ' (' + unit.title + ').'));
       } else {
         big = el('div', { class: 'bk-big' }, el('span', { class: 'where' }, 'Drawer ' + comp.u.slice(1)), el('span', { class: 'slot' }, slotLabel(comp.slot)), el('span', { class: 'zone' }, unit.title));
+        if (comp.free) detail.append(el('div', { class: 'bk-badges' }, el('span', { class: 'bk-badge' + (comp.free === 'reserved' ? ' warn' : '') }, FREE_LABEL[comp.free]), comp.free === 'full' && comp.cat !== 'Empty' ? el('span', { class: 'bk-badge warn' }, 'the layout lists parts here, but the drawer is empty') : null));
         if (comp.cat === 'Empty') detail.append(el('h2', {}, 'Empty compartment'), el('p', { class: 'bk-cat' }, 'Nothing assigned to ' + locShort(comp) + ' yet.'));
         else if (name) detail.append(el('h2', {}, name), el('p', { class: 'bk-cat' }, comp.cat + (comp.alias ? ' · aka ' + comp.alias : '')), pnLine(name));
         else detail.append(el('h2', {}, comp.cat), el('p', { class: 'bk-cat' }, 'Compartment ' + locShort(comp) + (comp.alias ? ' · aka ' + comp.alias : '')));
@@ -407,16 +426,18 @@
         const cat = el('input', { type: 'text', value: comp.cat === 'Empty' ? '' : comp.cat, placeholder: 'e.g. Slope', list: 'bk-cats' });
         const alias = el('input', { type: 'text', value: comp.alias || '', placeholder: 'Nicknames for search (optional)' });
         const parts = el('textarea', { rows: '7', placeholder: 'One part per line, with its number after a bar:\nPlate 1x2 | 3023' }); parts.value = lines;
+        const status = el('select', {}, ...[['', 'In use'], ['full', 'Free — whole compartment'], ['half', 'Front half free'], ['reserved', 'Reserved']].map(([v, l]) => { const o = el('option', { value: v }, l); if ((comp.free || '') === v) o.selected = true; return o; }));
         box.append(el('h2', {}, 'Compartment ' + locShort(comp)),
           el('datalist', { id: 'bk-cats' }, ...[...new Set(S.comps.map((c) => c.cat))].filter((c) => c !== 'Empty').sort().map((c) => el('option', { value: c }))),
           el('label', { class: 'pf-field' }, el('span', {}, 'Category'), cat), el('label', { class: 'pf-field' }, el('span', {}, 'Nicknames'), alias),
-          el('label', { class: 'pf-field' }, el('span', {}, 'Parts (empty = free compartment)'), parts),
+          el('label', { class: 'pf-field' }, el('span', {}, 'Parts'), parts),
+          el('label', { class: 'pf-field' }, el('span', {}, 'Status'), status),
           el('p', { class: 'rule' }, 'The number fetches the picture from Rebrickable. Changes sync to your other devices.'),
           el('div', { class: 'actions' },
             comp.edited && base ? el('button', { class: 'btn', type: 'button', onclick: () => close({ reset: true }) }, 'Undo my changes') : null,
             el('span', { class: 'spacer' }),
             el('button', { class: 'btn', type: 'button', onclick: () => close() }, 'Cancel'),
-            el('button', { class: 'btn primary', type: 'button', onclick: () => close({ cat: cat.value.trim(), alias: alias.value.trim(), parts: parts.value }) }, 'Save')));
+            el('button', { class: 'btn primary', type: 'button', onclick: () => close({ cat: cat.value.trim(), alias: alias.value.trim(), parts: parts.value, free: status.value }) }, 'Save')));
       }, { centre: true });
       if (!r) return;
       if (r.reset) delete bk.edits[comp.key];
@@ -424,7 +445,7 @@
         const rows = r.parts.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => { const [n, p] = l.split('|').map((s) => s.trim()); return { n, p }; }).filter((x) => x.n);
         const pn = {}; for (const x of rows) if (x.p && x.p !== (BASE.pn && BASE.pn[x.n] && String(BASE.pn[x.n].pn || BASE.pn[x.n]))) pn[x.n] = { pn: x.p, sure: true };
         const partsList = rows.map((x) => x.n);
-        setComp(comp, { cat: partsList.length ? (r.cat || 'Other') : 'Empty', alias: r.alias, parts: partsList.length ? partsList : ['Empty'], pn });
+        setComp(comp, { cat: partsList.length ? (r.cat || 'Other') : 'Empty', alias: r.alias, parts: partsList.length ? partsList : ['Empty'], pn, free: r.free });
       }
       await save(); rebuild();
       const c = S.byKey[comp.key]; select(c, c.parts.includes(selected && selected.name) ? selected.name : null, true);
