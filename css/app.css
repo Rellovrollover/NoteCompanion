@@ -1255,3 +1255,17 @@ input.topsearch.desktop-only { display: none !important; }
 .tl-dtext span { color: var(--muted); font-size: .85rem; }
 .tl-dtext .tl-cal { font-size: .78rem; }
 @media (min-width: 900px) { .tl-block { font-size: .76rem; } .tl-bar { font-size: .84rem; } }
+
+.card .body a.textlink { color: var(--accent); text-decoration: underline; word-break: break-all; }
+
+/* To-do: priority and effort side by side when adding; Quick/Long tags on rows */
+.todo-segs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: -8px; }
+.todo-segs .todo-priseg { margin-top: 0; }
+.todo-effseg button { padding: 6px 11px; }
+.todo-effseg button.on { background: var(--raised); }
+.todo-effseg button.e-quick.on { background: color-mix(in srgb, var(--accent) 16%, var(--paper)); }
+.todo-effseg button.e-long.on { background: color-mix(in srgb, #7a5cc7 18%, var(--paper)); }
+.todo-eff { border-radius: 999px; padding: 1px 7px; font-weight: 600; }
+.todo-eff.e-quick { background: color-mix(in srgb, var(--accent) 15%, var(--paper)); color: var(--accent); }
+.todo-eff.e-long { background: color-mix(in srgb, #7a5cc7 15%, var(--paper)); color: #6a4fb3; }
+@media (max-width: 420px) { .todo-priseg button { padding: 6px 10px; } .todo-effseg button { padding: 6px 9px; } }

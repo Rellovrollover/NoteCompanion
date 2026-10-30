@@ -422,6 +422,18 @@
     const scored = idx.map((e) => { let sc = 0; for (const w of words) { if (e.strong.has(w)) sc += 3; else if (e.weak.has(w)) sc += Math.min(2, e.weak.get(w) * 0.5); } return { e, sc: sc ? sc + e.boost : 0 }; }).filter((x) => x.sc >= 3).sort((a, b) => b.sc - a.sc);
     return scored.slice(0, 2).map((x) => x.e);
   }
+  // Web addresses in plain text become links that open on a tap (without opening the card behind them).
+  function linkify(text) {
+    const out = []; let last = 0; const re = /\bhttps?:\/\/[^\s<>"]+[^\s<>".,;:!?)\]'’]/gi; let m;
+    while ((m = re.exec(text))) {
+      if (m.index > last) out.push(text.slice(last, m.index));
+      const url = m[0];
+      out.push(el('a', { class: 'textlink', href: url, target: '_blank', rel: 'noopener', onclick: (e) => e.stopPropagation() }, url.replace(/^https?:\/\/(www\.)?/, '').slice(0, 60) + (url.replace(/^https?:\/\/(www\.)?/, '').length > 60 ? '…' : '')));
+      last = m.index + url.length;
+    }
+    if (last < text.length) out.push(text.slice(last));
+    return out;
+  }
   function inboxCard(p) {
     const card = el('div', { class: 'card' + (p.pinned ? ' pinned' : '') });
     card.append(el('div', { class: 'meta' }, el('span', { class: 'kind' }, p.kind), el('span', {}, fmtWhen(p.updated)), p.tags && p.tags.length ? el('span', {}, p.tags.map((t) => '#' + t).join(' ')) : null));
@@ -435,7 +447,7 @@
       card.append(el('a', { class: 'filelink', href: assetUrl(p.assetId), target: '_blank', rel: 'noopener' }, icon('file'), el('span', {}, p.title)));
     } else {
       const text = linesOf(htmlOf(p));
-      card.append(el('div', { class: 'body' + (text.length < 220 && text.split('\n').length < 6 ? ' short' : ''), onclick: () => quickLook(p) }, text || p.title));
+      card.append(el('div', { class: 'body' + (text.length < 220 && text.split('\n').length < 6 ? ' short' : ''), onclick: () => quickLook(p) }, ...linkify(text || p.title || '')));
     }
     const sugg = state.suggestIndex ? suggestFor(p, state.suggestIndex) : [];
     if (sugg.length) card.append(el('div', { class: 'suggest' }, el('span', { class: 'suggest-label' }, 'File to'), ...sugg.map((e) => el('button', { class: 'chip', type: 'button', onclick: async () => { await pages.update(p.id, { inbox: 0, notebookId: e.nb.id, sectionId: e.sc.id }); onChanged(); toast('Filed to ' + (e.sc.group ? e.sc.group + ' › ' : '') + e.sc.name); renderInbox(); } }, e.nb.name + ' › ' + (e.sc.group ? e.sc.group + ' › ' : '') + e.sc.name))));
@@ -461,6 +473,11 @@
   function quickLook(p) {
     sheet((box, close) => {
       const body = p.kind === 'pdf' ? el('div', { class: 'quicklook' }, p.thumb ? el('img', { src: p.thumb, alt: '' }) : null, el('p', {}, (p.pdfPages || '?') + ' pages')) : el('div', { class: 'quicklook', html: htmlOf(p) });
+      // Links open in a new tab (never replace the app); links to other notes go there.
+      for (const a of body.querySelectorAll('a[href]')) {
+        if (a.classList.contains('wikilink')) a.addEventListener('click', (e) => { e.preventDefault(); close(); go(a.getAttribute('href')); });
+        else { a.target = '_blank'; a.rel = 'noopener'; }
+      }
       box.append(el('h2', {}, p.title || 'Untitled'), el('p', { class: 'rule' }, fmtWhen(p.updated) + ' · ' + wordCount(htmlOf(p)) + ' words'), body,
         el('div', { class: 'actions' }, el('button', { class: 'btn', type: 'button', onclick: () => close() }, 'Close'), el('button', { class: 'btn primary', type: 'button', onclick: () => { close(); openPage(p.id); } }, 'Open')));
     });
@@ -1819,6 +1836,9 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
           if (a) { e.preventDefault(); go(a.getAttribute('href')); return; }
           const mp = e.target.closest && e.target.closest('a.maplink');
           if (mp) { e.preventDefault(); window.open(mp.getAttribute('href'), '_blank', 'noopener'); return; }
+          // Any other link (a website, a YouTube video, an attached file) opens on a tap, as in OneNote.
+          const lk = e.target.closest && e.target.closest('a[href]');
+          if (lk && !lk.classList.contains('wikilink')) { const href = lk.getAttribute('href') || ''; if (/^(https?:|mailto:|tel:|asset\/)/i.test(href)) { e.preventDefault(); window.open(new URL(href, location.href).href, '_blank', 'noopener'); return; } }
           const li = e.target.closest && e.target.closest('li[data-todo]');
           if (li && e.target === li && e.offsetX < 24) { ed.dom.setAttrib(li, 'data-todo', li.getAttribute('data-todo') === 'done' ? '' : 'done'); ed.undoManager.add(); scheduleSave(); }
         });

@@ -1,7 +1,7 @@
 // To-do list page type: a focused view over an ordinary note. The page HTML is a plain list
 // (<h3>To do</h3><ul><li data-todo data-pri="high">…</li></ul>, then <h3>Done</h3>), so the same page
 // still opens and edits as a normal note. Each item has a priority — high, medium (the default) or low —
-// that tints its row; optional due date ("@tomorrow", "@fri", "@3/11") and added/done dates.
+// that tints its row; an effort (quick, medium, long — quick jobs first within a priority); optional due date ("@tomorrow", "@fri", "@3/11") and added/done dates.
 (function () {
   const el = (tag, attrs, ...kids) => {
     const n = document.createElement(tag);
@@ -17,6 +17,10 @@
   const PRI = ['high', 'med', 'low'];
   const PRI_NAME = { high: 'High', med: 'Medium', low: 'Low' };
   const priOf = (v) => (v === '1' || v === 'high' || v === 'h' ? 'high' : v === 'low' || v === 'l' ? 'low' : 'med');
+  // Effort: quick, medium (the default, no tag) or long. Within each priority, quick jobs come first.
+  const EFF = ['quick', 'med', 'long'];
+  const EFF_NAME = { quick: 'Quick', med: 'Medium', long: 'Long' };
+  const effOf = (v) => (v === 'quick' || v === 'q' ? 'quick' : v === 'long' || v === 'l' ? 'long' : 'med');
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const iso = (d) => { const z = new Date(d.getTime() - d.getTimezoneOffset() * 60000); return z.toISOString().slice(0, 10); };
   const today = () => iso(new Date());
@@ -33,12 +37,12 @@
       for (const li of node.querySelectorAll(':scope > li')) {
         const text = li.textContent.replace(/\s+/g, ' ').trim(); if (!text) continue;
         const done = li.getAttribute('data-todo') === 'done' || doneHead;
-        items.push({ text, done, due: li.getAttribute('data-due') || '', pri: priOf(li.getAttribute('data-pri')), added: li.getAttribute('data-added') || today(), doneOn: li.getAttribute('data-done') || '' });
+        items.push({ text, done, due: li.getAttribute('data-due') || '', pri: priOf(li.getAttribute('data-pri')), eff: effOf(li.getAttribute('data-effort')), added: li.getAttribute('data-added') || today(), doneOn: li.getAttribute('data-done') || '' });
       }
     }
     return items;
   }
-  const li = (i) => '<li data-todo="' + (i.done ? 'done' : '') + '" data-pri="' + i.pri + '"' + (i.due ? ' data-due="' + i.due + '"' : '') + (i.added ? ' data-added="' + i.added + '"' : '') + (i.doneOn ? ' data-done="' + i.doneOn + '"' : '') + '>' + esc(i.text) + '</li>';
+  const li = (i) => '<li data-todo="' + (i.done ? 'done' : '') + '" data-pri="' + i.pri + '"' + (i.eff && i.eff !== 'med' ? ' data-effort="' + i.eff + '"' : '') + (i.due ? ' data-due="' + i.due + '"' : '') + (i.added ? ' data-added="' + i.added + '"' : '') + (i.doneOn ? ' data-done="' + i.doneOn + '"' : '') + '>' + esc(i.text) + '</li>';
   function serialise(items) {
     const open = items.filter((i) => !i.done), done = items.filter((i) => i.done);
     return '<h3>To do</h3><ul>' + open.map(li).join('') + '</ul>' + (done.length ? '<h3>Done</h3><ul>' + done.map(li).join('') + '</ul>' : '');
@@ -67,15 +71,16 @@
     const t0 = today();
     if (window.NCGCal) { const cal = el('div', {}); host.append(cal); NCGCal.strip(cal).catch(() => {}); }
     const wrap = el('div', { class: 'todo' }); host.append(wrap);
-    let priForNew = 'med', showDone = false;
+    let priForNew = 'med', effForNew = 'med', showDone = false;
 
     const fmtDue = (due) => { if (!due) return ''; const n = daysBetween(t0, due); return n === 0 ? 'today' : n === 1 ? 'tomorrow' : n < 0 ? (-n) + 'd overdue' : n < 7 ? new Date(due + 'T00:00').toLocaleDateString('en-GB', { weekday: 'short' }) : new Date(due + 'T00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }); };
-    const sortKey = (i) => PRI.indexOf(i.pri) + ':' + (i.due || '9999') + ':' + i.added;
+    const sortKey = (i) => PRI.indexOf(i.pri) + ':' + EFF.indexOf(i.eff || 'med') + ':' + (i.due || '9999') + ':' + i.added;
 
     function itemMenu(i) {
       const idx = items.indexOf(i);
       ui.menu(i.text.length > 50 ? i.text.slice(0, 50) + '…' : i.text, [
         ...PRI.map((p) => ({ label: (i.pri === p ? '✓ ' : '') + PRI_NAME[p] + ' priority', fn: () => { i.pri = p; save(); draw(); } })),
+        ...EFF.map((f) => ({ label: ((i.eff || 'med') === f ? '✓ ' : '') + EFF_NAME[f] + ' job', fn: () => { i.eff = f; save(); draw(); } })),
         window.NCGCal && NCGCal.state().signedIn ? { label: 'Put in Google Calendar' + (i.due ? ' (' + fmtDue(i.due) + ')' : ' (today)'), fn: async () => { try { await NCGCal.createEvent({ title: i.text, date: i.due || t0 }); ui.toast('Added to your calendar'); } catch (e) { ui.toast(e.message); } } } : null,
         { label: i.due ? 'Change due date (' + fmtDue(i.due) + ')' : 'Set due date', fn: async () => { const v = await ui.ask('Due', 'today, tomorrow, fri, 3/11 or 2026-11-03', i.due); if (v === undefined) return; const q = parseQuick('x @' + (v || 'none')); i.due = v ? (q.due || '') : ''; save(); draw(); } },
         { label: 'Edit text', fn: async () => { const v = await ui.ask('Edit', '', i.text, 'Save'); if (v) { i.text = v; save(); draw(); } } },
@@ -125,7 +130,7 @@
         if (i.done) { i.doneOn = t0; r.classList.add('popping'); setTimeout(() => { save(); draw(); }, 260); }
         else { i.doneOn = ''; save(); draw(); }
       } });
-      const meta = el('span', { class: 'todo-meta' }, i.due && !i.done ? el('span', { class: 'todo-due' }, fmtDue(i.due)) : null);
+      const meta = el('span', { class: 'todo-meta' }, i.eff === 'quick' || i.eff === 'long' ? el('span', { class: 'todo-eff e-' + i.eff }, EFF_NAME[i.eff]) : null, i.due && !i.done ? el('span', { class: 'todo-due' }, fmtDue(i.due)) : null);
       r.append(box, el('button', { class: 'todo-text', type: 'button', onclick: () => itemMenu(i) }, i.text, meta));
       return swipeable(r, i);
     }
@@ -141,11 +146,13 @@
       const seg = el('div', { class: 'todo-priseg', role: 'group', 'aria-label': 'Priority' }, ...PRI.map((p) => el('button', { type: 'button', class: 'p-' + p + (priForNew === p ? ' on' : ''), 'aria-pressed': priForNew === p ? 'true' : 'false', onclick: () => { priForNew = p; [...seg.children].forEach((c, k) => { c.classList.toggle('on', PRI[k] === p); c.setAttribute('aria-pressed', PRI[k] === p ? 'true' : 'false'); }); input.focus(); } }, PRI_NAME[p])));
       const add = () => {
         const q = parseQuick(input.value); if (!q.text) return;
-        items.unshift({ text: q.text, done: false, due: q.due, pri: q.pri || priForNew, added: t0, doneOn: '' });
-        priForNew = 'med'; save(); draw(); const again = wrap.querySelector('.todo-add'); if (again) again.focus();
+        items.unshift({ text: q.text, done: false, due: q.due, pri: q.pri || priForNew, eff: effForNew, added: t0, doneOn: '' });
+        priForNew = 'med'; effForNew = 'med'; save(); draw(); const again = wrap.querySelector('.todo-add'); if (again) again.focus();
       };
       input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } });
-      wrap.append(el('div', { class: 'todo-addrow' }, input, el('button', { class: 'btn primary', type: 'button', onclick: add }, 'Add')), seg);
+      // Effort for the new item, next to its priority: Quick / Medium / Long (Medium unless you pick another).
+      const eseg = el('div', { class: 'todo-priseg todo-effseg', role: 'group', 'aria-label': 'Effort' }, ...EFF.map((f) => el('button', { type: 'button', class: 'e-' + f + (effForNew === f ? ' on' : ''), 'aria-pressed': effForNew === f ? 'true' : 'false', onclick: () => { effForNew = f; [...eseg.children].forEach((c, k) => { c.classList.toggle('on', EFF[k] === f); c.setAttribute('aria-pressed', EFF[k] === f ? 'true' : 'false'); }); input.focus(); } }, f === 'med' ? 'Med' : EFF_NAME[f])));
+      wrap.append(el('div', { class: 'todo-addrow' }, input, el('button', { class: 'btn primary', type: 'button', onclick: add }, 'Add')), el('div', { class: 'todo-segs' }, seg, eseg));
       if (open.length) { const ul = el('div', { class: 'todo-list' }); for (const i of open) ul.append(row(i)); wrap.append(ul); }
       // Done, folded away.
       const done = items.filter((i) => i.done).sort((x, y) => (y.doneOn || '').localeCompare(x.doneOn || ''));
