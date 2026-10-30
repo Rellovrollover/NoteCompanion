@@ -2,14 +2,17 @@
 // 1. Caches the app shell so it opens with no connection.
 // 2. Serves local assets (images, audio, files) from IndexedDB at ./asset/<id>,
 //    so markdown can reference them with a plain relative URL on every device.
-const VERSION = 'nc-2026-10-31zd';
+const VERSION = 'nc-2026-10-31ze';
 // Big libraries live in their own cache that only changes when they do, so an app update downloads just
 // the app's own files (a few hundred KB), not every library again.
 const VENDOR = 'nc-vendor-1';
+// Bricks: part pictures and the 3D viewer's libraries, kept once fetched so they work offline.
+const BRICKS = 'nc-bricks-1';
+const BRICK_HOSTS = /^https:\/\/(cdn\.rebrickable\.com\/media\/parts\/|library\.ldraw\.org\/images\/|img\.bricklink\.com\/ItemImage\/|cdn\.jsdelivr\.net\/npm\/(three|fflate)@|raw\.githubusercontent\.com\/gkjohnson\/ldraw-parts-library\/)/;
 const APP_FILES = [
   './', './index.html', './manifest.webmanifest',
   './css/app.css',
-  './js/config.js', './js/db.js', './js/graph.js', './js/sync.js', './js/pdf.js', './js/ink.js', './js/scan.js', './js/shift.js', './js/shop.js', './js/tp.js', './js/portfolio.js', './js/todo.js', './js/logbook.js', './js/famus.js', './js/workout.js', './js/symbols.js', './js/gcal.js', './js/onenote.js', './js/drop.js', './js/app.js',
+  './js/config.js', './js/db.js', './js/graph.js', './js/sync.js', './js/pdf.js', './js/ink.js', './js/scan.js', './js/shift.js', './js/shop.js', './js/tp.js', './js/portfolio.js', './js/todo.js', './js/logbook.js', './js/famus.js', './js/workout.js', './js/bricks.js', './data/bricks.json', './bricks/viewer.html', './js/symbols.js', './js/gcal.js', './js/onenote.js', './js/drop.js', './js/app.js',
   './icons/brain-180.png', './icons/brain-192.png', './icons/brain-512.png'
 ];
 const VENDOR_FILES = [
@@ -34,7 +37,7 @@ self.addEventListener('install', (e) => {
   })());
 });
 self.addEventListener('activate', (e) => {
-  e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== VERSION && k !== VENDOR).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
+  e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== VERSION && k !== VENDOR && k !== BRICKS).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
 });
 
 function readAsset(id) {
@@ -56,7 +59,11 @@ self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
-  if (url.origin !== self.location.origin) return; // never touch Graph, login or CDNs
+  if (url.origin !== self.location.origin) {
+    // Never touch Graph, login or other sites — only Bricks' pictures and viewer libraries are kept.
+    if (BRICK_HOSTS.test(req.url)) e.respondWith(bricksFetch(req));
+    return;
+  }
 
   const assetMatch = url.pathname.startsWith(BASE + 'asset/') ? url.pathname.slice((BASE + 'asset/').length) : null;
   if (assetMatch) {
@@ -93,3 +100,17 @@ self.addEventListener('fetch', (e) => {
     } catch (err) { return Response.error(); }
   })());
 });
+
+// Cache-first for Bricks. A picture is only kept when the site allows it to be read (CORS); otherwise the browser's
+// own cache has it, so storage isn't filled with padded opaque copies.
+async function bricksFetch(req) {
+  const cache = await caches.open(BRICKS);
+  const hit = await cache.match(req.url);
+  if (hit) return hit;
+  try {
+    const res = await fetch(req.url, { mode: 'cors', credentials: 'omit', referrerPolicy: 'no-referrer' });
+    if (res && res.ok) { cache.put(req.url, res.clone()); return res; }
+    if (res && res.status === 404) return res;
+  } catch (err) { /* not readable cross-site: fall through */ }
+  try { return await fetch(req); } catch (err) { return Response.error(); }
+}

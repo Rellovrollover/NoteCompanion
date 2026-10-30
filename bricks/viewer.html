@@ -1,0 +1,1204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Models · Bricks</title>
+<meta name="description" content="Read-only 3D viewer for Stud.io .io and LDraw files. Orbit, zoom, replay build steps and browse the parts list.">
+<meta name="referrer" content="no-referrer">
+<script>try { var t = window.parent !== window && window.parent.document.documentElement.getAttribute('data-theme'); if (t) document.documentElement.setAttribute('data-theme', t); } catch (e) {}</script>
+<style>[hidden]{display:none!important}img{max-width:100%}</style>
+</head>
+<body>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  /* Layout: one-screen app. The 3D stage fills the viewport; a slim top bar names the file,
+     a bottom rail drives build steps, and the parts list / open dialog slide up as sheets. */
+  :root {
+    --bg: #e9e6df;          /* warm studio grey behind the model */
+    --bg-deep: #dcd8cf;     /* horizon gradient */
+    --panel: #fbfaf7;
+    --panel-2: #f1efe9;
+    --line: #cfcabf;
+    --fg: #1d1b17;
+    --fg-2: #5e594f;
+    --accent: #c8471c;      /* signal orange, like a Stud.io selection */
+    --accent-fg: #ffffff;
+    --ok: #2d7a4f;
+    --warn: #a3630a;
+    --shadow: 0 10px 30px rgba(30, 25, 10, .18);
+    --font-ui: "Rubik", "Helvetica Neue", Arial, sans-serif;
+    --font-data: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    --radius: 14px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #23262b; --bg-deep: #15171a; --panel: #2c3036; --panel-2: #353a41; --line: #434952;
+      --fg: #f1efe9; --fg-2: #a7ada8; --accent: #ff7a45; --accent-fg: #1a0d06; --ok: #6fcf97; --warn: #f0b354;
+      --shadow: 0 10px 30px rgba(0,0,0,.5); color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #23262b; --bg-deep: #15171a; --panel: #2c3036; --panel-2: #353a41; --line: #434952;
+    --fg: #f1efe9; --fg-2: #a7ada8; --accent: #ff7a45; --accent-fg: #1a0d06; --ok: #6fcf97; --warn: #f0b354;
+    --shadow: 0 10px 30px rgba(0,0,0,.5); color-scheme: dark;
+  }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-ui); font-size: 15px;
+    overflow: hidden; -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: transparent;
+  }
+  * { box-sizing: border-box; }
+  button { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  #app { position: relative; height: 100%; display: flex; flex-direction: column; }
+
+  /* ---- stage ---- */
+  #stage { position: absolute; inset: 0; touch-action: none;
+    background: radial-gradient(120% 80% at 50% 30%, var(--bg) 0%, var(--bg-deep) 100%); }
+  #stage canvas { display: block; width: 100%; height: 100%; }
+
+  /* ---- top bar ---- */
+  #top {
+    position: relative; z-index: 5; display: flex; align-items: center; gap: 10px;
+    padding: 10px 16px; padding-top: calc(10px + env(safe-area-inset-top, 0px));
+    background: linear-gradient(to bottom, color-mix(in srgb, var(--bg) 88%, transparent), transparent);
+    pointer-events: none;
+  }
+  #top > * { pointer-events: auto; }
+  .brand { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; }
+  .brand svg { flex: none; }
+  .brand .name { font-weight: 600; font-size: 15px; letter-spacing: .01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .brand .meta { font-family: var(--font-data); font-size: 11.5px; color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .iconbtn {
+    flex: none; width: 40px; height: 40px; border-radius: 12px; border: 1px solid var(--line);
+    background: var(--panel); display: grid; place-items: center; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,.08);
+  }
+  .iconbtn.primary { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
+  .iconbtn[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+  .iconbtn svg { width: 20px; height: 20px; }
+
+  /* ---- bottom rail (steps) ---- */
+  #rail {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 5;
+    padding: 10px 16px; padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    display: flex; flex-direction: column; gap: 8px;
+    background: linear-gradient(to top, color-mix(in srgb, var(--bg) 92%, transparent), transparent);
+  }
+  .steprow { display: flex; align-items: center; gap: 10px; }
+  .steprow .label { font-family: var(--font-data); font-size: 12px; color: var(--fg-2); min-width: 0; white-space: nowrap; }
+  .steprow .label b { color: var(--fg); font-weight: 500; }
+  .steprow input[type="range"] { flex: 1; min-width: 0; accent-color: var(--accent); height: 28px; }
+  .stepbtn { width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); display: grid; place-items: center; cursor: pointer; }
+  .stepbtn:disabled { opacity: .4; cursor: default; }
+  .stepbtn svg { width: 18px; height: 18px; }
+  .hint { font-size: 12px; color: var(--fg-2); text-align: center; }
+
+  /* ---- overlays ---- */
+  .overlay {
+    position: absolute; inset: 0; z-index: 8; display: grid; place-items: center; padding: 24px 16px;
+    background: color-mix(in srgb, var(--bg) 70%, transparent); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  }
+  .card {
+    width: min(100%, 420px); background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: var(--shadow); padding: 18px; display: flex; flex-direction: column; gap: 12px;
+  }
+  .card h2 { margin: 0; font-size: 17px; font-weight: 600; text-wrap: balance; }
+  .card p { margin: 0; color: var(--fg-2); line-height: 1.45; }
+  .thumb { width: 100%; aspect-ratio: 4 / 3; max-width: 100%; object-fit: contain; border-radius: 10px; background: var(--panel-2); }
+  .progress { height: 6px; border-radius: 3px; background: var(--panel-2); overflow: hidden; }
+  .progress > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .25s; }
+  .progress.indeterminate > i { width: 35%; animation: slide 1.1s infinite ease-in-out; }
+  @keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
+  .status { font-family: var(--font-data); font-size: 12px; color: var(--fg-2); }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 11px 16px; border-radius: 12px;
+    border: 1px solid var(--line); background: var(--panel-2); cursor: pointer; font-weight: 500; width: 100%;
+  }
+  .btn.primary { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
+  .btn svg { width: 18px; height: 18px; }
+  .err { color: var(--accent); font-size: 13px; }
+
+  /* ---- sheets ---- */
+  .sheet {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 9; max-height: 78%;
+    background: var(--panel); border-top-left-radius: 18px; border-top-right-radius: 18px; box-shadow: var(--shadow);
+    display: flex; flex-direction: column; transform: translateY(100%); transition: transform .25s ease;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .sheet.open { transform: none; }
+  .sheet header { display: flex; align-items: center; gap: 10px; padding: 12px 16px 8px; }
+  .sheet header h2 { margin: 0; font-size: 16px; font-weight: 600; flex: 1; }
+  .sheet header .count { font-family: var(--font-data); font-size: 12px; color: var(--fg-2); }
+  .sheet .body { min-height: 0; overflow: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding: 0 16px 16px; display: flex; flex-direction: column; gap: 10px; }
+  .grab { width: 36px; height: 4px; border-radius: 2px; background: var(--line); margin: 8px auto 0; }
+  .scrim { position: absolute; inset: 0; z-index: 8; background: rgba(0,0,0,.25); opacity: 0; pointer-events: none; transition: opacity .25s; }
+  .scrim.open { opacity: 1; pointer-events: auto; }
+
+  /* parts list */
+  .parts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+  .parts li { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 7px 0; border-top: 1px solid var(--line); min-width: 0; }
+  .parts .pic { width: 48px; height: 40px; object-fit: contain; background: #fff; border-radius: 7px; border: 1px solid var(--line); display: grid; place-items: center; font-family: var(--font-data); font-size: 10px; color: var(--fg-2); overflow: hidden; }
+  .parts .m .sw { display: inline-block; width: 11px; height: 11px; border-radius: 3px; vertical-align: -1px; margin-right: 4px; }
+  .loc { font: 600 13px var(--font-data); padding: 6px 9px; border-radius: 9px; border: 1px solid transparent; background: #fde8da; color: #8a3a0c; cursor: pointer; white-space: nowrap; }
+  .loc.blue { background: #dee5f7; color: #223c7e; }
+  .loc.none { background: none; border: 1px dashed var(--line); color: var(--fg-2); font-weight: 400; cursor: default; font-size: 11px; padding: 5px 7px; }
+  .loc.guess::after { content: " ≈"; opacity: .7; }
+  .chipbtn { font: 500 12px var(--font-ui); padding: 5px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel-2); cursor: pointer; }
+  .chipbtn[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
+  .parts li:first-child { border-top: 0; }
+  .sw { width: 22px; height: 22px; border-radius: 6px; border: 1px solid rgba(0,0,0,.18); }
+  .qty { font-family: var(--font-data); font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; }
+  .pd { min-width: 0; }
+  .pd .d { font-size: 14px; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pd .m { font-family: var(--font-data); font-size: 11.5px; color: var(--fg-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .search { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-2); font: inherit; color: inherit; }
+
+  /* open sheet */
+  .recent { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+  .recent li { border-top: 1px solid var(--line); }
+  .recent li:first-child { border-top: 0; }
+  .recent button { width: 100%; text-align: left; background: none; border: 0; padding: 10px 0; display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; cursor: pointer; }
+  .recent .n { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .recent .s { font-family: var(--font-data); font-size: 11.5px; color: var(--fg-2); }
+  .row { display: flex; gap: 10px; align-items: center; }
+  .row > .btn { flex: 1; }
+  .toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+  .toggle:first-child { border-top: 0; }
+  .toggle small { display: block; color: var(--fg-2); font-size: 12px; margin-top: 2px; }
+  .toggle input { width: 22px; height: 22px; accent-color: var(--accent); flex: none; }
+  .warnings { margin: 0; padding-left: 18px; color: var(--warn); font-size: 13px; }
+  .section-title { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-2); font-weight: 500; margin-top: 4px; }
+  .readonly { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-2); }
+
+  @media (prefers-reduced-motion: reduce) { .sheet, .scrim, .progress > i { transition: none; animation: none; } }
+</style>
+
+<div id="app">
+  <div id="stage" aria-label="3D model"></div>
+
+  <div id="top">
+    <div class="brand">
+      <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true"><rect x="3" y="9" width="20" height="13" rx="2.5" fill="var(--accent)"/><rect x="7" y="5" width="5" height="5" rx="1.2" fill="var(--accent)"/><rect x="14" y="5" width="5" height="5" rx="1.2" fill="var(--accent)"/></svg>
+      <div style="min-width:0">
+        <div class="name" id="modelName">Brick Viewer</div>
+        <div class="meta" id="modelMeta">Open a Stud.io or LDraw file</div>
+      </div>
+    </div>
+    <button class="iconbtn" id="btnParts" aria-label="Parts list" title="Parts list">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13"/><circle cx="3.5" cy="6" r="1.2" fill="currentColor" stroke="none"/><circle cx="3.5" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="3.5" cy="18" r="1.2" fill="currentColor" stroke="none"/></svg>
+    </button>
+    <button class="iconbtn" id="btnSettings" aria-label="View settings" title="View settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="15" cy="7" r="2.5"/><circle cx="9" cy="17" r="2.5"/></svg>
+    </button>
+    <button class="iconbtn primary" id="btnOpen" aria-label="Open file" title="Open file">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+    </button>
+  </div>
+
+  <div id="rail" hidden>
+    <div class="steprow">
+      <button class="stepbtn" id="stepPrev" aria-label="Previous step"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></button>
+      <input type="range" id="stepRange" min="1" max="1" value="1" aria-label="Build step">
+      <button class="stepbtn" id="stepNext" aria-label="Next step"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button>
+      <div class="label" id="stepLabel">Step <b>1</b> / 1</div>
+    </div>
+    <div class="hint" id="railHint">Drag to orbit · pinch to zoom · two fingers to pan</div>
+  </div>
+
+  <!-- loading / empty overlay -->
+  <div class="overlay" id="overlay">
+    <div class="card">
+      <img class="thumb" id="thumb" alt="Model preview from Stud.io" hidden>
+      <h2 id="ovTitle">Loading…</h2>
+      <p id="ovText">Reading the archive.</p>
+      <div class="progress indeterminate" id="ovProgress"><i></i></div>
+      <div class="status" id="ovStatus"></div>
+      <div class="err" id="ovErr" hidden></div>
+      <button class="btn primary" id="ovOpen" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        Open a file
+      </button>
+    </div>
+  </div>
+
+  <div class="scrim" id="scrim"></div>
+
+  <!-- parts sheet -->
+  <section class="sheet" id="sheetParts" aria-label="Parts list">
+    <div class="grab"></div>
+    <header><h2>Parts</h2><span class="count" id="partsCount"></span><button class="chipbtn" id="byDrawer" type="button" aria-pressed="false" title="Sort the list by where each part lives, so you can pick a build drawer by drawer">By drawer</button></header>
+    <div class="body">
+      <input class="search" id="partsSearch" type="search" placeholder="Filter by part number, name, colour or drawer" aria-label="Filter parts">
+      <ul class="parts" id="partsList"></ul>
+    </div>
+  </section>
+
+  <!-- settings sheet -->
+  <section class="sheet" id="sheetSettings" aria-label="View settings">
+    <div class="grab"></div>
+    <header><h2>View</h2><span class="readonly"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>Read-only</span></header>
+    <div class="body">
+      <label class="toggle"><span>Part outlines<small>Edge lines like Stud.io's default view</small></span><input type="checkbox" id="optEdges" checked></label>
+      <label class="toggle"><span>Smooth shading<small>Rounder studs and pins. Slower to load on big models; reloads the model.</small></span><input type="checkbox" id="optSmooth" checked></label>
+      <label class="toggle"><span>Auto-rotate<small>Slow turntable until you touch the model</small></span><input type="checkbox" id="optSpin"></label>
+      <div class="row" style="margin-top:6px">
+        <button class="btn" id="btnFit">Re-centre view</button>
+      </div>
+      <div class="section-title">About this file</div>
+      <div class="status" id="fileInfo">—</div>
+      <ul class="warnings" id="warnList" hidden></ul>
+    </div>
+  </section>
+
+  <!-- open sheet -->
+  <section class="sheet" id="sheetOpen" aria-label="Open a file">
+    <div class="grab"></div>
+    <header><h2>Open</h2></header>
+    <div class="body">
+      <input type="file" id="fileInput" hidden>
+      <button class="btn primary" id="btnPick">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M6 10l6-6 6 6M4 20h16"/></svg>
+        Choose a file from Files
+      </button>
+      <p class="hint" style="text-align:left">Stud.io .io files, plus LDraw .ldr / .mpd files (their part shapes are fetched from the LDraw library). On iPhone this opens the Files app, so anything in iCloud Drive or a synced folder works. Files are only read, never changed.</p>
+      <div class="section-title">Recent</div>
+      <ul class="recent" id="recentList"></ul>
+      <p class="hint" id="recentEmpty" style="text-align:left">Files you open are kept on this device for quick reopening.</p>
+    </div>
+  </section>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/",
+    "fflate": "https://cdn.jsdelivr.net/npm/fflate@0.8.2/esm/browser.js"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { LDrawLoader } from 'three/addons/loaders/LDrawLoader.js';
+import { LDrawConditionalLineMaterial } from 'three/addons/materials/LDrawConditionalLineMaterial.js';
+import { unzipSync, strFromU8 } from 'fflate';
+
+// Converts the contents of a Stud.io .io archive into a clean, self-contained
+// LDraw MPD string that three.js' LDrawLoader can render without any external
+// parts library.
+//
+//   model.ldr  – standard LDraw colour codes, standard-ish part names, STEPs
+//   model2.ldr – same model, but every part + primitive is embedded as a
+//                "0 FILE" section (Stud.io internal colour indices; -1 = main,
+//                -2 = edge)
+//
+// Strategy: use model2.ldr for ALL geometry (it is internally consistent) and
+// model.ldr for colours, aligned line-by-line within each sub-model section.
+
+function splitSections(text) {
+  text = text.replace(/^﻿/, '').replace(/\r\n?/g, '\n');
+  const sections = [];
+  let cur = null;
+  for (const raw of text.split('\n')) {
+    const line = raw.trimEnd();
+    if (/^0\s+FILE\s/i.test(line)) {
+      cur = { name: line.replace(/^0\s+FILE\s+/i, '').trim(), lines: [] };
+      sections.push(cur);
+      continue;
+    }
+    if (/^0\s+NOFILE\s*$/i.test(line)) { cur = null; continue; }
+    if (!cur) {
+      if (sections.length === 0 && line.trim()) {
+        cur = { name: 'main', lines: [] };
+        sections.push(cur);
+      } else continue;
+    }
+    cur.lines.push(line);
+  }
+  return sections;
+}
+
+const key = (s) => s.trim().toLowerCase();
+// three.js' LDrawLoader rewrites references "s/x.dat" -> "parts/s/x.dat" and
+// "48/x.dat" -> "p/48/x.dat" before looking them up, so embedded sections
+// must be published under those names.
+function loaderName(n) {
+  n = n.replace(/\\/g, '/');
+  if (/^s\//i.test(n)) return 'parts/' + n;
+  if (/^48\//i.test(n)) return 'p/' + n;
+  return n;
+}
+
+// Parse a type-1 line into its tokens: colour, 12 numbers, remaining filename
+function parseType1(line) {
+  const m = line.match(/^1\s+(\S+)((?:\s+[-+0-9.eE]+){12})\s+(.+)$/);
+  if (!m) return null;
+  return { colour: m[1], xform: m[2].trim().split(/\s+/), ref: m[3].trim() };
+}
+
+function descriptionOf(section) {
+  // first "0 ..." line that is not a meta directive is the LDraw description
+  for (const l of section.lines) {
+    const m = l.match(/^0\s+(.*)$/);
+    if (!m) break;
+    const t = m[1].trim();
+    if (!t || /^(!|Name:|Author:|IsSubModel|BL_|FlexibleType|RenderAngleOffset|IsAssembly|BFC|CustomBrick|NumOfBricks)/i.test(t)) continue;
+    return t;
+  }
+  return section.name;
+}
+
+function parseLDConfig(text) {
+  const colours = {};
+  for (const line of text.replace(/\r\n?/g, '\n').split('\n')) {
+    const m = line.match(/^0\s+!COLOUR\s+(\S+)\s+CODE\s+(\S+)\s+VALUE\s+(#[0-9A-Fa-f]{6})\s+EDGE\s+(#[0-9A-Fa-f]{6})(.*)$/);
+    if (!m) continue;
+    const extra = m[5] || '';
+    const alpha = extra.match(/ALPHA\s+(\d+)/);
+    colours[m[2]] = {
+      name: m[1].replace(/_/g, ' '),
+      value: m[3],
+      edge: m[4],
+      alpha: alpha ? +alpha[1] : 255,
+      chrome: /CHROME/.test(extra), metal: /METAL/.test(extra), pearl: /PEARL/.test(extra), rubber: /RUBBER/.test(extra),
+    };
+  }
+  return colours;
+}
+
+/**
+ * @param {string} modelLdr   contents of model.ldr
+ * @param {string} model2Ldr  contents of model2.ldr
+ * @param {object} ldColours  result of parseLDConfig (for names in the parts list)
+ */
+function convertIo(modelLdr, model2Ldr, ldColours = {}, opts = {}) {
+  const certify = opts.certify !== false;
+  const warnings = [];
+  const secA = splitSections(modelLdr);     // colours
+  const secB = splitSections(model2Ldr);    // geometry
+  if (!secB.length) throw new Error('model2.ldr is empty – nothing to render');
+
+  const aByKey = new Map(secA.map(s => [key(s.name), s]));
+  const modelKeys = new Set(secA.map(s => key(s.name)));
+  // The main model is the first section in each file – names may differ
+  if (secA.length && secB.length) {
+    aByKey.set(key(secB[0].name), secA[0]);
+    modelKeys.add(key(secB[0].name));
+  }
+
+  const modelSections = secB.filter(s => modelKeys.has(key(s.name)));
+  const libSections = secB.filter(s => !modelKeys.has(key(s.name)));
+  if (!modelSections.length) modelSections.push(secB[0]);
+
+  // ---- pass 1: global colour map (model2 index -> LDraw code) from aligned lines
+  const colourMap = new Map();
+  const alignedPerSection = new Map();
+  for (const sB of modelSections) {
+    const sA = aByKey.get(key(sB.name));
+    if (!sA) continue;
+    const linesA = sA.lines.filter(l => /^1\s/.test(l)).map(parseType1);
+    const linesB = sB.lines.filter(l => /^1\s/.test(l)).map(parseType1);
+    if (linesA.length !== linesB.length || linesA.some(x => !x) || linesB.some(x => !x)) {
+      warnings.push(`Sub-model "${sB.name}": model.ldr and model2.ldr differ (${linesA.length} vs ${linesB.length} parts) – colours approximated`);
+      continue;
+    }
+    alignedPerSection.set(key(sB.name), linesA);
+    linesA.forEach((a, i) => {
+      const b = linesB[i];
+      if (!colourMap.has(b.colour)) colourMap.set(b.colour, a.colour);
+    });
+  }
+  const mapColour = (c, fallback = '16') => {
+    if (c === '-1') return '16';
+    if (c === '-2') return '24';
+    if (colourMap.has(c)) return colourMap.get(c);
+    if (/^0x2[0-9A-Fa-f]{6}$/.test(c)) return c;
+    return fallback;
+  };
+
+  // ---- how many times each sub-model is placed (for part quantities)
+  const secBByKey = new Map(modelSections.map(s => [key(s.name), s]));
+  const multiplicity = new Map();
+  const visit = (sec, times, depth) => {
+    if (depth > 32) return;
+    multiplicity.set(key(sec.name), (multiplicity.get(key(sec.name)) || 0) + times);
+    for (const line of sec.lines) {
+      if (!/^1\s/.test(line)) continue;
+      const p = parseType1(line);
+      if (!p) continue;
+      const sub = secBByKey.get(key(p.ref));
+      if (sub && sub !== sec) visit(sub, times, depth + 1);
+    }
+  };
+  visit(modelSections[0], 1, 0);
+
+  // ---- library index
+  const libByKey = new Map(libSections.map(s => [key(s.name), s]));
+  const referencedFromModel = new Set();
+  const allRefs = new Set();
+  const partsCount = new Map(); // key -> {ref, colour, desc, qty}
+  let partTotal = 0, stepCount = 0;
+
+  const out = [];
+  const emit = (l) => out.push(l);
+
+  // ---- model sections (main first, keep order)
+  modelSections.forEach((sB, idx) => {
+    const aligned = alignedPerSection.get(key(sB.name));
+    const times = multiplicity.get(key(sB.name)) || 0;
+    emit(`0 FILE ${sB.name}`);
+    if (idx === 0) emit(`0 ${sB.name}`);
+    emit('0 !LDRAW_ORG Model');
+    let i = 0;
+    for (const line of sB.lines) {
+      if (/^0\s+FILE\s/i.test(line)) continue;
+      if (/^1\s/.test(line)) {
+        const p = parseType1(line);
+        if (!p) { warnings.push(`Unreadable line in "${sB.name}": ${line.slice(0, 60)}`); continue; }
+        const colour = aligned ? aligned[i].colour : mapColour(p.colour, '7');
+        i++;
+        const rk = key(p.ref);
+        allRefs.add(rk);
+        const isSub = modelKeys.has(rk);
+        if (!isSub) {
+          referencedFromModel.add(rk);
+          partTotal += times;
+          const lib = libByKey.get(rk);
+          const desc = lib ? descriptionOf(lib) : p.ref;
+          const partNo = lib ? ((lib.lines.find(l => /^0\s+Name:/i.test(l)) || '').replace(/^0\s+Name:\s*/i, '').trim() || p.ref.replace(/\.dat$/i, '')) : p.ref.replace(/\.dat$/i, '');
+          const ck = partNo + '|' + colour;
+          const entry = partsCount.get(ck) || { part: partNo, colour, colourName: (ldColours[colour] || {}).name || `Colour ${colour}`, hex: (ldColours[colour] || {}).value || '#9a9a9a', desc, qty: 0 };
+          entry.qty += times;
+          if (times > 0) partsCount.set(ck, entry);
+        }
+        emit(`1 ${colour} ${p.xform.join(' ')} ${p.ref}`);
+      } else if (/^0\s+STEP\s*$/i.test(line)) {
+        stepCount++;
+        emit('0 STEP');
+      } else if (/^[2-4]\s/.test(line)) {
+        emit(line.replace(/^([2-4])\s+(\S+)/, (m, t, c) => `${t} ${mapColour(c, '24')}`));
+      } else if (/^0\s/.test(line)) {
+        // keep harmless comments, drop Stud.io meta that LDrawLoader ignores anyway
+        if (/^0\s+(Name:|Author:|CustomBrick|NumOfBricks|IsSubModel)/i.test(line)) continue;
+        emit(line);
+      }
+    }
+    emit('0 NOFILE');
+  });
+
+  // ---- library sections
+  for (const s of libSections) {
+    const k = key(s.name);
+    const type = referencedFromModel.has(k) ? 'Part' : 'Primitive';
+    emit(`0 FILE ${loaderName(s.name)}`);
+    emit(`0 ${descriptionOf(s)}`);
+    emit(`0 !LDRAW_ORG ${type}`);
+    if (certify) emit('0 BFC CERTIFY CCW');
+    for (const line of s.lines) {
+      if (/^0\s+FILE\s/i.test(line)) continue;
+      const t = line[0];
+      if (t === '1') {
+        const p = parseType1(line);
+        if (!p) continue;
+        allRefs.add(key(p.ref));
+        emit(`1 ${mapColour(p.colour)} ${p.xform.join(' ')} ${p.ref}`);
+      } else if (t === '5') {
+        // Stud.io strips the two control points from conditional lines, which
+        // makes them undrawable (they would render as a full wireframe) – skip.
+        continue;
+      } else if (t >= '2' && t <= '4') {
+        emit(line.replace(/^([2-4])\s+(\S+)/, (m, tt, c) => `${tt} ${mapColour(c, tt === '2' ? '24' : '16')}`));
+      } else if (t === '0') {
+        if (/^0\s+BFC/i.test(line)) emit(line);
+        // everything else is Stud.io metadata – drop
+      }
+    }
+    emit('0 NOFILE');
+  }
+
+  // ---- aliases: Stud.io strips directories from "0 FILE" names (hi-res
+  // primitives "48\4-4edge.dat" are stored as "4-4edge.dat") but keeps the
+  // real name in the "0 Name:" line. Resolve references through that.
+  const aliasByKey = new Map();
+  for (const s of libSections) {
+    const nameLine = s.lines.find(l => /^0\s+Name:/i.test(l));
+    if (!nameLine) continue;
+    const real = key(nameLine.replace(/^0\s+Name:\s*/i, '').replace(/\\/g, '/'));
+    if (real && real !== key(s.name) && !libByKey.has(real) && !aliasByKey.has(real)) aliasByKey.set(real, s.name);
+  }
+
+  const byBasename = new Map();
+  for (const s of libSections) {
+    const k = key(s.name); const b = k.slice(k.lastIndexOf('/') + 1);
+    if (!byBasename.has(b)) byBasename.set(b, s.name);
+  }
+
+  // ---- stubs for anything referenced but not embedded
+  const missing = [];
+  for (const r of allRefs) {
+    if (modelKeys.has(r) || libByKey.has(r)) continue;
+    // Stud.io resolves primitives by bare file name, so "8/2-4cylo.dat" and
+    // "48/2-4cylo.dat" both map to whichever "2-4cylo.dat" it embedded.
+    const base = r.slice(r.lastIndexOf('/') + 1);
+    const target = aliasByKey.get(r) || (libByKey.has(base) ? libByKey.get(base).name : null) || aliasByKey.get(base) || byBasename.get(base) || null;
+    if (target) {
+      emit(`0 FILE ${loaderName(r)}`);
+      emit(`0 Alias of ${target}`);
+      emit('0 !LDRAW_ORG Primitive');
+      emit(`1 16 0 0 0 1 0 0 0 1 0 0 0 1 ${target}`);
+      emit('0 NOFILE');
+      continue;
+    }
+    missing.push(r);
+    emit(`0 FILE ${loaderName(r)}`);
+    emit(`0 Missing part ${r}`);
+    emit('0 !LDRAW_ORG Primitive');
+    emit('0 NOFILE');
+  }
+  if (missing.length) warnings.push(`${missing.length} referenced file(s) are not embedded in this .io and will be skipped: ${missing.slice(0, 8).join(', ')}${missing.length > 8 ? '…' : ''}`);
+
+  const parts = [...partsCount.values()].sort((a, b) => b.qty - a.qty || a.part.localeCompare(b.part));
+  return {
+    text: out.join('\n') + '\n',
+    name: secB[0].name.replace(/\.(io|ldr|mpd|dat)$/i, ''),
+    partTotal,
+    uniqueParts: parts.length,
+    stepCount: stepCount,
+    subModels: modelSections.length - 1,
+    parts,
+    warnings,
+    missing,
+  };
+}
+
+
+const LDCONFIG = `Black CODE 0 VALUE #1B2A34 EDGE #2B4354
+Blue CODE 1 VALUE #1E5AA8 EDGE #16437D
+Green CODE 2 VALUE #00852B EDGE #005119
+Dark_Turquoise CODE 3 VALUE #069D9F EDGE #036A6C
+Red CODE 4 VALUE #B40000 EDGE #7F0000
+Dark_Pink CODE 5 VALUE #D3359D EDGE #AF267F
+Brown CODE 6 VALUE #543324 EDGE #311E15
+Light_Grey CODE 7 VALUE #8A928D EDGE #707974
+Dark_Grey CODE 8 VALUE #545955 EDGE #3B3F3C
+Light_Blue CODE 9 VALUE #97CBD9 EDGE #71B7CA
+Bright_Green CODE 10 VALUE #58AB41 EDGE #448532
+Light_Turquoise CODE 11 VALUE #00AAA4 EDGE #007571
+Salmon CODE 12 VALUE #F06D61 EDGE #EB4131
+Pink CODE 13 VALUE #F6A9BB EDGE #F07995
+Yellow CODE 14 VALUE #FAC80A EDGE #CCA404
+White CODE 15 VALUE #F4F4F4 EDGE #DBDBDB
+Light_Green CODE 17 VALUE #ADD9A8 EDGE #89C882
+Light_Yellow CODE 18 VALUE #FFD67F EDGE #FFC64C
+Tan CODE 19 VALUE #B0A06F EDGE #978653
+Light_Violet CODE 20 VALUE #AFBED6 EDGE #8CA1C4
+Purple CODE 22 VALUE #671F81 EDGE #441456
+Dark_Blue_Violet CODE 23 VALUE #0E3E9A EDGE #092C6B
+Orange CODE 25 VALUE #D67923 EDGE #AB611B
+Magenta CODE 26 VALUE #901F76 EDGE #641552
+Lime CODE 27 VALUE #A5CA18 EDGE #7F9B12
+Dark_Tan CODE 28 VALUE #897D62 EDGE #6B624C
+Bright_Pink CODE 29 VALUE #FF9ECD EDGE #FF6BB2
+Medium_Lavender CODE 30 VALUE #A06EB9 EDGE #884FA5
+Lavender CODE 31 VALUE #CDA4DE EDGE #B87FD1
+Very_Light_Orange CODE 68 VALUE #FDC383 EDGE #FCA84F
+Bright_Reddish_Lilac CODE 69 VALUE #8A12A8 EDGE #620C78
+Reddish_Brown CODE 70 VALUE #5F3109 EDGE #8B480D
+Light_Bluish_Grey CODE 71 VALUE #969696 EDGE #7C7C7C
+Dark_Bluish_Grey CODE 72 VALUE #646464 EDGE #494949
+Medium_Blue CODE 73 VALUE #7396C8 EDGE #4E7BBA
+Medium_Green CODE 74 VALUE #7FC475 EDGE #5DB450
+Light_Pink CODE 77 VALUE #FECCCF EDGE #FC9BA1
+Light_Nougat CODE 78 VALUE #FFC995 EDGE #FFAD60
+Medium_Nougat CODE 84 VALUE #AA7D55 EDGE #876344
+Medium_Lilac CODE 85 VALUE #441A91 EDGE #301268
+Light_Brown CODE 86 VALUE #7B5D41 EDGE #5A442F
+Blue_Violet CODE 89 VALUE #1C58A7 EDGE #14407A
+Nougat CODE 92 VALUE #BB805A EDGE #9F6641
+Light_Salmon CODE 100 VALUE #F9B7A5 EDGE #F59074
+Violet CODE 110 VALUE #26469A EDGE #1C3472
+Medium_Violet CODE 112 VALUE #4861AC EDGE #394D88
+Medium_Lime CODE 115 VALUE #B7D425 EDGE #91A91D
+Aqua CODE 118 VALUE #9CD6CC EDGE #79C7BA
+Light_Lime CODE 120 VALUE #DEEA92 EDGE #D2E269
+Light_Orange CODE 125 VALUE #F9A777 EDGE #F78644
+Dark_Nougat CODE 128 VALUE #AD6140 EDGE #864A31
+Very_Light_Bluish_Grey CODE 151 VALUE #C8C8C8 EDGE #ADADAD
+Bright_Light_Orange CODE 191 VALUE #FCAC00 EDGE #C68700
+Bright_Light_Blue CODE 212 VALUE #9DC3F7 EDGE #6CA4F3
+Rust CODE 216 VALUE #872B17 EDGE #B2391E
+Reddish_Lilac CODE 218 VALUE #8E5597 EDGE #6E4275
+Lilac CODE 219 VALUE #564E9D EDGE #423C7B
+Bright_Light_Yellow CODE 226 VALUE #FFEC6C EDGE #FFE438
+Sky_Blue CODE 232 VALUE #77C9D8 EDGE #51B9CC
+Dark_Blue CODE 272 VALUE #19325A EDGE #244884
+Dark_Green CODE 288 VALUE #00451A EDGE #007A2E
+Flamingo_Pink CODE 295 VALUE #FF94C2 EDGE #FF60A5
+Dark_Brown CODE 308 VALUE #352100 EDGE #663E00
+Maersk_Blue CODE 313 VALUE #ABD9FF EDGE #7AC3FF
+Dark_Red CODE 320 VALUE #720012 EDGE #A30018
+Dark_Azure CODE 321 VALUE #469BC3 EDGE #347FA1
+Medium_Azure CODE 322 VALUE #68C3E2 EDGE #3EB3DA
+Light_Aqua CODE 323 VALUE #D3F2EA EDGE #ACE6D7
+Yellowish_Green CODE 326 VALUE #E2F99A EDGE #D3F669
+Olive_Green CODE 330 VALUE #77774E EDGE #59593A
+Sand_Red CODE 335 VALUE #88605E EDGE #694A49
+Medium_Dark_Pink CODE 351 VALUE #F785B1 EDGE #F45793
+Coral CODE 353 VALUE #FF6D77 EDGE #FF3845
+Earth_Orange CODE 366 VALUE #D86D2C EDGE #B05720
+Neon_Yellow CODE 368 VALUE #EDFF21 EDGE #D7EA00
+Medium_Brown CODE 370 VALUE #755945 EDGE #533F31
+Medium_Tan CODE 371 VALUE #CCA373 EDGE #BF8A4E
+Sand_Purple CODE 373 VALUE #75657D EDGE #594D60
+Sand_Green CODE 378 VALUE #708E7C EDGE #597263
+Sand_Blue CODE 379 VALUE #70819A EDGE #58677D
+Fabuland_Brown CODE 450 VALUE #D27744 EDGE #B8602C
+Medium_Orange CODE 462 VALUE #F58624 EDGE #DB6B0A
+Dark_Orange CODE 484 VALUE #91501C EDGE #BC6823
+Very_Light_Grey CODE 503 VALUE #BCB4A5 EDGE #A69B86
+Light_Orange_Brown CODE 507 VALUE #FA9C1C EDGE #E08504
+Fabuland_Red CODE 508 VALUE #FF8014 EDGE #E06800
+Fabuland_Orange CODE 509 VALUE #CF8A47 EDGE #B6722F
+Fabuland_Lime CODE 510 VALUE #78FC78 EDGE #46FB46
+Trans_Dark_Blue CODE 33 VALUE #0020A0 EDGE #000B38 ALPHA 128
+Trans_Green CODE 34 VALUE #237841 EDGE #174F2B ALPHA 128
+Trans_Bright_Green CODE 35 VALUE #56E646 EDGE #27AF18 ALPHA 128
+Trans_Red CODE 36 VALUE #C91A09 EDGE #660D05 ALPHA 128
+Trans_Dark_Pink CODE 37 VALUE #DF6695 EDGE #B9275F ALPHA 128
+Trans_Neon_Orange CODE 38 VALUE #FF800D EDGE #A85100 ALPHA 128
+Trans_Very_Light_Blue CODE 39 VALUE #C1DFF0 EDGE #6FB4DC ALPHA 128
+Trans_Black CODE 40 VALUE #635F52 EDGE #2A2823 ALPHA 128
+Trans_Medium_Blue CODE 41 VALUE #559AB7 EDGE #326276 ALPHA 128
+Trans_Neon_Green CODE 42 VALUE #C0FF00 EDGE #739900 ALPHA 128
+Trans_Light_Blue CODE 43 VALUE #AEE9EF EDGE #59D1DE ALPHA 128
+Trans_Bright_Reddish_Lilac CODE 44 VALUE #96709F EDGE #5F4365 ALPHA 128
+Trans_Pink CODE 45 VALUE #FC97AC EDGE #F9345B ALPHA 128
+Trans_Yellow CODE 46 VALUE #F5CD2F EDGE #B49208 ALPHA 128
+Trans_Clear CODE 47 VALUE #FCFCFC EDGE #C9C9C9 ALPHA 128
+Trans_Purple CODE 52 VALUE #A5A5CB EDGE #6464A6 ALPHA 128
+Trans_Neon_Yellow CODE 54 VALUE #DAB000 EDGE #755E00 ALPHA 128
+Trans_Orange CODE 57 VALUE #F08F1C EDGE #9E5C0A ALPHA 128
+Trans_Bright_Light_Green CODE 227 VALUE #B5D96C EDGE #86B22E ALPHA 128
+Trans_Bright_Light_Orange CODE 231 VALUE #FCB76D EDGE #FA860A ALPHA 128
+Trans_Fire_Yellow CODE 234 VALUE #FBE890 EDGE #F7D22B ALPHA 128
+Trans_Reddish_Lilac CODE 284 VALUE #C281A5 EDGE #944771 ALPHA 128
+Trans_Light_Green CODE 285 VALUE #7DC291 EDGE #46955D ALPHA 128
+Trans_Light_Blue_Violet CODE 293 VALUE #6BABE4 EDGE #247BC6 ALPHA 128
+Chrome_Antique_Brass CODE 60 VALUE #645A4C EDGE #665B4D CHROME
+Chrome_Blue CODE 61 VALUE #6C96BF EDGE #3D638A CHROME
+Chrome_Green CODE 62 VALUE #3CB371 EDGE #226741 CHROME
+Chrome_Pink CODE 63 VALUE #AA4D8E EDGE #632C52 CHROME
+Chrome_Black CODE 64 VALUE #1B2A34 EDGE #3D5F76 CHROME
+Chrome_Gold CODE 334 VALUE #DFC176 EDGE #C2982E CHROME
+Chrome_Silver CODE 383 VALUE #CECECE EDGE #9C9C9C CHROME
+Pearl_Black CODE 83 VALUE #0A1327 EDGE #000000 PEARLESCENT
+Copper CODE 134 VALUE #764D3B EDGE #54372A PEARLESCENT
+Pearl_Light_Grey CODE 135 VALUE #A0A0A0 EDGE #878787 PEARLESCENT
+Metallic_Blue CODE 137 VALUE #5B7590 EDGE #465B70 PEARLESCENT
+Pearl_Light_Gold CODE 142 VALUE #DEAC66 EDGE #D5963D PEARLESCENT
+Pearl_Dark_Gold CODE 147 VALUE #83724F EDGE #62553B PEARLESCENT
+Pearl_Dark_Grey CODE 148 VALUE #484D48 EDGE #2E312E PEARLESCENT
+Pearl_Very_Light_Grey CODE 150 VALUE #989B99 EDGE #7E807F PEARLESCENT
+Pearl_Red CODE 176 VALUE #945148 EDGE #713D36 PEARLESCENT
+Pearl_Yellow CODE 178 VALUE #AB673A EDGE #84502D PEARLESCENT
+Pearl_Silver CODE 179 VALUE #898788 EDGE #6E6C6D PEARLESCENT
+Pearl_White CODE 183 VALUE #F6F2DF EDGE #EAE2B7 PEARLESCENT
+Metallic_Bright_Red CODE 184 VALUE #D60026 EDGE #A3001D PEARLESCENT
+Metallic_Bright_Blue CODE 185 VALUE #0059A3 EDGE #003D70 PEARLESCENT
+Metallic_Dark_Green CODE 186 VALUE #008E3C EDGE #005B26 PEARLESCENT
+Reddish_Gold CODE 189 VALUE #AC8247 EDGE #896738 PEARLESCENT
+Lemon_Metallic CODE 200 VALUE #708224 EDGE #4F5C19 PEARLESCENT
+Pearl_Gold CODE 297 VALUE #AA7F2E EDGE #805F23 PEARLESCENT
+Metallic_Silver CODE 80 VALUE #767676 EDGE #8E8E8E METAL
+Metallic_Green CODE 81 VALUE #C2C06F EDGE #D1D093 METAL
+Metallic_Gold CODE 82 VALUE #DBAC34 EDGE #E2BD5E METAL
+Metallic_Dark_Grey CODE 87 VALUE #3E3C39 EDGE #575450 METAL
+Metallic_Copper CODE 300 VALUE #C27F53 EDGE #CF9A77 METAL
+Metallic_Light_Blue CODE 10045 VALUE #97CBD9 EDGE #BBDDE6 METAL
+Metallic_Pink CODE 10046 VALUE #AD659A EDGE #BF86B0 METAL
+Metallic_Light_Pink CODE 10049 VALUE #FECCCF EDGE #FFFFFF METAL
+Milky_White CODE 79 VALUE #EEEEEE EDGE #BABABA ALPHA 240
+Glow_In_Dark_Opaque CODE 21 VALUE #E0FFB0 EDGE #B8FF4D ALPHA 240 LUMINANCE 15
+Glow_In_Dark_Trans CODE 294 VALUE #BDC6AD EDGE #8D9D72 ALPHA 240 LUMINANCE 15
+Glow_In_Dark_White CODE 329 VALUE #F5F3D7 EDGE #E0DA85 ALPHA 240 LUMINANCE 15
+Glitter_Trans_Dark_Pink CODE 114 VALUE #DF6695 EDGE #B9275F ALPHA 128 MATERIAL GLITTER VALUE #B92790 FRACTION 0.17 VFRACTION 0.2 SIZE 1
+Glitter_Trans_Clear CODE 117 VALUE #EEEEEE EDGE #BABABA ALPHA 128 MATERIAL GLITTER VALUE #FFFFFF FRACTION 0.08 VFRACTION 0.1 SIZE 1
+Glitter_Trans_Purple CODE 129 VALUE #640061 EDGE #000000 ALPHA 128 MATERIAL GLITTER VALUE #8F00CC FRACTION 0.03 VFRACTION 0.4 SIZE 1
+Glitter_Trans_Light_Blue CODE 302 VALUE #AEE9EF EDGE #59D1DE ALPHA 128 MATERIAL GLITTER VALUE #59DEBF FRACTION 0.17 VFRACTION 0.2 SIZE 1
+Glitter_Trans_Neon_Green CODE 339 VALUE #C0FF00 EDGE #739900 ALPHA 128 MATERIAL GLITTER VALUE #998C00 FRACTION 0.17 VFRACTION 0.2 SIZE 1
+Glitter_Trans_Orange CODE 341 VALUE #F08F1C EDGE #9E5C0A ALPHA 128 MATERIAL GLITTER VALUE #9E2A0A FRACTION 0.17 VFRACTION 0.2 SIZE 1
+Opal_Trans_Clear CODE 360 VALUE #FCFCFC EDGE #C9C9C9 ALPHA 240 LUMINANCE 5 MATERIAL GLITTER VALUE #FFFFFF FRACTION 0.8 VFRACTION 0.6 MINSIZE 0.02 MAXSIZE 0.1
+Opal_Trans_Light_Blue CODE 362 VALUE #AEE9EF EDGE #59D1DE ALPHA 200 LUMINANCE 5 MATERIAL GLITTER VALUE #59DEBF FRACTION 0.8 VFRACTION 0.6 MINSIZE 0.02 MAXSIZE 0.1
+Opal_Trans_Black CODE 363 VALUE #635F52 EDGE #2A2823 ALPHA 200 LUMINANCE 5 MATERIAL GLITTER VALUE #292522 FRACTION 0.8 VFRACTION 0.6 MINSIZE 0.02 MAXSIZE 0.1
+Opal_Trans_Dark_Pink CODE 364 VALUE #DF6695 EDGE #B9275F ALPHA 200 LUMINANCE 5 MATERIAL GLITTER VALUE #B92790 FRACTION 0.8 VFRACTION 0.6 MINSIZE 0.02 MAXSIZE 0.1
+Opal_Trans_Purple CODE 365 VALUE #671F81 EDGE #441456 ALPHA 200 LUMINANCE 5 MATERIAL GLITTER VALUE #2F1456 FRACTION 0.8 VFRACTION 0.6 MINSIZE 0.02 MAXSIZE 0.1
+Opal_Trans_Green CODE 367 VALUE #237841 EDGE #174F2B ALPHA 200 LUMINANCE 5 MATERIAL GLITTER VALUE #0B270B FRACTION 0.8 VFRACTION 0.6 MINSIZE 0.02 MAXSIZE 0.1
+Glitter_Trans_Bright_Green CODE 10351 VALUE #56E646 EDGE #27AF18 ALPHA 128 MATERIAL GLITTER VALUE #59AF18 FRACTION 0.17 VFRACTION 0.2 SIZE 1
+Opal_Trans_Dark_Blue CODE 10366 VALUE #0020A0 EDGE #000B38 ALPHA 200 LUMINANCE 5 MATERIAL GLITTER VALUE #001D38 FRACTION 0.8 VFRACTION 0.6 MINSIZE 0.02 MAXSIZE 0.1
+Speckle_Black_Copper CODE 75 VALUE #000000 EDGE #AB6038 MATERIAL SPECKLE VALUE #AB6038 FRACTION 0.4 MINSIZE 1 MAXSIZE 3
+Speckle_Dark_Bluish_Grey_Silver CODE 76 VALUE #635F61 EDGE #898788 MATERIAL SPECKLE VALUE #898788 FRACTION 0.4 MINSIZE 1 MAXSIZE 3
+Speckle_Black_Silver CODE 132 VALUE #000000 EDGE #898788 MATERIAL SPECKLE VALUE #898788 FRACTION 0.4 MINSIZE 1 MAXSIZE 3
+Speckle_Black_Gold CODE 133 VALUE #000000 EDGE #DBAC34 MATERIAL SPECKLE VALUE #DBAC34 FRACTION 0.4 MINSIZE 1 MAXSIZE 3
+Rubber_Yellow CODE 65 VALUE #FAC80A EDGE #9A7C03 RUBBER
+Rubber_Black CODE 256 VALUE #1B2A34 EDGE #000000 RUBBER
+Rubber_Blue CODE 273 VALUE #1E5AA8 EDGE #0E2B52 RUBBER
+Rubber_Red CODE 324 VALUE #B40000 EDGE #4C0000 RUBBER
+Rubber_Orange CODE 350 VALUE #D67923 EDGE #7F4814 RUBBER
+Rubber_Light_Grey CODE 375 VALUE #8A928D EDGE #585F5A RUBBER
+Rubber_Dark_Blue CODE 406 VALUE #19325A EDGE #03060C RUBBER
+Rubber_Purple CODE 449 VALUE #671F81 EDGE #240A2D RUBBER
+Rubber_Lime CODE 490 VALUE #A5CA18 EDGE #5A6D0C RUBBER
+Rubber_Light_Bluish_Grey CODE 496 VALUE #969696 EDGE #636363 RUBBER
+Rubber_Flat_Silver CODE 504 VALUE #898788 EDGE #545354 RUBBER
+Rubber_White CODE 511 VALUE #F4F4F4 EDGE #C1C1C1 RUBBER
+Rubber_Green CODE 10002 VALUE #00852B EDGE #001E09 RUBBER
+Rubber_Bright_Green CODE 10010 VALUE #58AB41 EDGE #316024 RUBBER
+Rubber_Magenta CODE 10026 VALUE #901F76 EDGE #3A0C30 RUBBER
+Rubber_Medium_Lavender CODE 10030 VALUE #A06EB9 EDGE #6C3E82 RUBBER
+Rubber_Lavender CODE 10031 VALUE #CDA4DE EDGE #A35AC3 RUBBER
+Rubber_Reddish_Brown CODE 10070 VALUE #5F3109 EDGE #2E1804 RUBBER
+Rubber_Medium_Blue CODE 10073 VALUE #7396C8 EDGE #3B639A RUBBER
+Rubber_Light_Nougat CODE 10078 VALUE #FFC995 EDGE #FF922D RUBBER
+Rubber_Bright_Light_Yellow CODE 10226 VALUE #FFEC6C EDGE #FFDD05 RUBBER
+Rubber_Dark_Brown CODE 10308 VALUE #352100 EDGE #000000 RUBBER
+Rubber_Dark_Red CODE 10320 VALUE #720012 EDGE #3D0009 RUBBER
+Rubber_Dark_Azure CODE 10321 VALUE #469BC3 EDGE #27607B RUBBER
+Rubber_Medium_Azure CODE 10322 VALUE #68C3E2 EDGE #2499C0 RUBBER
+Rubber_Light_Aqua CODE 10323 VALUE #D3F2EA EDGE #85DAC5 RUBBER
+Rubber_Sand_Green CODE 10378 VALUE #708E7C EDGE #43554A RUBBER
+Rubber_Dark_Orange CODE 10484 VALUE #91501C EDGE #3B210B RUBBER
+Rubber_Trans_Yellow CODE 66 VALUE #F5CD2F EDGE #B49208 ALPHA 128 RUBBER
+Rubber_Trans_Clear CODE 67 VALUE #FCFCFC EDGE #C9C9C9 ALPHA 128 RUBBER
+Rubber_Trans_Bright_Green CODE 10035 VALUE #56E646 EDGE #27AF18 ALPHA 128 RUBBER
+Rubber_Trans_Red CODE 10036 VALUE #C91A09 EDGE #660D05 ALPHA 128 RUBBER
+Rubber_Trans_Light_Blue CODE 10043 VALUE #AEE9EF EDGE #59D1DE ALPHA 128 RUBBER
+Main_Colour CODE 16 VALUE #FFFF80 EDGE #333333
+Edge_Colour CODE 24 VALUE #7F7F7F EDGE #333333
+Trans_Black_IR_Lens CODE 32 VALUE #000000 EDGE #333333 ALPHA 210
+Magnet CODE 493 VALUE #656761 EDGE #7E8079 METAL
+Electric_Contact_Alloy CODE 494 VALUE #D0D0D0 EDGE #EAEAEA METAL
+Electric_Contact_Copper CODE 495 VALUE #AE7A59 EDGE #BF967D METAL
+Trans_Sticker CODE 10047 VALUE #FFFFFF EDGE #FFFFFF ALPHA 16`;
+const LD_COLOURS = parseLDConfig(LDCONFIG.split('\n').map(l => '0 !COLOUR ' + l).join('\n'));
+
+// ------------------------------------------------------------------ DOM
+const $ = (id) => document.getElementById(id);
+const stage = $('stage'), overlay = $('overlay'), ovTitle = $('ovTitle'), ovText = $('ovText'), ovStatus = $('ovStatus'),
+      ovErr = $('ovErr'), ovOpen = $('ovOpen'), ovProgress = $('ovProgress'), thumb = $('thumb'),
+      rail = $('rail'), stepRange = $('stepRange'), stepLabel = $('stepLabel'), stepPrev = $('stepPrev'), stepNext = $('stepNext'),
+      modelName = $('modelName'), modelMeta = $('modelMeta'), scrim = $('scrim'),
+      sheets = { parts: $('sheetParts'), settings: $('sheetSettings'), open: $('sheetOpen') };
+
+let openSheet = null;
+function showSheet(name) {
+  openSheet = name;
+  for (const [k, el] of Object.entries(sheets)) el.classList.toggle('open', k === name);
+  scrim.classList.toggle('open', !!name);
+  $('btnParts').setAttribute('aria-pressed', name === 'parts');
+  $('btnSettings').setAttribute('aria-pressed', name === 'settings');
+}
+scrim.addEventListener('click', () => showSheet(null));
+$('btnParts').addEventListener('click', () => showSheet(openSheet === 'parts' ? null : 'parts'));
+$('btnSettings').addEventListener('click', () => showSheet(openSheet === 'settings' ? null : 'settings'));
+$('btnOpen').addEventListener('click', () => { refreshRecent(); showSheet('open'); });
+ovOpen.addEventListener('click', () => { refreshRecent(); showSheet('open'); });
+$('btnPick').addEventListener('click', () => $('fileInput').click());
+$('fileInput').addEventListener('change', (e) => { const f = e.target.files && e.target.files[0]; if (f) { showSheet(null); openFile(f); } e.target.value = ''; });
+document.addEventListener('dragover', (e) => e.preventDefault());
+document.addEventListener('drop', (e) => { e.preventDefault(); const f = e.dataTransfer.files && e.dataTransfer.files[0]; if (f) openFile(f); });
+
+// ------------------------------------------------------------------ settings (per device)
+const settings = { edges: true, smooth: true, spin: false };
+try { Object.assign(settings, JSON.parse(localStorage.getItem('bv.settings') || '{}')); } catch (_) {}
+function saveSettings() { try { localStorage.setItem('bv.settings', JSON.stringify(settings)); } catch (_) {} }
+$('optEdges').checked = settings.edges; $('optSmooth').checked = settings.smooth; $('optSpin').checked = settings.spin;
+$('optEdges').addEventListener('change', (e) => { settings.edges = e.target.checked; saveSettings(); applyEdges(); });
+$('optSpin').addEventListener('change', (e) => { settings.spin = e.target.checked; saveSettings(); controls.autoRotate = settings.spin; });
+$('optSmooth').addEventListener('change', (e) => { settings.smooth = e.target.checked; saveSettings(); if (current.file) openFile(current.file, { keepRecent: true }); });
+$('btnFit').addEventListener('click', () => { fitView(); showSheet(null); });
+
+// ------------------------------------------------------------------ three.js scene
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+stage.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(32, 1, 1, 20000);
+camera.position.set(300, -200, 300);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.dampingFactor = 0.09; controls.rotateSpeed = 0.7; controls.autoRotateSpeed = 0.8;
+controls.autoRotate = settings.spin;
+controls.addEventListener('start', () => { if (controls.autoRotate) { controls.autoRotate = false; settings.spin = false; $('optSpin').checked = false; saveSettings(); } });
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8278, 1.9));
+const keyLight = new THREE.DirectionalLight(0xffffff, 1.9); keyLight.position.set(-1, 2.2, 1.6); scene.add(keyLight);
+const fillLight = new THREE.DirectionalLight(0xfff4e6, 0.7); fillLight.position.set(1.5, 0.8, -1); scene.add(fillLight);
+
+const world = new THREE.Group(); world.rotation.x = Math.PI; scene.add(world); // LDraw: -Y is up
+
+function resize() {
+  const w = stage.clientWidth, h = stage.clientHeight;
+  if (!w || !h) return;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe(stage); resize();
+
+let needsRender = true;
+controls.addEventListener('change', () => { needsRender = true; });
+function loop() {
+  requestAnimationFrame(loop);
+  const moved = controls.update();
+  if (moved || needsRender) { renderer.render(scene, camera); needsRender = false; }
+}
+loop();
+
+// ------------------------------------------------------------------ loader
+// Parts library for plain LDraw files (.ldr / .mpd). Empty string = not available in this build.
+const LDRAW_LIBRARY = 'https://raw.githubusercontent.com/gkjohnson/ldraw-parts-library/master/complete/ldraw/';
+
+function makeLoader(manager) {
+  const loader = new LDrawLoader(manager);
+  loader.setConditionalLineMaterial(LDrawConditionalLineMaterial);
+  loader.smoothNormals = settings.smooth;
+  loader.setMaterials([]);
+  for (const line of LDCONFIG.split('\n')) {
+    const tokens = line.trim().split(/\s+/).filter(Boolean);
+    if (!tokens.length) continue;
+    let i = 0;
+    const lp = { getToken: () => tokens[i++], getLineNumberString: () => '', setToEnd: () => { i = tokens.length; }, isAtTheEnd: () => i >= tokens.length };
+    try { loader.parseColorMetaDirective(lp); } catch (e) { console.warn(e); }
+  }
+  return loader;
+}
+
+const current = { file: null, model: null, steps: 1, step: 1, parts: [], edges: [] };
+
+function setStatus(title, text, status, { determinate = null } = {}) {
+  overlay.hidden = false; ovTitle.textContent = title; ovText.textContent = text; ovStatus.textContent = status || '';
+  ovErr.hidden = true; ovOpen.hidden = true; ovProgress.hidden = false;
+  ovProgress.classList.toggle('indeterminate', determinate === null);
+  if (determinate !== null) ovProgress.firstElementChild.style.width = Math.round(determinate * 100) + '%';
+}
+function showError(title, text) {
+  overlay.hidden = false; ovTitle.textContent = title; ovText.textContent = text; ovStatus.textContent = '';
+  ovErr.hidden = true; ovProgress.hidden = true; ovOpen.hidden = false; thumb.hidden = true;
+}
+const nextFrame = () => new Promise(r => setTimeout(r, 30));
+const baseName = (n) => n.replace(/\.(io|ldr|mpd|dat)$/i, '');
+
+function disposeModel() {
+  if (!current.model) return;
+  world.remove(current.model);
+  current.model.traverse(o => { if (o.geometry) o.geometry.dispose(); });
+  current.model = null; current.edges = [];
+}
+
+// Summarise a plain LDraw / MPD file: name, part counts (sub-models placed more than once count
+// each time), build steps, and the list of part files to describe.
+function summariseLdraw(text) {
+  const sections = []; let cur = null;
+  for (const raw of text.replace(/^﻿/, '').split(/\r?\n/)) {
+    const line = raw.trim();
+    if (/^0\s+FILE\s/i.test(line)) { cur = { name: line.replace(/^0\s+FILE\s+/i, '').trim(), lines: [] }; sections.push(cur); continue; }
+    if (/^0\s+NOFILE/i.test(line)) { cur = null; continue; }
+    if (!cur) { if (!sections.length && line) { cur = { name: '', lines: [] }; sections.push(cur); } else continue; }
+    cur.lines.push(line);
+  }
+  if (!sections.length) throw new Error('No LDraw content found in this file.');
+  const byKey = new Map(sections.map(s => [s.name.toLowerCase(), s]));
+  const refs = (s) => s.lines.filter(l => /^1\s/.test(l)).map(l => { const m = l.match(/^1\s+(\S+)(?:\s+[-+0-9.eE]+){12}\s+(.+)$/); return m ? { colour: m[1], ref: m[2].trim().replace(/\\/g, '/') } : null; }).filter(Boolean);
+  const mult = new Map();
+  const visit = (s, times, depth) => {
+    if (depth > 32) return;
+    mult.set(s, (mult.get(s) || 0) + times);
+    for (const r of refs(s)) { const sub = byKey.get(r.ref.toLowerCase()); if (sub && sub !== s) visit(sub, times, depth + 1); }
+  };
+  visit(sections[0], 1, 0);
+  const lots = new Map(); let total = 0, steps = 0;
+  for (const s of sections) {
+    const times = mult.get(s) || 0; if (!times) continue;
+    steps += s.lines.filter(l => /^0\s+STEP\s*$/i.test(l)).length;
+    for (const r of refs(s)) {
+      if (byKey.has(r.ref.toLowerCase())) continue;
+      total += times;
+      const part = r.ref.replace(/\.dat$/i, '');
+      const k = part.toLowerCase() + '|' + r.colour;
+      const c = LD_COLOURS[r.colour];
+      const e = lots.get(k) || { part, ref: r.ref, colour: r.colour, colourName: c ? c.name : (/^0x2/i.test(r.colour) ? 'Custom #' + r.colour.slice(3) : `Colour ${r.colour}`), hex: c ? c.value : (/^0x2/i.test(r.colour) ? '#' + r.colour.slice(3) : '#9a9a9a'), desc: part, qty: 0 };
+      e.qty += times; lots.set(k, e);
+    }
+  }
+  let name = sections[0].name || '';
+  const nameLine = sections[0].lines.find(l => /^0\s+Name:/i.test(l));
+  if (!name && nameLine) name = nameLine.replace(/^0\s+Name:\s*/i, '');
+  if (!name) { const first = sections[0].lines.find(l => /^0\s+\S/.test(l) && !/^0\s+!/.test(l)); name = first ? first.replace(/^0\s+/, '') : ''; }
+  const parts = [...lots.values()].sort((a, b) => b.qty - a.qty || a.part.localeCompare(b.part));
+  return { name: baseName(name), partTotal: total, uniqueParts: parts.length, stepCount: steps, subModels: Math.max(0, [...mult.keys()].length - 1), parts, text: text.replace(/^﻿/, '') };
+}
+
+// Fetch the first line of each part file (its description) for the parts list.
+async function describeParts(parts, onProgress) {
+  const queue = parts.slice(); let done = 0;
+  const worker = async () => {
+    while (queue.length) {
+      const p = queue.shift();
+      let file = p.ref.toLowerCase();
+      for (let hop = 0; hop < 3 && file; hop++) {         // follow "~Moved to" aliases
+        let first = null;
+        for (const dir of (/^s\//.test(file) ? ['parts/'] : /^(48|8)\//.test(file) ? ['p/'] : ['parts/', 'p/'])) {
+          try {
+            const r = await fetch(LDRAW_LIBRARY + dir + file);
+            if (!r.ok) continue;
+            first = (await r.text()).split('\n')[0].replace(/^0\s+/, '').replace(/\s+/g, ' ').trim();
+            break;
+          } catch (_) { break; }
+        }
+        if (!first) break;
+        const moved = first.match(/^~?Moved to (\S+)/i);
+        if (moved) { file = moved[1].toLowerCase() + (/\.dat$/i.test(moved[1]) ? '' : '.dat'); continue; }
+        p.desc = first.replace(/^[~_=]+/, '');
+        break;
+      }
+      done++; onProgress && onProgress(done, parts.length);
+    }
+  };
+  await Promise.all(Array.from({ length: 6 }, worker));
+}
+
+async function showModel(group, meta, file, ms) {
+  disposeModel();
+  current.model = group; world.add(group);
+  current.steps = Math.max(1, group.userData.numBuildingSteps || 1);
+  current.parts = meta.parts;
+  current.edges = [];
+  group.traverse(o => { if (o.isLineSegments) current.edges.push(o); });
+  applyEdges();
+  setStep(current.steps);
+  fitView();
+  modelName.textContent = meta.name || baseName(file.name);
+  modelMeta.textContent = `${meta.partTotal} parts · ${meta.uniqueParts} lots${meta.subModels ? ` · ${meta.subModels} sub-model${meta.subModels > 1 ? 's' : ''}` : ''}`;
+  renderParts(meta.parts);
+  $('fileInfo').textContent = [
+    file.name, meta.source, `${meta.partTotal} parts, ${meta.uniqueParts} lots`,
+    `${current.steps} build step${current.steps > 1 ? 's' : ''}`, `built in ${(ms / 1000).toFixed(1)} s`,
+  ].join(' · ');
+  const wl = $('warnList'); wl.innerHTML = ''; wl.hidden = !meta.warnings.length;
+  for (const w of meta.warnings) { const li = document.createElement('li'); li.textContent = w; wl.appendChild(li); }
+  overlay.hidden = true; rail.hidden = false;
+}
+
+async function openFile(file, { keepRecent = false } = {}) {
+  current.file = file;
+  thumb.hidden = true;
+  setStatus(baseName(file.name), 'Reading the file.', `${(file.size / 1024).toFixed(0)} KB`);
+  try {
+    const buf = new Uint8Array(await file.arrayBuffer());
+    await nextFrame();
+    const isZip = buf.length > 3 && buf[0] === 0x50 && buf[1] === 0x4b;
+    if (isZip) await openStudio(file, buf);
+    else await openLdraw(file, buf);
+    if (!keepRecent) rememberFile(file).catch(() => {});
+  } catch (e) {
+    console.error(e);
+    showError('Could not open this file', e && e.message ? e.message : String(e));
+  }
+}
+
+async function openStudio(file, buf) {
+  let zip;
+  try { zip = unzipSync(buf); } catch (e) { throw new Error('This file is not a readable Stud.io archive. It should be a .io file saved by Stud.io 2.x.'); }
+  const names = Object.keys(zip);
+  if (zip['thumbnail.png']) {
+    try { thumb.src = URL.createObjectURL(new Blob([zip['thumbnail.png']], { type: 'image/png' })); thumb.hidden = false; } catch (_) {}
+  }
+  const model2 = zip['model2.ldr'] ? strFromU8(zip['model2.ldr']) : null;
+  const model = zip['model.ldr'] ? strFromU8(zip['model.ldr']) : null;
+  if (!model2 && !model) throw new Error(`No model found inside the archive (files: ${names.join(', ') || 'none'}).`);
+  if (!model2) throw new Error('This .io file does not embed part geometry (no model2.ldr), so there is nothing to draw without a parts library.');
+  let info = {};
+  try { info = JSON.parse(strFromU8(zip['.info'] || new Uint8Array())) || {}; } catch (_) {}
+
+  setStatus(baseName(file.name), 'Matching colours and parts.', model2.length > 1e6 ? `${(model2.length / 1048576).toFixed(1)} MB of geometry` : '');
+  await nextFrame();
+  const conv = convertIo(model || model2, model2, LD_COLOURS, { certify: true });
+  setStatus(conv.name, `Building ${conv.partTotal} parts${conv.stepCount ? ` across ${conv.stepCount + 1} steps` : ''}.`, settings.smooth ? 'Smooth shading on' : 'Flat shading');
+  await nextFrame();
+  const loader = makeLoader();
+  const t0 = performance.now();
+  const group = await new Promise((resolve, reject) => loader.parse(conv.text, resolve, reject));
+  await showModel(group, { ...conv, source: `Stud.io ${info.version || '?'}` }, file, performance.now() - t0);
+}
+
+async function openLdraw(file, buf) {
+  if (!LDRAW_LIBRARY) throw new Error('This file is a plain LDraw model (.ldr / .mpd). This copy of the viewer can only draw Stud.io .io files, which carry their own part shapes.');
+  const text = new TextDecoder('utf-8').decode(buf);
+  if (!/^\s*[01]\s/m.test(text)) throw new Error('This does not look like a Stud.io .io file or an LDraw .ldr / .mpd file.');
+  const meta = summariseLdraw(text);
+  meta.warnings = [];
+  setStatus(meta.name || baseName(file.name), `Fetching shapes for ${meta.uniqueParts} part types from the LDraw library.`, 'Needs a connection the first time; parts are kept for next time');
+  await nextFrame();
+
+  const manager = new THREE.LoadingManager();
+  let loaded = 0;
+  manager.onProgress = (url, n, total) => { loaded = n; ovStatus.textContent = `${n} library files fetched`; };
+  const loader = makeLoader(manager);
+  loader.setPartsLibraryPath(LDRAW_LIBRARY);
+  const missing = new Set();
+  const origWarn = console.warn;
+  console.warn = (...a) => { const s = a.map(String).join(' '); const m = s.match(/Subobject "([^"]+)" could not be loaded/); if (m) missing.add(m[1].replace(/^(parts|p)\//, '')); origWarn.apply(console, a); };
+  const t0 = performance.now();
+  let group;
+  try {
+    group = await new Promise((resolve, reject) => loader.parse(meta.text, resolve, reject));
+  } finally { console.warn = origWarn; }
+  if (!navigator.onLine && loaded === 0 && missing.size) throw new Error('No connection, and the parts this model needs have not been fetched before.');
+  if (missing.size) meta.warnings.push(`${missing.size} part file${missing.size > 1 ? 's' : ''} could not be found in the LDraw library and ${missing.size > 1 ? 'were' : 'was'} skipped: ${[...missing].slice(0, 8).join(', ')}${missing.size > 8 ? '…' : ''}`);
+  meta.source = 'LDraw file';
+  await showModel(group, meta, file, performance.now() - t0);
+  describeParts(meta.parts).then(() => { if (current.parts === meta.parts) renderParts(meta.parts, $('partsSearch').value); }).catch(() => {});
+}
+
+function applyEdges() {
+  for (const l of current.edges) l.visible = settings.edges;
+  needsRender = true;
+}
+
+function fitView() {
+  if (!current.model) return;
+  current.model.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(world);
+  if (box.isEmpty()) return;
+  const size = new THREE.Vector3(), center = new THREE.Vector3();
+  box.getSize(size); box.getCenter(center);
+  const radius = size.length() / 2;
+  const fovV = THREE.MathUtils.degToRad(camera.fov / 2);
+  const fovH = Math.atan(Math.tan(fovV) * camera.aspect);
+  const dist = radius / Math.sin(Math.min(fovV, fovH)) * 1.02;
+  const dir = new THREE.Vector3(1, 0.75, 1.15).normalize();
+  camera.position.copy(center).add(dir.multiplyScalar(dist));
+  camera.near = Math.max(0.5, dist / 200); camera.far = dist * 20; camera.updateProjectionMatrix();
+  controls.target.copy(center); controls.minDistance = radius * 0.2; controls.maxDistance = dist * 6;
+  controls.update(); needsRender = true;
+}
+
+// ------------------------------------------------------------------ build steps
+function setStep(n) {
+  current.step = Math.min(Math.max(1, n), current.steps);
+  if (current.model) {
+    current.model.traverse(o => {
+      if (o.isGroup && o.userData.buildingStep !== undefined) o.visible = o.userData.buildingStep < current.step;
+    });
+    current.model.visible = true;
+  }
+  stepRange.max = current.steps; stepRange.value = current.step;
+  stepLabel.innerHTML = `Step <b>${current.step}</b> / ${current.steps}`;
+  stepPrev.disabled = current.step <= 1; stepNext.disabled = current.step >= current.steps;
+  $('railHint').textContent = current.steps > 1 ? 'Slide to replay the build · drag to orbit · pinch to zoom' : 'Drag to orbit · pinch to zoom · two fingers to pan';
+  needsRender = true;
+}
+stepRange.addEventListener('input', () => setStep(+stepRange.value));
+stepPrev.addEventListener('click', () => setStep(current.step - 1));
+stepNext.addEventListener('click', () => setStep(current.step + 1));
+
+// ------------------------------------------------------------------ parts list
+// Where each part lives, from the Bricks locator in 2nd Brain (the page around this one).
+const NB = (() => { try { return window.parent !== window ? window.parent.NCBricks || null : null; } catch (_) { return null; } })();
+let byDrawer = false; try { byDrawer = localStorage.getItem('bv.byDrawer') === '1'; } catch (_) {}
+$('byDrawer').setAttribute('aria-pressed', byDrawer);
+$('byDrawer').addEventListener('click', () => { byDrawer = !byDrawer; try { localStorage.setItem('bv.byDrawer', byDrawer ? '1' : '0'); } catch (_) {} $('byDrawer').setAttribute('aria-pressed', byDrawer); renderParts(current.parts, $('partsSearch').value); });
+function partPic(p) {
+  const id = encodeURIComponent(String(p.part).replace(/\.dat$/i, ''));
+  const col = /^\d+$/.test(String(p.colour)) && p.colour !== '16' ? String(p.colour) : '71';
+  const srcs = [...new Set([col, '71'])].map((c) => `https://cdn.rebrickable.com/media/parts/ldraw/${c}/${id}.png`).concat([`https://library.ldraw.org/images/library/official/parts/${id}.png`]);
+  const img = document.createElement('img'); img.className = 'pic'; img.alt = ''; img.loading = 'lazy'; img.decoding = 'async'; img.referrerPolicy = 'no-referrer';
+  img.src = srcs.shift();
+  img.addEventListener('error', () => { const n = srcs.shift(); if (n) img.src = n; else { const s = document.createElement('span'); s.className = 'pic'; s.textContent = String(p.part).replace(/\.dat$/i, ''); img.replaceWith(s); } });
+  return img;
+}
+function renderParts(parts, filter = '') {
+  const q = filter.trim().toLowerCase();
+  const list = $('partsList'); list.innerHTML = '';
+  let shown = 0, qty = 0;
+  const rows = parts.map((p) => ({ p, loc: NB ? NB.where(p.part, p.colour, p.desc) : null }));
+  const sk = (r) => (r.loc ? r.loc.sort : '\uffff');
+  if (byDrawer) rows.sort((a, b) => (sk(a) < sk(b) ? -1 : sk(a) > sk(b) ? 1 : 0) || b.p.qty - a.p.qty);
+  for (const { p, loc } of rows) {
+    if (q && !(`${p.part} ${p.desc} ${p.colourName} ${loc ? loc.label + ' ' + loc.name : ''}`.toLowerCase().includes(q))) continue;
+    shown++; qty += p.qty;
+    const li = document.createElement('li');
+    const pd = document.createElement('div'); pd.className = 'pd';
+    const d = document.createElement('div'); d.className = 'd'; d.textContent = p.desc;
+    const m = document.createElement('div'); m.className = 'm';
+    const sw = document.createElement('span'); sw.className = 'sw'; sw.style.background = p.hex; sw.title = p.colourName;
+    m.append(sw, `${p.qty}× · ${String(p.part).replace(/\.dat$/i, '')} · ${p.colourName}`);
+    pd.append(d, m);
+    let where;
+    if (loc) {
+      where = document.createElement('button'); where.type = 'button';
+      where.className = 'loc' + (loc.helmer ? ' blue' : '') + (loc.how === 'name' ? ' guess' : '');
+      where.textContent = loc.label;
+      where.title = (loc.helmer ? 'Helmer tub for this colour · ' : '') + loc.name + (loc.how === 'name' ? ' (matched by name — check it)' : '') + ' — tap to see it on the map';
+      where.addEventListener('click', () => NB.show(loc.key, loc.helmer, loc.name));
+    } else { where = document.createElement('span'); where.className = 'loc none'; where.textContent = NB ? 'not in layout' : ''; }
+    li.append(partPic(p), pd, where); list.appendChild(li);
+  }
+  $('partsCount').textContent = q ? `${qty} of ${parts.reduce((a, p) => a + p.qty, 0)} parts` : `${parts.reduce((a, p) => a + p.qty, 0)} parts · ${parts.length} lots`;
+  if (!shown) { const li = document.createElement('li'); li.textContent = 'No parts match.'; li.style.color = 'var(--fg-2)'; list.appendChild(li); }
+}
+$('partsSearch').addEventListener('input', (e) => renderParts(current.parts, e.target.value));
+
+// ------------------------------------------------------------------ recent files (IndexedDB, this device only)
+function db() {
+  return new Promise((resolve, reject) => {
+    try {
+      const req = indexedDB.open('brick-viewer', 1);
+      req.onupgradeneeded = () => req.result.createObjectStore('files', { keyPath: 'name' });
+      req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error);
+    } catch (e) { reject(e); }
+  });
+}
+async function rememberFile(file) {
+  const d = await db();
+  const data = await file.arrayBuffer();
+  await new Promise((res, rej) => { const tx = d.transaction('files', 'readwrite'); tx.objectStore('files').put({ name: file.name, size: file.size, when: Date.now(), data }); tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
+  const all = await listRecent(d);
+  if (all.length > 12) {
+    const tx = d.transaction('files', 'readwrite');
+    for (const r of all.slice(12)) tx.objectStore('files').delete(r.name);
+  }
+  refreshRecent();
+}
+function listRecent(d) {
+  return new Promise((res, rej) => { const req = d.transaction('files').objectStore('files').getAll(); req.onsuccess = () => res((req.result || []).sort((a, b) => b.when - a.when)); req.onerror = () => rej(req.error); });
+}
+async function refreshRecent() {
+  const ul = $('recentList'); ul.innerHTML = '';
+  let rows = [];
+  try { rows = await listRecent(await db()); } catch (_) {}
+  $('recentEmpty').hidden = rows.length > 0;
+  for (const r of rows) {
+    const li = document.createElement('li'); const b = document.createElement('button');
+    const n = document.createElement('span'); n.className = 'n'; n.textContent = r.name;
+    const s = document.createElement('span'); s.className = 's'; s.textContent = `${(r.size / 1024).toFixed(0)} KB · ${new Date(r.when).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`;
+    b.append(n, s); b.addEventListener('click', () => { showSheet(null); openFile(new File([r.data], r.name, { type: 'application/zip' }), { keepRecent: true }); });
+    li.appendChild(b); ul.appendChild(li);
+  }
+}
+
+// ------------------------------------------------------------------ start: reopen the last model on this device
+async function start() {
+  try {
+    const rows = await listRecent(await db());
+    if (rows.length) { const r = rows[0]; await openFile(new File([r.data], r.name, { type: 'application/zip' }), { keepRecent: true }); return; }
+  } catch (_) {}
+  showError('Models', 'Open a Stud.io .io file (or an LDraw .ldr / .mpd) to spin it around in 3D, replay the build, and get a parts list that says which drawer each part lives in. Files stay on this device.');
+}
+window.addEventListener('keydown', (e) => { if (e.key === 'ArrowRight') setStep(current.step + 1); if (e.key === 'ArrowLeft') setStep(current.step - 1); if (e.key === 'Escape') showSheet(null); });
+start();
+</script>
+
+</body>
+</html>
