@@ -703,7 +703,8 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 700; letter-spacing: 0; tex
 .shop-note { font-size: .82rem; color: var(--muted); font-style: italic; }
 .shop-row.done .shop-name { color: var(--muted); text-decoration: line-through; }
 .shop-side { display: flex; align-items: center; gap: 6px; padding-right: 8px; }
-.shop-qty { font-size: .8rem; font-weight: 600; background: var(--accent-soft); color: var(--accent); border-radius: 8px; padding: 3px 8px; }
+.shop-qty { font: inherit; font-size: .8rem; font-weight: 600; background: var(--accent-soft); color: var(--accent); border: 0; border-radius: 8px; padding: 3px 8px; min-width: 2.6em; min-height: 32px; cursor: pointer; font-variant-numeric: tabular-nums; }
+.shop-qty:active { filter: brightness(.94); }
 .shop-store { font-size: .74rem; font-weight: 600; border-radius: 999px; padding: 3px 9px; border: 1px solid var(--line); background: var(--raised); color: var(--fg); cursor: pointer; }
 .shop-actions { display: grid; gap: 8px; }
 .shop-step { display: flex; align-items: center; border: 1px solid var(--line-strong); background: var(--bg); border-radius: 9px; overflow: hidden; }
