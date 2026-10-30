@@ -64,10 +64,12 @@
 
   // ---------- viewer + markup ----------
   const TOOLS = { pan: 'Scroll', pen: 'Pen', hl: 'Highlighter', eraser: 'Eraser' };
-  const COLOURS = ['#1a1d23', '#2f5d8a', '#b03a3a', '#2e7d5b', '#7b3f8c', '#b8651b'];
+  const COLOURS = ['#1a1d23', '#d32f2f', '#ef6c00', '#c99700', '#2e7d32', '#1e66d0', '#3f3fb0', '#8e3fbf']; // black, then red orange yellow (golden, so it shows on white) green blue indigo violet
+  const COLOUR_NAMES = { '#1a1d23': 'Black', '#d32f2f': 'Red', '#ef6c00': 'Orange', '#c99700': 'Yellow', '#2e7d32': 'Green', '#1e66d0': 'Blue', '#3f3fb0': 'Indigo', '#8e3fbf': 'Violet' };
   const HL_COLOURS = ['#ffe44d', '#9be36d', '#7fd3ff', '#ff9ec4', '#ffb257'];
-  const prefs = { tool: 'pen', colour: COLOURS[1], hlColour: HL_COLOURS[0], width: 2, fingerDraws: false, zoom: 1 };
+  const prefs = { tool: 'pen', colour: COLOURS[0], hlColour: HL_COLOURS[0], width: 2, fingerDraws: false, zoom: 1 };
   try { Object.assign(prefs, JSON.parse(localStorage.getItem('nc-pdf-prefs') || '{}')); } catch (e) { /* ignore */ }
+  if (!prefs.palette2 || !COLOURS.includes(prefs.colour)) { prefs.colour = COLOURS[0]; prefs.palette2 = 1; try { localStorage.setItem('nc-pdf-prefs', JSON.stringify(Object.assign(JSON.parse(localStorage.getItem('nc-pdf-prefs') || '{}'), { colour: prefs.colour, palette2: 1 }))); } catch (e) { /* ignore */ } }
   const savePrefs = () => { try { localStorage.setItem('nc-pdf-prefs', JSON.stringify(prefs)); } catch (e) { /* ignore */ } };
 
   function drawStrokes(ctx, strokes, W, H) {
@@ -185,7 +187,15 @@
 
     // Toolbar
     const toolBtns = {};
-    const mkTool = (key, label, svg) => { const b = el('button', { class: 'ptool', type: 'button', title: label, 'aria-label': label, html: svg, onclick: () => setTool(key) }); toolBtns[key] = b; return b; };
+    let lastTap = { k: '', t: 0 }, beforeEraser = 'pen';
+    const tapTool = (key) => {
+      const now = Date.now(), dbl = lastTap.k === key && now - lastTap.t < 450; lastTap = { k: key, t: now };
+      if (dbl && key === prefs.tool && (key === 'pen' || key === 'hl')) { beforeEraser = key; lastTap = { k: '', t: 0 }; setTool('eraser'); return; }
+      if (dbl && key === 'eraser' && prefs.tool === 'eraser') { lastTap = { k: '', t: 0 }; setTool(beforeEraser); return; }
+      if (key === 'eraser' && prefs.tool !== 'eraser' && (prefs.tool === 'pen' || prefs.tool === 'hl')) beforeEraser = prefs.tool;
+      setTool(key);
+    };
+    const mkTool = (key, label, svg) => { const b = el('button', { class: 'ptool', type: 'button', title: label, 'aria-label': label, html: svg, onclick: () => tapTool(key) }); toolBtns[key] = b; return b; };
     const I = {
       pan: '<svg viewBox="0 0 24 24"><path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11m0-3.5a1.5 1.5 0 0 1 3 0V11m0-2a1.5 1.5 0 0 1 3 0v6a6 6 0 0 1-6 6h-1a6 6 0 0 1-5.2-3L4 13.5a1.4 1.4 0 0 1 2.3-1.6L9 14.5V9.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/></svg>',
       pen: '<svg viewBox="0 0 24 24"><path d="M4 20l4-1 10.5-10.5a2.1 2.1 0 0 0-3-3L5 16z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M13 7l3 3" stroke="currentColor" stroke-width="1.7"/></svg>',
@@ -205,9 +215,9 @@
       colourRow.innerHTML = '';
       const list = prefs.tool === 'hl' ? HL_COLOURS : COLOURS;
       const cur = prefs.tool === 'hl' ? prefs.hlColour : prefs.colour;
-      for (const c of list) colourRow.append(el('button', { class: 'pcol' + (c === cur ? ' on' : ''), type: 'button', style: '--c:' + c, 'aria-label': c, onclick: () => { if (prefs.tool === 'hl') prefs.hlColour = c; else prefs.colour = c; savePrefs(); redrawColours(); } }));
+      for (const c of list) colourRow.append(el('button', { class: 'pcol' + (c === cur ? ' on' : ''), type: 'button', style: '--c:' + c, 'aria-label': COLOUR_NAMES[c] || c, title: COLOUR_NAMES[c] || '', onclick: () => { if (prefs.tool === 'hl') prefs.hlColour = c; else prefs.colour = c; savePrefs(); redrawColours(); } }));
       widthRow.innerHTML = '';
-      for (const [w, label] of [[1.2, 'S'], [2, 'M'], [3.5, 'L']]) widthRow.append(el('button', { class: 'pw' + (prefs.width === w ? ' on' : ''), type: 'button', onclick: () => { prefs.width = w; savePrefs(); redrawColours(); } }, label));
+      for (const [w, d, label] of [[1.2, 4, 'Thin'], [2, 7, 'Medium'], [3.5, 11, 'Thick']]) widthRow.append(el('button', { class: 'pw pw-dot' + (prefs.width === w ? ' on' : ''), type: 'button', title: label, 'aria-label': label + ' pen', onclick: () => { prefs.width = w; savePrefs(); redrawColours(); } }, el('span', { class: 'pdot', style: 'width:' + d + 'px;height:' + d + 'px;background:' + (prefs.tool === 'hl' ? prefs.hlColour : prefs.colour) })));
       colourRow.hidden = !(prefs.tool !== 'pan' && prefs.tool !== 'eraser');
       widthRow.hidden = !(prefs.tool === 'pen' || prefs.tool === 'hl' || SHAPES.has(prefs.tool));
       sizeRow.hidden = prefs.tool !== 'text';

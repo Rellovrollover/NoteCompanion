@@ -586,7 +586,7 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 700; letter-spacing: 0; tex
 .crumbs .more-page.draw { color: var(--muted); display: inline-flex; align-items: center; justify-content: center; }
 .crumbs .more-page.draw svg { width: 18px; height: 18px; }
 .crumbs .more-page.draw.on { background: var(--accent); color: #fff; border-color: var(--accent); }
-.inkbar { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(14px + env(safe-area-inset-bottom, 0px)); z-index: 45; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: center; max-width: calc(100vw - 24px); padding: 6px 8px; background: var(--paper); border: 1px solid var(--line-strong); border-radius: 14px; box-shadow: 0 10px 30px rgba(20,30,45,.22); }
+.inkbar { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(14px + env(safe-area-inset-bottom, 0px)); z-index: 45; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: center; width: max-content; max-width: calc(100vw - 24px); box-sizing: border-box; padding: 6px 8px; background: var(--paper); border: 1px solid var(--line-strong); border-radius: 14px; box-shadow: 0 10px 30px rgba(20,30,45,.22); }
 .inkbar .ptool.done { width: auto; padding: 0 12px 0 8px; gap: 6px; background: var(--good); color: #fff; font-weight: 600; }
 .inkbar .ptool.done svg { width: 18px; height: 18px; }
 @media (max-width: 899px) { .inkbar { bottom: calc(var(--tabbar) + 10px + env(safe-area-inset-bottom, 0px)); } }
@@ -1279,6 +1279,7 @@ input.topsearch.desktop-only { display: none !important; }
   .tabbar a.active { background: var(--paper); color: var(--accent); font-weight: 600; box-shadow: 0 1px 5px rgba(20,30,45,.10); }
   .content { padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)); }
   .toast { bottom: calc(86px + env(safe-area-inset-bottom, 0px)); }
+  .inkbar { bottom: calc(82px + env(safe-area-inset-bottom, 0px)); }
 }
 
 /* Long unbroken text (a web address, a code, a token) wraps instead of running off the side */
@@ -1338,3 +1339,9 @@ input.topsearch.desktop-only { display: none !important; }
 .wk-recent { display: grid; gap: 4px; }
 .wk-recent > div { display: grid; grid-template-columns: 7.5em 1fr; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: .92rem; }
 .wk-recent > div > span { color: var(--muted); }
+
+/* Pen sizes shown as dots of that size, in the pen's colour */
+.pw.pw-dot { display: grid; place-items: center; width: 30px; }
+.pdot { display: block; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); }
+.pcolours { flex-wrap: wrap; }
+@media (max-width: 420px) { .inkbar .pcol { width: 26px; height: 26px; } .inkbar .pcolours { gap: 5px; } }
