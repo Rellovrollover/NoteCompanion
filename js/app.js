@@ -1452,7 +1452,8 @@
     html.paper-ruled, html.paper-grid, html.paper-dots { background-attachment: scroll; min-height: 100%; }
     html.sized { background-color: #e6e9ee; overflow-x: auto; }
     html.sized.dark-desk { background-color: #2a2e35; }
-    html.sized body { width: var(--sheet-w); min-height: var(--sheet-h) !important; margin: 24px auto 32px; padding: var(--sheet-m) !important; background-color: var(--page, #ffffff); box-shadow: 0 1px 3px rgba(0,0,0,.14), 0 8px 28px rgba(0,0,0,.10); }
+    html.ink-extend:not(.sized) { min-height: var(--ink-min) !important; } html.ink-extend:not(.sized) body { min-height: var(--ink-min) !important; }
+    html.sized body { width: var(--sheet-w); min-height: max(var(--sheet-h), var(--ink-min, 0px)) !important; margin: 24px auto 32px; padding: var(--sheet-m) !important; background-color: var(--page, #ffffff); box-shadow: 0 1px 3px rgba(0,0,0,.14), 0 8px 28px rgba(0,0,0,.10); }
     html.sized.paper-ruled body, html.sized.paper-grid body, html.sized.paper-dots body { background-origin: border-box; }
     #nc-breaks { position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; }
     #nc-breaks > div { position: absolute; border-top: 1.5px dashed rgba(70,80,95,.45); }
@@ -1564,7 +1565,7 @@
     h.classList.toggle('sized', sized); h.classList.toggle('dark-desk', sized && isDark());
     if (d) { h.style.setProperty('--sheet-w', d.w + 'px'); h.style.setProperty('--sheet-h', d.h + 'px'); h.style.setProperty('--sheet-m', PAGE_MARGIN + 'px'); }
     drawBreaks(ed, q);
-    try { ed.execCommand('mceAutoResize'); } catch (e) { /* not loaded */ }
+    try { ed.execCommand('mceAutoResize', false, null, { skip_focus: true }); } catch (e) { /* not loaded */ }
   }
   // Print / Save as PDF: the note on its own, at the page's size (or the printer's default for Fit pages).
   const PRINT_CSS = `
@@ -1592,6 +1593,7 @@
     const html = state.editor && state.pageId === p.id ? state.editor.getContent() : htmlOf(p);
     // Notes with handwriting print as they are on screen, so the ink stays where it was drawn.
     const plain = !(state.ink && state.pageId === p.id && state.ink.hasInk());
+    if (!plain && state.ink.printMode) { state.ink.printMode(true); addEventListener('afterprint', () => state.ink && state.ink.printMode(false), { once: true }); }
     for (const old of document.querySelectorAll('#printout, #print-style')) old.remove();
     const d = sheetDims(p);
     const style = el('style', { id: 'print-style' }, '@page { ' + (d ? 'size: ' + d.css + '; ' : '') + 'margin: 12.7mm; }' + (plain ? PRINT_CSS : ''));
@@ -1654,6 +1656,28 @@
     const opt = { paper: p.paper || 'plain', size: p.size || '', orient: p.orient || 'p', pcolor: p.pcolor || '' };
     const apply = async () => { Object.assign(p, opt); await pages.update(p.id, { paper: opt.paper, size: opt.size, orient: opt.orient, pcolor: opt.pcolor }); S.schedule(); if (state.editor && state.pageId === p.id) applyPage(state.editor, p); };
     sheet((box, close) => { box.append(el('h2', {}, 'Page setup'), pageOptions(opt, apply), el('div', { class: 'actions' }, el('button', { class: 'btn primary', type: 'button', onclick: () => close() }, 'Done'))); });
+  }
+  // The note's paper grows with the handwriting (and while drawing there's always more below).
+  function extendPaper(host, hostPx) {
+    const ed = state.editor; if (!ed || !ed.iframeElement || !ed.getDoc()) return;
+    const off = ed.iframeElement.getBoundingClientRect().top - host.getBoundingClientRect().top;
+    const h = ed.getDoc().documentElement;
+    h.style.setProperty('--ink-min', Math.max(0, Math.round(hostPx - off - 24)) + 'px'); h.classList.add('ink-extend');
+    try { ed.execCommand('mceAutoResize', false, null, { skip_focus: true }); } catch (e) { /* not loaded */ }
+  }
+  // Full screen: just the note — no sidebar, page list, section tabs or bottom bar. Remembered on this device.
+  const fullPagePref = () => { try { return localStorage.getItem('nc-fullpage') === '1'; } catch (e) { return false; } };
+  function applyFullPage() {
+    const on = fullPagePref() && state.view === 'page';
+    document.body.classList.toggle('fullpage', on);
+    const b = $('#btn-full'); if (b) b.classList.toggle('on', on);
+    if (state.tbFull) state.tbFull.setActive(on);
+  }
+  function toggleFullPage(on) {
+    on = on === undefined ? !fullPagePref() : on;
+    try { localStorage.setItem('nc-fullpage', on ? '1' : '0'); } catch (e) { /* ignore */ }
+    applyFullPage();
+    setTimeout(() => dispatchEvent(new Event('resize')), 50);
   }
   const CALLOUTS = { info: 'Info', tip: 'Tip', warning: 'Warning', danger: 'Important' };
   function insertCallout(ed, kind) {
@@ -1767,7 +1791,8 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
     else crumbs.append(el('a', { href: nb ? '#nb/' + nb.id : '#notes' }, nb ? nb.name : '—'), '›', el('a', { href: sec ? '#section/' + sec.id : '#notes' }, sec ? sec.name : '—'));
     crumbs.append(el('span', { class: 'spacer' }));
     if (p.pinned) crumbs.append(el('span', { class: 'pinmark', title: 'Pinned' }, '📌'));
-    if (p.kind !== 'pdf' && p.kind !== 'app') crumbs.append(el('button', { class: 'more-page draw', id: 'btn-draw', type: 'button', 'aria-label': 'Draw', title: 'Draw with pen or Pencil (D)', html: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l4-1 10.5-10.5a2.1 2.1 0 0 0-3-3L5 16z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M13 7l3 3" stroke="currentColor" stroke-width="1.7"/></svg>', onclick: () => { if (state.ink) state.ink.setDrawing(!state.ink.isDrawing()); } }));
+    if (p.kind !== 'pdf' && p.kind !== 'app') crumbs.append(el('button', { class: 'more-page draw', id: 'btn-draw', type: 'button', 'aria-label': 'Draw', title: 'Draw with pen or Pencil (D)', html: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l4-1 10.5-10.5a2.1 2.1 0 0 0-3-3L5 16z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M13 7l3 3" stroke="currentColor" stroke-width="1.7"/></svg><span>Draw</span>', onclick: () => { if (state.ink) state.ink.setDrawing(!state.ink.isDrawing()); } }));
+    crumbs.append(el('button', { class: 'more-page fullbtn', id: 'btn-full', type: 'button', 'aria-label': 'Full screen', title: 'Full screen', html: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>', onclick: () => toggleFullPage() }));
     crumbs.append(el('button', { class: 'more-page', type: 'button', 'aria-label': 'Page options', onclick: () => pageMenu(p) }, '···'));
     crumbs.append(el('button', { class: 'done-page', type: 'button', 'aria-label': 'Done', title: 'Save and close', html: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>', onclick: () => { destroyEditor(); go(p.kind === 'app' ? '#apps' : p.inbox ? '#inbox' : (p.sectionId ? '#section/' + p.sectionId : '#notes')); } }));
     view.append(crumbs);
@@ -1875,8 +1900,8 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
       target: ta, base_url: new URL('vendor/tinymce', C.redirectUri).href, suffix: '.min', license_key: 'gpl', promotion: false, branding: false,
       skin: dark ? 'oxide-dark' : 'oxide', content_css: 'default', content_style: EDITOR_CSS,
       plugins: 'lists advlist table link image autolink autoresize searchreplace codesample quickbars accordion',
-      menubar: false, statusbar: false, toolbar_mode: 'sliding', toolbar_sticky: true, toolbar_sticky_offset: 52,
-      toolbar: 'undo redo | blocks | bold italic underline strikethrough | forecolor backcolor | bullist numlist todo | outdent indent | alignleft aligncenter alignright | callout accordion table image link pagelink | fontsize fontfamily | codesample removeformat searchreplace',
+      menubar: false, statusbar: false, toolbar_mode: 'sliding', toolbar_sticky: false,
+      toolbar: 'drawpen fullpage | undo redo | blocks | bold italic underline strikethrough | forecolor backcolor | bullist numlist todo | outdent indent | alignleft aligncenter alignright | callout accordion table image link pagelink | fontsize fontfamily | codesample removeformat searchreplace',
       quickbars_selection_toolbar: 'bold italic underline | forecolor backcolor | quicklink maplink',
       quickbars_insert_toolbar: false, quickbars_image_toolbar: 'alignleft aligncenter alignright | imageoptions',
       autoresize_bottom_margin: 24, autoresize_overflow_padding: 14, min_height: isNarrow() ? 360 : 460,
@@ -1892,6 +1917,11 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
         ed.ui.registry.addButton('todo', { icon: 'checklist', tooltip: 'To-do item', onAction: () => toggleTodo(ed) });
         ed.ui.registry.addMenuButton('callout', { icon: 'info', tooltip: 'Callout', fetch: (cb) => cb(Object.entries(CALLOUTS).map(([k, v]) => ({ type: 'menuitem', text: v, onAction: () => { insertCallout(ed, k); scheduleSave(); } })).concat([{ type: 'menuitem', text: 'Remove callout', onAction: () => { const c = ed.dom.getParent(ed.selection.getNode(), '.callout'); if (c) { ed.dom.remove(c, true); ed.undoManager.add(); scheduleSave(); } } }])) });
         ed.ui.registry.addButton('pagelink', { text: '[[', tooltip: 'Link to a page', onAction: () => insertPageLink(ed) });
+        // Draw and Full screen live in the toolbar too, so they stay at the top as you scroll.
+        ed.ui.registry.addIcon('nc-pen', '<svg width="24" height="24" viewBox="0 0 24 24"><path d="M4 20l4-1 10.5-10.5a2.1 2.1 0 0 0-3-3L5 16z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M13 7l3 3" stroke="currentColor" stroke-width="1.8"/></svg>');
+        ed.ui.registry.addIcon('nc-full', '<svg width="24" height="24" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+        ed.ui.registry.addToggleButton('drawpen', { icon: 'nc-pen', text: 'Draw', tooltip: 'Draw with Pencil or finger (D)', onAction: () => { if (state.ink) state.ink.setDrawing(!state.ink.isDrawing()); }, onSetup: (api) => { state.tbDraw = api; api.setActive(!!(state.ink && state.ink.isDrawing())); return () => { if (state.tbDraw === api) state.tbDraw = null; }; } });
+        ed.ui.registry.addToggleButton('fullpage', { icon: 'nc-full', tooltip: 'Full screen', onAction: () => toggleFullPage(), onSetup: (api) => { state.tbFull = api; api.setActive(fullPagePref()); return () => { if (state.tbFull === api) state.tbFull = null; }; } });
         ed.ui.registry.addIcon('mappin', '<svg width="24" height="24" viewBox="0 0 24 24"><path d="M12 21s-6.5-6.2-6.5-11a6.5 6.5 0 1 1 13 0c0 4.8-6.5 11-6.5 11z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="10" r="2.3" fill="currentColor"/></svg>');
         ed.ui.registry.addButton('maplink', { icon: 'mappin', tooltip: 'Link to Google Maps', onAction: () => { linkSelectionToMaps(ed); scheduleSave(); } });
         if (window.NCSymbols) NCSymbols.attachEditor(ed);
@@ -1939,7 +1969,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
     state.editor = editors && editors[0];
     if (!state.editor) return;
     state.openedPage = p; state.openedHtml = (() => { try { return state.editor.getContent(); } catch (e) { return initial; } })();
-    if (window.NCInk) state.ink = NCInk.attach(host, p.ink, (ink) => queueSave({ ink }), { onMode: (on) => { const b = $('#btn-draw'); if (b) b.classList.toggle('on', on); refreshUndoButtons(); } });
+    if (window.NCInk) state.ink = NCInk.attach(host, p.ink, (ink) => queueSave({ ink }), { extend: (px) => extendPaper(host, px), onMode: (on) => { const b = $('#btn-draw'); if (b) b.classList.toggle('on', on); if (state.tbDraw) state.tbDraw.setActive(on); refreshUndoButtons(); } });
     state.versionTimer = setInterval(() => snapshotIfChanged().catch(() => {}), 10 * 60 * 1000);
     function toggleTodo(ed) {
       let li = ed.dom.getParent(ed.selection.getNode(), 'li');
@@ -2483,6 +2513,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
 
   // ---------- navigation ----------
   function syncNav() {
+    applyFullPage();
     document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === state.view || ((state.view === 'page' || state.view === 'section' || state.view === 'notebook' || ((state.view === 'pdfs' || state.view === 'apps' || state.view === 'shift' || state.view === 'shop' || state.view === 'tp' || state.view === 'portfolio' || state.view === 'logbook' || state.view === 'famus' || state.view === 'organiser' || state.view === 'workout') && a.closest('.tabbar'))) && a.dataset.nav === 'notes')));
     if (typeof PANE !== 'undefined' && !PANE && document.documentElement.classList.contains('sidebar-collapsed')) sidebar.classList.remove('peek');
     closeSidebar();

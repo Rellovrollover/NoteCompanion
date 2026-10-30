@@ -81,7 +81,7 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 700; letter-spacing: 0; tex
 .side-foot .textbtn { width: 100%; text-align: left; }
 .scrim { display: none; }
 .content { flex: 1; min-width: 0; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 18px calc(28px + env(safe-area-inset-bottom, 0px)); }
-@media (max-width: 899px) { .content { overflow-x: hidden; } }
+@media (max-width: 899px) { .content { overflow-x: hidden; overflow-x: clip; } }
 .content > .view, .pagegrid > .view { max-width: 56rem; margin: 0 auto; display: grid; gap: 16px; min-width: 0; }
 .content > .view > * { min-width: 0; max-width: 100%; }
 .view-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
@@ -580,8 +580,12 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 700; letter-spacing: 0; tex
 
 /* Ink on note pages */
 .editor-host { position: relative; }
-.inklayer { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 3; }
-.editor-host.inking .inklayer { pointer-events: auto; cursor: crosshair; }
+.ink-wrap { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+.ink-view { position: sticky; top: 0; width: 100%; height: min(100%, 100vh); }
+.ink-view canvas { position: absolute; left: 0; top: 0; pointer-events: none; }
+.editor-host.inking .inklive { pointer-events: auto; cursor: crosshair; }
+.ink-view.printing { position: static; height: 100%; }
+.ink-view.printing .inklive { display: none; }
 .editor-host.inking .tox-editor-header { opacity: .35; pointer-events: none; }
 .crumbs .more-page.draw { color: var(--muted); display: inline-flex; align-items: center; justify-content: center; }
 .crumbs .more-page.draw svg { width: 18px; height: 18px; }
@@ -1364,3 +1368,31 @@ input.topsearch.desktop-only { display: none !important; }
 .wk-finish-btn { width: 100%; padding: 12px; font-size: 1rem; }
 .wk-finished { display: grid; gap: 2px; text-align: center; padding: 12px; border-radius: 12px; background: color-mix(in srgb, var(--good) 12%, var(--paper)); margin: 0; }
 .wk-finished span { color: var(--muted); font-size: .9rem; }
+
+/* The editor's toolbar sticks to the top as you scroll, without the page jumping (CSS sticky, not docking) */
+.editor-host { overflow: hidden; overflow: clip; }
+.editor-host .tox-tinymce, .editor-host .tox .tox-editor-container { overflow: clip !important; }
+.editor-host .tox:not(.tox-tinymce-inline) .tox-editor-header { position: sticky !important; top: calc(var(--topbar) + env(safe-area-inset-top, 0px)); z-index: 6; }
+.split .editor-host .tox:not(.tox-tinymce-inline) .tox-editor-header, .pane-mode .editor-host .tox:not(.tox-tinymce-inline) .tox-editor-header { top: 0; }
+.editor-host .tox .tox-tbtn--enabled, .editor-host .tox .tox-tbtn--enabled:hover { background: var(--accent-soft) !important; color: var(--accent) !important; }
+
+/* Page header: Draw labelled, Full screen next to it */
+.crumbs .more-page.draw { width: auto; padding: 0 12px 0 10px; gap: 6px; display: inline-flex; align-items: center; font-weight: 600; }
+.crumbs .more-page.draw span { font-size: .88rem; }
+.crumbs .more-page.draw.on, .crumbs .fullbtn.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+@media (max-width: 899px) { .crumbs .more-page.draw span { display: none; } .crumbs .more-page.draw { padding: 0; width: 38px; justify-content: center; } }
+
+/* Full screen: just the note */
+body.fullpage .sidebar, body.fullpage .pagecol, body.fullpage .sectabs, body.fullpage .pagedates, body.fullpage .props, body.fullpage .tabbar, body.fullpage .backlinks, body.fullpage .hoverzone, body.fullpage .scrim { display: none !important; }
+body.fullpage .pagegrid { display: block !important; }
+body.fullpage .content > .view, body.fullpage .pagegrid > .view { max-width: none; }
+body.fullpage .content { padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px)); }
+body.fullpage .inkbar { bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
+
+/* Drawing bar: size dots on white so they show in dark mode; eraser options */
+.inkbar .pw { background: #ffffff; border-color: #d5d9e0; }
+.inkbar .pw.on { background: #ffffff; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.inkbar .pdot.ring { background: transparent; box-shadow: inset 0 0 0 1.6px #5b6370; }
+.inkbar .pcol { box-shadow: inset 0 0 0 1px rgba(0,0,0,.15), 0 0 0 1px var(--line-strong); }
+.perase { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: center; }
+.perase-mode button { padding: 6px 10px; }
