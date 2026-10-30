@@ -1311,8 +1311,15 @@
     const list = gs.map((g) => g.notes[g.notes.length - 1]);
     for (const g of gs.filter((x) => x.notes.length > 1)) {
       const newest = g.notes[g.notes.length - 1], older = g.notes.slice(0, -1);
+      const names = g.notes.map((n) => '"' + ((n.title || 'Untitled').length > 40 ? n.title.slice(0, 38) + '…' : n.title) + '"');
       top.append(el('div', { class: 'wk-merge' },
-        el('span', {}, 'Workout ' + g.letter + ' is in ' + g.notes.length + ' notes (' + g.notes.map((n) => 'V' + (W.versionOf(n.title) || '?')).join(' and ') + '). Merge them into one note and table?'),
+        el('span', {}, 'Workout ' + g.letter + ' is in ' + g.notes.length + ' notes: ' + names.join(' and ') + '. Merge them into one note and table?'),
+        el('button', { class: 'btn small', type: 'button', title: 'Already merged them yourself? This just drops the older note out of Workout; nothing in either note changes.', onclick: async (e) => {
+          e.target.disabled = true;
+          for (const o of older) await pages.update(o.id, { ptype: 'workout-merged' });
+          onChanged(); toast('Hid ' + (older.length === 1 ? '"' + older[0].title + '"' : older.length + ' older notes') + ' from Workout');
+          renderWorkout(newest.id);
+        } }, 'Already merged — hide old'),
         el('button', { class: 'btn small primary', type: 'button', onclick: async (e) => {
           if (!(await confirm('Merge Workout ' + g.letter + ' into one note?', 'The older history goes in front of the newer columns, labelled V1 etc. The old note is kept, renamed "(merged)", and drops out of this list — delete it yourself once you\'re happy.', 'Merge'))) return;
           e.target.disabled = true;

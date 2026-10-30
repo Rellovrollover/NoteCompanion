@@ -338,18 +338,33 @@
   }
 
   // ---------- the list of workouts ----------
-  function isWorkout(p) { return p.ptype !== 'workout-merged' && /workout/i.test(p.title || '') && /<table/i.test(p.html || '') && !!parse(p.html); }
+  // Old versions marked as merged, and sync's "(conflict copy, …)" duplicates, aren't workouts to log into.
+  function isWorkout(p) { const t = p.title || ''; return p.ptype !== 'workout-merged' && /workout/i.test(t) && !/\((merged|conflict copy)\b/i.test(t) && /<table/i.test(p.html || '') && !!parse(p.html); }
+  // Versions whose columns a note already carries ("V1 Start", "V1 Workout 3"…), i.e. merged in already.
+  function carried(p) {
+    const r = document.createElement('div'); r.innerHTML = p.html || '';
+    const m = findMain(r); const s = new Set();
+    if (m) for (const h of m.heads) { const x = String(h || '').trim().match(/^V(\d+)\b/i); if (x) s.add(+x[1]); }
+    return s;
+  }
   const baseTitle = (t) => String(t || '').replace(/\s*[-–]?\s*\bV\d+\b/i, '').replace(/\s+/g, ' ').trim();
   const versionOf = (t) => { const m = String(t || '').match(/\bV(\d+)\b/i); return m ? +m[1] : 0; };
   const letterOf = (t) => { const m = String(t || '').match(/workout\s*([a-z])\b/i); return m ? m[1].toUpperCase() : ''; };
   // "Workout A V2 (Push, Chest/Shoulders/Triceps)" → "Workout A · Push"
   function shortLabel(t) { const b = baseTitle(t); const m = b.match(/^(.*?)\s*\(([^,)/]+)/); return m ? m[1].trim() + ' · ' + m[2].trim() : b; }
   // Notes for the same workout letter (V1, V2 …), oldest version first.
+  // A note that already carries another's version columns stands in for it (merged on another device), so that
+  // one drops out and is listed as `merged`; the merged note counts as the newest whatever its title says.
   function groups(list) {
     const by = new Map();
     for (const p of list) { const k = letterOf(p.title) || p.id; if (!by.has(k)) by.set(k, []); by.get(k).push(p); }
-    for (const arr of by.values()) arr.sort((a, b) => versionOf(a.title) - versionOf(b.title));
-    return [...by.entries()].map(([letter, notes]) => ({ letter, notes }));
+    return [...by.entries()].map(([letter, arr]) => {
+      const has = new Map(arr.map((p) => [p, carried(p)]));
+      const merged = arr.filter((q) => arr.some((p) => p !== q && has.get(p).has(versionOf(q.title))));
+      const notes = arr.filter((p) => !merged.includes(p));
+      notes.sort((a, b) => (has.get(a).size ? 1 : 0) - (has.get(b).size ? 1 : 0) || versionOf(a.title) - versionOf(b.title) || (a.updated || 0) - (b.updated || 0));
+      return { letter, notes, merged };
+    });
   }
 
   // ---------- merging an older version's table into the newer note ----------
