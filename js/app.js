@@ -1065,7 +1065,7 @@
     // Built-in views always have a tile.
     if (!apps.some((a) => a.app === 'logbook')) { const t = await pages.create({ kind: 'app', inbox: 0, title: 'Logbook', app: 'logbook', url: '', html: '<p>Your own procedure and experience log — a view over the Logbook notebook.</p>' }); apps.push(t); S.schedule(); }
     // A built-in tile made on two devices before they had synced: keep the oldest, remove the copies.
-    for (const key of ['shop', 'tp', 'portfolio', 'logbook', 'famus', 'shift', 'organiser']) {
+    for (const key of ['shop', 'tp', 'portfolio', 'logbook', 'famus', 'shift', 'organiser', 'workout']) {
       const same = apps.filter((a) => a.app === key).sort((a, b) => (a.created || 0) - (b.created || 0) || String(a.id).localeCompare(String(b.id)));
       if (same.length < 2) continue;
       const keep = same[0], extra = same.slice(1);
@@ -1074,6 +1074,7 @@
       for (const x of extra) await pages.remove(x.id);
       apps = apps.filter((a) => !extra.includes(a)); S.schedule();
     }
+    if (!apps.some((a) => a.app === 'workout')) { const t = await pages.create({ kind: 'app', inbox: 0, title: 'Workout', app: 'workout', url: '', html: '<p>Log your gym sessions into your Workout notes: last time shown for every exercise, history and videos a tap away.</p>' }); apps.push(t); }
     if (!apps.some((a) => a.app === 'organiser')) { const t = await pages.create({ kind: 'app', inbox: 0, title: 'Organiser', app: 'organiser', url: '', html: '<p>Your everyday to-do list, across everything — a view over the "Organiser" note.</p>', created: 2 }); apps.push(t); S.schedule(); }
     if (!apps.some((a) => a.app === 'shift')) { const t = await pages.create({ kind: 'app', inbox: 0, title: 'Shift Companion', app: 'shift', url: '', html: '<p>On-call queue and ward jobs. Jobs live on this device only, never synced; cleared after 7 days unless kept.</p>', created: 1 }); apps.push(t); S.schedule(); }
     if (!apps.some((a) => a.app === 'famus')) { const t = await pages.create({ kind: 'app', inbox: 0, title: 'FAMUS scan log', app: 'famus', url: '', html: '<p>FAMUS thoracic scan log — the v1.9 reporting sheet, kept as one table note.</p>' }); apps.push(t); S.schedule(); }
@@ -1120,7 +1121,8 @@
     famus: '<path d="M12 3.5v6M12 9.5l-1.5 1.6M12 9.5l1.5 1.6"/><path d="M9.3 7.2C7 7.6 4.5 11.2 4.5 16c0 2.4 1.2 3.8 3 3.5 2-.3 3-1.6 3-3.8V9.4c0-1.3-.5-2.3-1.2-2.2z"/><path d="M14.7 7.2c2.3.4 4.8 4 4.8 8.8 0 2.4-1.2 3.8-3 3.5-2-.3-3-1.6-3-3.8V9.4c0-1.3.5-2.3 1.2-2.2z"/>',
     brick: '<rect x="3.5" y="9" width="17" height="10.5" rx="1.5"/><path d="M6.5 9V6.8a.8.8 0 0 1 .8-.8h2.4a.8.8 0 0 1 .8.8V9M13.5 9V6.8a.8.8 0 0 1 .8-.8h2.4a.8.8 0 0 1 .8.8V9"/>',
     drawers: '<rect x="4" y="3.5" width="16" height="17" rx="1.5"/><path d="M4 9.2h16M4 14.8h16M10.5 6.3h3M10.5 12h3M10.5 17.6h3"/>',
-    organiser: '<rect x="4" y="3.5" width="16" height="17" rx="2"/><path d="m7.5 8.6 1.3 1.3 2.4-2.6M13.2 9h3.6M7.5 14.6l1.3 1.3 2.4-2.6M13.2 15h3.6"/>'
+    organiser: '<rect x="4" y="3.5" width="16" height="17" rx="2"/><path d="m7.5 8.6 1.3 1.3 2.4-2.6M13.2 9h3.6M7.5 14.6l1.3 1.3 2.4-2.6M13.2 15h3.6"/>',
+    workout: '<path d="M3.5 9.5v5M6 7.5v9M18 7.5v9M20.5 9.5v5"/><path d="M6 12h12"/>'
   };
   const appKind = (a) => a.app && APP_SVG[a.app] ? a.app : /brick viewer|stud\.io/i.test(a.title || '') ? 'brick' : /brick locator|lego|drawer/i.test(a.title || '') ? 'drawers' : /portfolio/i.test(a.title || '') ? 'portfolio' : /shopping/i.test(a.title || '') ? 'shop' : /trial|pearl/i.test(a.title || '') ? 'tp' : /famus|scan log/i.test(a.title || '') ? 'famus' : /logbook/i.test(a.title || '') ? 'logbook' : /shift/i.test(a.title || '') ? 'shift' : /organi[sz]er/i.test(a.title || '') ? 'organiser' : 'app';
   const appIco = (a) => { const k = appKind(a); return el('span', { class: 'appico k-' + k, html: APP_SVG[k] ? '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + APP_SVG[k] + '</svg>' : appIcon }); };
@@ -1156,7 +1158,7 @@
   async function inboxApps() {
     const apps = (await pages.live()).filter((q) => q.kind === 'app' && q.inboxPin > 0).sort((a, b) => a.inboxPin - b.inboxPin).slice(0, 4);
     if (!apps.length) return null;
-    const route = { shift: '#shift', shop: '#shop', tp: '#tp', portfolio: '#portfolio', logbook: '#logbook', famus: '#famus', organiser: '#organiser' };
+    const route = { shift: '#shift', shop: '#shop', tp: '#tp', portfolio: '#portfolio', logbook: '#logbook', famus: '#famus', organiser: '#organiser', workout: '#workout' };
     const box = el('div', { class: 'inbox-apps' });
     for (const a of apps) {
       const live = el('span', { class: 'inbox-app-live' }, '');
@@ -1187,8 +1189,8 @@
         el('div', { class: 'apphead' }, appIco(a), el('b', {}, a.title)),
         el('div', { class: 'appdesc' }, textOf(a).slice(0, 120)),
         el('div', { class: 'actions' },
-          a.app === 'shift' ? el('a', { class: 'btn small primary', href: '#shift' }, 'Open') : a.app === 'organiser' ? el('a', { class: 'btn small primary', href: '#organiser' }, 'Open') : a.app === 'shop' ? el('a', { class: 'btn small primary', href: '#shop' }, 'Open') : a.app === 'tp' ? el('a', { class: 'btn small primary', href: '#tp' }, 'Open') : a.app === 'portfolio' ? el('a', { class: 'btn small primary', href: '#portfolio' }, 'Open') : a.app === 'logbook' ? el('a', { class: 'btn small primary', href: '#logbook' }, 'Open') : a.app === 'famus' ? el('a', { class: 'btn small primary', href: '#famus' }, 'Open') : (a.assetId || a.embed) ? el('button', { class: 'btn small primary', type: 'button', onclick: () => openPage(a.id) }, 'Open') : a.url ? el('a', { class: 'btn small primary', href: a.url, target: '_blank', rel: 'noopener' }, 'Open') : el('span', { class: 'sub' }, 'No link yet'),
-          a.app === 'shift' ? el('span', { class: 'sub' }, 'built in') : a.app === 'organiser' ? el('span', { class: 'sub' }, 'a view of a note') : (a.app === 'shop' || a.app === 'tp' || a.app === 'portfolio' || a.app === 'logbook' || a.app === 'famus') ? el('span', { class: 'sub' }, a.app === 'shop' || a.app === 'famus' || a.app === 'logbook' ? 'a view of a note' : 'a view of a notebook') : (a.assetId || a.embed) ? el('span', { class: 'sub' }, a.assetId ? 'runs inside' : 'embedded') : el('button', { class: 'btn small', type: 'button', onclick: () => openPage(a.id) }, 'Notes'),
+          a.app === 'shift' ? el('a', { class: 'btn small primary', href: '#shift' }, 'Open') : a.app === 'workout' ? el('a', { class: 'btn small primary', href: '#workout' }, 'Open') : a.app === 'organiser' ? el('a', { class: 'btn small primary', href: '#organiser' }, 'Open') : a.app === 'shop' ? el('a', { class: 'btn small primary', href: '#shop' }, 'Open') : a.app === 'tp' ? el('a', { class: 'btn small primary', href: '#tp' }, 'Open') : a.app === 'portfolio' ? el('a', { class: 'btn small primary', href: '#portfolio' }, 'Open') : a.app === 'logbook' ? el('a', { class: 'btn small primary', href: '#logbook' }, 'Open') : a.app === 'famus' ? el('a', { class: 'btn small primary', href: '#famus' }, 'Open') : (a.assetId || a.embed) ? el('button', { class: 'btn small primary', type: 'button', onclick: () => openPage(a.id) }, 'Open') : a.url ? el('a', { class: 'btn small primary', href: a.url, target: '_blank', rel: 'noopener' }, 'Open') : el('span', { class: 'sub' }, 'No link yet'),
+          a.app === 'shift' ? el('span', { class: 'sub' }, 'built in') : a.app === 'organiser' || a.app === 'workout' ? el('span', { class: 'sub' }, a.app === 'workout' ? 'a view of your Workout notes' : 'a view of a note') : (a.app === 'shop' || a.app === 'tp' || a.app === 'portfolio' || a.app === 'logbook' || a.app === 'famus') ? el('span', { class: 'sub' }, a.app === 'shop' || a.app === 'famus' || a.app === 'logbook' ? 'a view of a note' : 'a view of a notebook') : (a.assetId || a.embed) ? el('span', { class: 'sub' }, a.assetId ? 'runs inside' : 'embedded') : el('button', { class: 'btn small', type: 'button', onclick: () => openPage(a.id) }, 'Notes'),
           SEED_FILES[a.title] && a.app !== 'tp' ? el('button', { class: 'btn small', type: 'button', onclick: async (e) => { e.target.disabled = true; toast('Importing…'); try { const r = await importSeed(SEED_FILES[a.title]); toast(r.added ? 'Imported ' + r.added + ' pages into ' + r.notebook.name : 'Already imported (' + r.total + ' pages)'); } catch (err) { toast(err.message); } e.target.disabled = false; } }, 'Import into 2nd Brain') : null));
       tile.querySelector('.actions').append(el('span', { class: 'spacer' }), pinChip(a));
       grid.append(gestures(tile, { onDelete: async () => { if (await confirm('Remove "' + a.title + '" from the hub?', null, 'Remove')) { await pages.remove(a.id); S.schedule(); renderApps(); } }, onLongPress: () => menu(a.title, [
@@ -1287,6 +1289,30 @@
     if (!tile) { await pages.create({ kind: 'app', inbox: 0, title: 'Logbook', app: 'logbook', url: '', html: '<p>Your own procedure and experience log — a view over the Logbook notebook.</p>' }); onChanged(); }
     if (!window.NCLogbook) { host.append(el('p', { class: 'sub' }, 'Not loaded.')); return; }
     await NCLogbook.render(host, { toast, sheet, confirm, ask, menu, go, changed: onChanged });
+  }
+
+  // ---------- Workout: logging gym sessions into your Workout notes ----------
+  async function renderWorkout(id) {
+    state.view = 'workout';
+    const view = el('div', { class: 'view wk-view' });
+    const h1 = el('h1', {}, 'Workout');
+    view.append(el('div', { class: 'view-head' }, h1, el('div', { class: 'toolrow' }, id ? el('a', { class: 'btn small', href: '#workout' }, 'All workouts') : el('a', { class: 'btn small', href: '#apps' }, 'Apps'))));
+    const host = el('div', {});
+    view.append(host);
+    content.replaceChildren(view); syncNav();
+    if (!window.NCWorkout) { host.append(el('p', { class: 'sub' }, 'Not loaded.')); return; }
+    if (!id) { NCWorkout.home(host, (await pages.live()).filter((q) => !q.kind || q.kind === 'text' || q.kind === 'note'), { go }); return; }
+    const page = await pages.get(id);
+    if (!page || page.deleted) { host.append(el('p', { class: 'sub' }, 'That workout note has gone.')); return; }
+    h1.textContent = (page.title || 'Workout').replace(/\s*\(.*\)\s*$/, '');
+    let snap = false;
+    const save = async (html) => {
+      // One snapshot of the note before the first change of a session, so History can undo the lot.
+      if (!snap) { await versions.add({ id: page.id, title: page.title, html: page.html, props: page.props }); snap = true; }
+      await pages.update(page.id, { html }); onChanged();
+    };
+    state.appTeardown = NCWorkout.session(host, page, { save, toast, sheet, ask, confirm, menu }).destroy;
+    view.append(el('p', { class: 'sub organiser-foot' }, el('a', { href: '#page/' + page.id }, 'Open the note')));
   }
 
   // ---------- Organiser: the everyday to-do list (a view over one to-do note) ----------
@@ -1719,6 +1745,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
     if (p.kind === 'app' && p.app === 'famus') { go('#famus'); return; }
     if (p.kind === 'app' && p.app === 'shift') { go('#shift'); return; }
     if (p.kind === 'app' && p.app === 'organiser') { go('#organiser'); return; }
+    if (p.kind === 'app' && p.app === 'workout') { go('#workout'); return; }
     if (p.kind === 'app' && (p.assetId || p.embed)) {
       view.classList.add('app-view');
       const host = el('div', { class: 'apphost' });
@@ -2413,7 +2440,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
 
   // ---------- navigation ----------
   function syncNav() {
-    document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === state.view || ((state.view === 'page' || state.view === 'section' || state.view === 'notebook' || ((state.view === 'pdfs' || state.view === 'apps' || state.view === 'shift' || state.view === 'shop' || state.view === 'tp' || state.view === 'portfolio' || state.view === 'logbook' || state.view === 'famus' || state.view === 'organiser') && a.closest('.tabbar'))) && a.dataset.nav === 'notes')));
+    document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === state.view || ((state.view === 'page' || state.view === 'section' || state.view === 'notebook' || ((state.view === 'pdfs' || state.view === 'apps' || state.view === 'shift' || state.view === 'shop' || state.view === 'tp' || state.view === 'portfolio' || state.view === 'logbook' || state.view === 'famus' || state.view === 'organiser' || state.view === 'workout') && a.closest('.tabbar'))) && a.dataset.nav === 'notes')));
     if (typeof PANE !== 'undefined' && !PANE && document.documentElement.classList.contains('sidebar-collapsed')) sidebar.classList.remove('peek');
     closeSidebar();
   }
@@ -2433,6 +2460,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
     if (h === '#logbook') return renderLogbook();
     if (h === '#famus') return renderFamus();
     if (h === '#organiser') return renderOrganiser();
+    if (h === '#workout' || h.startsWith('#workout/')) return renderWorkout(h.slice(9));
     if (h === '#notes') return renderNotes();
     if (h === '#pdfs') { state.query = 'is:pdf'; return renderSearch(); }
     if (h === '#apps') return renderApps();

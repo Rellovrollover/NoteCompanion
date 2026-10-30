@@ -2,14 +2,14 @@
 // 1. Caches the app shell so it opens with no connection.
 // 2. Serves local assets (images, audio, files) from IndexedDB at ./asset/<id>,
 //    so markdown can reference them with a plain relative URL on every device.
-const VERSION = 'nc-2026-10-31y';
+const VERSION = 'nc-2026-10-31z';
 // Big libraries live in their own cache that only changes when they do, so an app update downloads just
 // the app's own files (a few hundred KB), not every library again.
 const VENDOR = 'nc-vendor-1';
 const APP_FILES = [
   './', './index.html', './manifest.webmanifest',
   './css/app.css',
-  './js/config.js', './js/db.js', './js/graph.js', './js/sync.js', './js/pdf.js', './js/ink.js', './js/scan.js', './js/shift.js', './js/shop.js', './js/tp.js', './js/portfolio.js', './js/todo.js', './js/logbook.js', './js/famus.js', './js/symbols.js', './js/gcal.js', './js/onenote.js', './js/drop.js', './js/app.js',
+  './js/config.js', './js/db.js', './js/graph.js', './js/sync.js', './js/pdf.js', './js/ink.js', './js/scan.js', './js/shift.js', './js/shop.js', './js/tp.js', './js/portfolio.js', './js/todo.js', './js/logbook.js', './js/famus.js', './js/workout.js', './js/symbols.js', './js/gcal.js', './js/onenote.js', './js/drop.js', './js/app.js',
   './icons/brain-180.png', './icons/brain-192.png', './icons/brain-512.png'
 ];
 const VENDOR_FILES = [
