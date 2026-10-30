@@ -1292,27 +1292,70 @@
   }
 
   // ---------- Workout: logging gym sessions into your Workout notes ----------
+  // Opens on the workout that's next (A/B alternate when a session is finished); a selector at the top swaps.
   async function renderWorkout(id) {
     state.view = 'workout';
     const view = el('div', { class: 'view wk-view' });
     const h1 = el('h1', {}, 'Workout');
-    view.append(el('div', { class: 'view-head' }, h1, el('div', { class: 'toolrow' }, id ? el('a', { class: 'btn small', href: '#workout' }, 'All workouts') : el('a', { class: 'btn small', href: '#apps' }, 'Apps'))));
-    const host = el('div', {});
-    view.append(host);
+    const top = el('div', { class: 'wk-top' }), host = el('div', {});
+    view.append(el('div', { class: 'view-head' }, h1, el('div', { class: 'toolrow' }, el('a', { class: 'btn small', href: '#apps' }, 'Apps'))), top, host);
     content.replaceChildren(view); syncNav();
     if (!window.NCWorkout) { host.append(el('p', { class: 'sub' }, 'Not loaded.')); return; }
-    if (!id) { NCWorkout.home(host, (await pages.live()).filter((q) => !q.kind || q.kind === 'text' || q.kind === 'note'), { go }); return; }
-    const page = await pages.get(id);
-    if (!page || page.deleted) { host.append(el('p', { class: 'sub' }, 'That workout note has gone.')); return; }
-    h1.textContent = (page.title || 'Workout').replace(/\s*\(.*\)\s*$/, '');
+    const W = window.NCWorkout;
+    let tile = (await pages.live()).find((q) => q.kind === 'app' && q.app === 'workout');
+    if (!tile) { tile = await pages.create({ kind: 'app', inbox: 0, title: 'Workout', app: 'workout', url: '', html: '<p>Log your gym sessions into your Workout notes.</p>' }); onChanged(); }
+    const notes = (await pages.live()).filter((q) => (!q.kind || q.kind === 'text' || q.kind === 'note') && W.isWorkout(q));
+    if (!notes.length) { host.append(el('p', { class: 'sub' }, 'No workout notes found yet — a note with "Workout" in its title and a table with a Reps/Sets column shows up here.')); return; }
+    // One per workout (the newest version); older versions can be merged in.
+    const gs = W.groups(notes).sort((a, b) => a.letter.localeCompare(b.letter));
+    const list = gs.map((g) => g.notes[g.notes.length - 1]);
+    for (const g of gs.filter((x) => x.notes.length > 1)) {
+      const newest = g.notes[g.notes.length - 1], older = g.notes.slice(0, -1);
+      top.append(el('div', { class: 'wk-merge' },
+        el('span', {}, 'Workout ' + g.letter + ' is in ' + g.notes.length + ' notes (' + g.notes.map((n) => 'V' + (W.versionOf(n.title) || '?')).join(' and ') + '). Merge them into one note and table?'),
+        el('button', { class: 'btn small primary', type: 'button', onclick: async (e) => {
+          if (!(await confirm('Merge Workout ' + g.letter + ' into one note?', 'The older history goes in front of the newer columns, labelled V1 etc. The old note is kept, renamed "(merged)", and drops out of this list — delete it yourself once you\'re happy.', 'Merge'))) return;
+          e.target.disabled = true;
+          try {
+            let html = newest.html;
+            for (const o of older) html = W.merge(o.html, html, 'V' + (W.versionOf(o.title) || '1'));
+            await versions.add({ id: newest.id, title: newest.title, html: newest.html, props: newest.props });
+            await pages.update(newest.id, { html, title: W.baseTitle(newest.title) || newest.title });
+            for (const o of older) await pages.update(o.id, { ptype: 'workout-merged', title: (o.title || 'Workout') + ' (merged)' });
+            onChanged(); toast('Merged into "' + (W.baseTitle(newest.title) || newest.title) + '"');
+            renderWorkout(newest.id);
+          } catch (err) { toast(err.message); e.target.disabled = false; }
+        } }, 'Merge')));
+    }
+    const cur = (id && (list.find((x) => x.id === id) || notes.find((x) => x.id === id))) || list.find((x) => x.id === tile.wkNext) || list[0];
+    const isoToday = (() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); })();
+    const nextOf = (w) => list[(list.indexOf(w) + 1) % list.length] || w;
+    if (list.length > 1) top.append(el('div', { class: 'seg wk-pick', role: 'tablist' }, ...list.map((w) => el('button', { type: 'button', role: 'tab', class: w.id === cur.id ? 'on' : '', 'aria-selected': w.id === cur.id ? 'true' : 'false', onclick: () => go('#workout/' + w.id) }, W.shortLabel(w.title), w.id === tile.wkNext ? el('span', { class: 'wk-nextdot', title: 'Next up' }, 'next') : null))));
+    h1.textContent = W.baseTitle(cur.title).replace(/\s*\(.*\)\s*$/, '') || 'Workout';
     let snap = false;
     const save = async (html) => {
-      // One snapshot of the note before the first change of a session, so History can undo the lot.
-      if (!snap) { await versions.add({ id: page.id, title: page.title, html: page.html, props: page.props }); snap = true; }
-      await pages.update(page.id, { html }); onChanged();
+      // One snapshot of the note before the first change of a visit, so History can undo the lot.
+      if (!snap) { await versions.add({ id: cur.id, title: cur.title, html: cur.html, props: cur.props }); snap = true; }
+      await pages.update(cur.id, { html }); onChanged();
     };
-    state.appTeardown = NCWorkout.session(host, page, { save, toast, sheet, ask, confirm, menu }).destroy;
-    view.append(el('p', { class: 'sub organiser-foot' }, el('a', { href: '#page/' + page.id }, 'Open the note')));
+    const finish = async ({ n, lines }) => {
+      const nxt = nextOf(cur);
+      await pages.update(tile.id, { wkNext: nxt.id, wkLast: { id: cur.id, n, date: isoToday } });
+      tile = Object.assign({}, tile, { wkNext: nxt.id, wkLast: { id: cur.id, n, date: isoToday } });
+      onChanged();
+      let cal = '';
+      if (window.NCGCal && NCGCal.state().signedIn) {
+        const t = W.shortLabel(cur.title).replace(' · ', ' – ');
+        try { await NCGCal.createEvent({ title: t + ' ✓', date: isoToday, description: 'Workout ' + n + '\n' + lines.join('\n') }); cal = ' and added to your calendar'; } catch (err) { cal = ' (calendar: ' + err.message + ')'; }
+      } else cal = ' (Google Calendar isn\'t connected on this device)';
+      toast('Workout ' + n + ' finished' + cal);
+      for (const b of top.querySelectorAll('.wk-nextdot')) b.remove();
+      const nb = [...top.querySelectorAll('.wk-pick button')][list.indexOf(nxt)]; if (nb) nb.append(el('span', { class: 'wk-nextdot', title: 'Next up' }, 'next'));
+    };
+    const finishedToday = () => !!(tile.wkLast && tile.wkLast.id === cur.id && tile.wkLast.date === isoToday);
+    const nextLabel = () => W.shortLabel((list.find((x) => x.id === tile.wkNext) || nextOf(cur)).title);
+    state.appTeardown = W.session(host, cur, { save, toast, sheet, ask, confirm, menu, finish, finishedToday, nextLabel }).destroy;
+    view.append(el('p', { class: 'sub organiser-foot' }, el('a', { href: '#page/' + cur.id }, 'Open the note')));
   }
 
   // ---------- Organiser: the everyday to-do list (a view over one to-do note) ----------

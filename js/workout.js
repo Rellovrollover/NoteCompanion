@@ -72,17 +72,36 @@
     }
     return null;
   }
+  // Which column today's session goes in: one already dated today; otherwise the first empty "Workout N" column after
+  // the last one with numbers in it (you keep a few ready, sometimes with the equipment pre-written); otherwise none
+  // (a new column is added at the end).
+  function locate(main) {
+    const { g, headRow, heads } = main;
+    const today = todayLabel();
+    const targetCol = Math.max(1, heads.findIndex((h) => /reps|sets/i.test(h)));
+    const dated = heads.findIndex((h, c) => c > targetCol && /workout/i.test(h) && h.includes(today));
+    if (dated >= 0) return { c: dated, dated: true };
+    const hasNumbers = (c) => { for (let r = headRow + 1; r < g.rows.length; r++) { const x = (g.cells[r] || [])[c]; if (x && x.first && /\d/.test(cellText(x.td))) return true; } return false; };
+    let lastData = targetCol;
+    for (let c = targetCol + 1; c < heads.length; c++) if (hasNumbers(c)) lastData = c;
+    for (let c = lastData + 1; c < heads.length; c++) if (/workout\s*\d+/i.test(heads[c])) return { c, dated: false };
+    return null;
+  }
   // "Cable 7.5kg x 12 7.5kg x 10" → { variant: 'Cable', sets: [{w: 7.5, r: '12'}, {w: 7.5, r: '10'}] }.
   // Copes with "57 x 7", "10kgx12", "22.5kg x 7-8" and the odd "12 x 70kg" written the other way round.
-  const PAIR = /(\d+(?:\.\d+)?)\s*(kg)?\s*[x×]\s*(\d+(?:\s*-\s*\d+)?)\s*(kg)?/gi;
+  const PAIR = /(\d+(?:\.\d+)?|\bbw\b|\bbodyweight\b)\s*(kg)?\s*[x×]\s*(\d+(?:\s*-\s*\d+)?)\s*(kg)?/gi;
   function readCell(raw) {
     raw = String(raw || '').replace(/\s+/g, ' ').trim();
     if (!raw) return { raw: '', sets: [], variant: '' };
-    const sets = []; let m; PAIR.lastIndex = 0;
-    while ((m = PAIR.exec(raw))) { let w = m[1], r = m[3]; if (m[4] && !m[2]) { w = m[3]; r = m[1]; } sets.push({ w: parseFloat(w), r: r.replace(/\s+/g, '') }); }
-    if (!sets.length) { const kg = raw.match(/(\d+(?:\.\d+)?)\s*kg/i); if (kg) sets.push({ w: parseFloat(kg[1]), r: '' }); }
-    const fd = raw.search(/\d/);
-    const variant = (fd < 0 ? raw : raw.slice(0, fd)).replace(/[\s,;:·–-]+$/, '').trim();
+    const sets = []; let m, first = -1; PAIR.lastIndex = 0;
+    while ((m = PAIR.exec(raw))) {
+      if (first < 0) first = m.index;
+      let w = m[1], r = m[3]; if (m[4] && !m[2] && /^\d/.test(m[1])) { w = m[3]; r = m[1]; }
+      sets.push({ w: /^\d/.test(w) ? parseFloat(w) : 'BW', r: r.replace(/\s+/g, '') });
+    }
+    if (!sets.length) { const kg = raw.match(/(\d+(?:\.\d+)?)\s*kg/i); if (kg) { sets.push({ w: parseFloat(kg[1]), r: '' }); first = kg.index; } }
+    const cut = first >= 0 ? first : raw.search(/\d/);
+    const variant = (cut < 0 ? raw : raw.slice(0, cut)).replace(/[\s,;:·–-]+$/, '').trim();
     return { raw, sets, variant };
   }
   const setsOf = (target) => { const m = String(target || '').match(/x\s*(\d+)/i); return m ? Math.min(8, +m[1]) : 3; };
@@ -92,9 +111,9 @@
     const main = findMain(root); if (!main) return null;
     const { g, headRow, heads } = main;
     const targetCol = Math.max(1, heads.findIndex((h) => /reps|sets/i.test(h)));
-    const today = todayLabel();
+    const loc = locate(main);
     const cols = [];
-    for (let c = targetCol + 1; c < heads.length; c++) { const label = heads[c] || ''; const m = label.match(/workout\s*(\d+)/i); cols.push({ c, label: label || ('Column ' + (c + 1)), n: m ? +m[1] : null, today: /workout/i.test(label) && label.includes(today) }); }
+    for (let c = targetCol + 1; c < heads.length; c++) { const label = heads[c] || ''; const m = label.match(/workout\s*(\d+)/i); cols.push({ c, label: label || ('Column ' + (c + 1)), n: m ? +m[1] : null, today: !!loc && loc.c === c }); }
     const exercises = [];
     for (let r = headRow + 1; r < g.rows.length; r++) {
       const row = g.cells[r] || [];
@@ -102,17 +121,18 @@
       const name = cellText(row[0].td); if (!name) continue;
       const target = row[targetCol] && row[targetCol].first ? lines(row[targetCol].td).map((l) => l.text).join(' · ') : '';
       const hist = [];
-      let todayEntry = null;
+      let todayEntry = null, planned = '';
       for (const col of cols) {
         const x = row[col.c]; const e = Object.assign({ col }, readCell(x && x.first ? cellText(x.td) : ''));
-        if (col.today) { if (e.raw) todayEntry = e; continue; }
+        // Today's column: numbers in it mean it's logged; just the equipment written in means that's the plan.
+        if (col.today) { if (e.sets.length) todayEntry = e; else planned = e.variant || ''; continue; }
         if (e.raw) hist.push(e);
       }
       // "Last time" is the latest column with numbers in it; a column with just the equipment named doesn't count.
       const withSets = hist.filter((e) => e.sets.length);
       const last = withSets[withSets.length - 1] || hist[hist.length - 1] || null;
       const latestVariant = (hist.slice().reverse().find((e) => e.variant) || {}).variant || '';
-      exercises.push({ r, name, target, nsets: setsOf(target), hist, last, latestVariant, today: todayEntry, key: norm(name), videos: [] });
+      exercises.push({ r, name, target, nsets: setsOf(target), hist, last, latestVariant, planned, today: todayEntry, key: norm(name), videos: [] });
     }
     // Instruction videos: any other table, exercise name down the left (once per group), then a variant and its link per line.
     const videos = [];
@@ -142,7 +162,8 @@
     }
     const nums = cols.map((c) => c.n || 0);
     const todayCol = cols.find((c) => c.today) || null;
-    return { exercises, cols, todayCol, next: todayCol ? todayCol.n : Math.max(0, ...nums) + 1 };
+    const started = !!(loc && loc.dated);
+    return { exercises, cols, todayCol, started, next: todayCol && todayCol.n ? todayCol.n : Math.max(0, ...nums) + 1 };
   }
 
   // ---------- writing today's column ----------
@@ -151,7 +172,9 @@
     const root = document.createElement('div'); root.innerHTML = html || '';
     const main = findMain(root); if (!main) throw new Error('Workout table not found in the note');
     const today = todayLabel();
-    let c = main.heads.findIndex((h) => /workout/i.test(h) && h.includes(today));
+    const loc = locate(main);
+    let c = loc ? loc.c : -1;
+    if (loc && !loc.dated) { const hx = (main.g.cells[main.headRow] || [])[c]; if (hx && hx.first) hx.td.innerHTML = hx.td.innerHTML.replace(/(<br\s*\/?>\s*)+$/i, '') + '<br>' + esc(today); }
     // Rows with fewer cells than the header get empty ones first, so today's entry lands under today's heading.
     const pad = (upto) => { const g0 = grid(main.table); main.g.rows.forEach((tr, r) => { let have = (g0.cells[r] || []).length; while (have < upto) { tr.appendChild(document.createElement('td')); have++; } }); };
     if (c < 0) {
@@ -184,7 +207,7 @@
     let top = null;
     const all = ex.hist.concat(ex.today ? [ex.today] : []);
     const lifted = all.some((e) => e.sets.some((s) => s.r));
-    for (const e of all) for (const s of e.sets.filter((x) => !lifted || x.r)) {
+    for (const e of all) for (const s of e.sets.filter((x) => typeof x.w === 'number' && (!lifted || x.r))) {
       const reps = parseInt(s.r, 10) || 0;
       if (!top || s.w > top.s.w || (s.w === top.s.w && reps > (parseInt(top.s.r, 10) || 0))) top = { e, s };
     }
@@ -228,6 +251,22 @@
     const cards = info.exercises.map((ex, i) => card(ex, i));
     list.append(...cards.map((c) => c.node));
     drawBar();
+    // Finish: marks the session done, puts it in Google Calendar and makes the other workout next.
+    const fin = el('div', { class: 'wk-finish' });
+    host.append(fin);
+    const drawFin = () => {
+      if (ui.finishedToday && ui.finishedToday()) { fin.replaceChildren(el('p', { class: 'wk-finished' }, el('b', {}, '✓ Workout ' + info.next + ' finished'), ui.nextLabel ? el('span', {}, 'Next time: ' + ui.nextLabel()) : null)); return; }
+      fin.replaceChildren(el('button', { class: 'btn primary wk-finish-btn', type: 'button', onclick: finish }, 'Finish workout ✓'));
+    };
+    async function finish() {
+      const done = info.exercises.filter((e) => e.today);
+      if (!done.length) { ui.toast('Log at least one exercise first'); return; }
+      if (done.length < info.exercises.length && !(await ui.confirm('Finish with ' + done.length + ' of ' + info.exercises.length + ' logged?', 'The others stay blank for this session.', 'Finish'))) return;
+      const lines = done.map((e) => e.name.replace(/\s*\(.*\)\s*$/, '') + ': ' + entryText(e.today));
+      if (ui.finish) await ui.finish({ n: info.next, lines });
+      drawFin();
+    }
+    drawFin();
 
     function card(ex0, idx) {
       const node = el('section', { class: 'wk-card' });
@@ -253,10 +292,10 @@
         ex.hist.slice().reverse().forEach((e) => addOpt(e.variant));
         const fromNote = seen.length;
         EQUIP.forEach(addOpt);
-        const pre = (ex.today && ex.today.variant) || ex.latestVariant || (last && last.variant) || (fromNote ? seen[0] : '');
+        const pre = (ex.today && ex.today.variant) || ex.planned || ex.latestVariant || (last && last.variant) || (fromNote ? seen[0] : '');
         addOpt(pre);
         const sel = el('select', { class: 'wk-variant', 'aria-label': 'Equipment' },
-          ...seen.map((v, k) => el('option', { value: v, selected: v.toLowerCase() === pre.toLowerCase() ? '' : null, 'data-group': k < fromNote ? 'note' : 'kit' }, v)),
+          ...seen.map((v, k) => el('option', { value: v, selected: v.toLowerCase() === pre.toLowerCase() ? '' : null, 'data-group': k < fromNote ? 'note' : 'kit' }, v.length > 34 ? v.slice(0, 32).trim() + '…' : v)),
           el('option', { value: '' , selected: pre ? null : '' }, '— none —'), el('option', { value: '__other' }, 'Other…'));
         sel.addEventListener('change', async () => { if (sel.value !== '__other') return; const v = await ui.ask('Equipment', 'e.g. Single arm cable', '', 'Use'); if (v) { const o = el('option', { value: v }, v); sel.insertBefore(o, sel.firstChild); sel.value = v; } else sel.value = pre; });
         // Sets: one row each, with last time's numbers shown faintly in the boxes.
@@ -299,7 +338,79 @@
   }
 
   // ---------- the list of workouts ----------
-  function isWorkout(p) { return /workout/i.test(p.title || '') && /<table/i.test(p.html || '') && !!parse(p.html); }
+  function isWorkout(p) { return p.ptype !== 'workout-merged' && /workout/i.test(p.title || '') && /<table/i.test(p.html || '') && !!parse(p.html); }
+  const baseTitle = (t) => String(t || '').replace(/\s*[-–]?\s*\bV\d+\b/i, '').replace(/\s+/g, ' ').trim();
+  const versionOf = (t) => { const m = String(t || '').match(/\bV(\d+)\b/i); return m ? +m[1] : 0; };
+  const letterOf = (t) => { const m = String(t || '').match(/workout\s*([a-z])\b/i); return m ? m[1].toUpperCase() : ''; };
+  // "Workout A V2 (Push, Chest/Shoulders/Triceps)" → "Workout A · Push"
+  function shortLabel(t) { const b = baseTitle(t); const m = b.match(/^(.*?)\s*\(([^,)/]+)/); return m ? m[1].trim() + ' · ' + m[2].trim() : b; }
+  // Notes for the same workout letter (V1, V2 …), oldest version first.
+  function groups(list) {
+    const by = new Map();
+    for (const p of list) { const k = letterOf(p.title) || p.id; if (!by.has(k)) by.set(k, []); by.get(k).push(p); }
+    for (const arr of by.values()) arr.sort((a, b) => versionOf(a.title) - versionOf(b.title));
+    return [...by.entries()].map(([letter, notes]) => ({ letter, notes }));
+  }
+
+  // ---------- merging an older version's table into the newer note ----------
+  // The older note's history columns go in front of the newer note's (so it reads oldest to newest), labelled with
+  // its version ("V1 Start", "V1 Workout 3"); exercises are matched by name; ones only in the old note are added at the
+  // bottom; instruction videos for exercises the newer note doesn't have are added to its videos table.
+  function merge(oldHtml, newHtml, tag) {
+    const ro = document.createElement('div'); ro.innerHTML = oldHtml || '';
+    const rn = document.createElement('div'); rn.innerHTML = newHtml || '';
+    const mo = findMain(ro), mn = findMain(rn);
+    if (!mo || !mn) throw new Error('Couldn’t find the workout table in both notes');
+    const tO = Math.max(1, mo.heads.findIndex((h) => /reps|sets/i.test(h)));
+    const tN = Math.max(1, mn.heads.findIndex((h) => /reps|sets/i.test(h)));
+    const oldCols = []; for (let c = tO + 1; c < mo.heads.length; c++) oldCols.push(c);
+    const insertAt = (tr, col, cells) => {
+      let acc = 0, before = null;
+      for (const td of tr.cells) { if (acc >= col) { before = td; break; } acc += td.colSpan || 1; }
+      while (!before && acc < col) { tr.appendChild(document.createElement('td')); acc++; }
+      for (const c of cells) tr.insertBefore(c, before);
+    };
+    const oldRows = [];
+    for (let r = mo.headRow + 1; r < mo.g.rows.length; r++) { const row = mo.g.cells[r] || []; if (!row[0] || !row[0].first) continue; const name = cellText(row[0].td); if (name) oldRows.push({ name, key: norm(name), row, used: false }); }
+    const hs = (mn.g.cells[mn.headRow] || [])[tN];
+    const headTag = hs && hs.td.tagName === 'TH' ? 'th' : 'td';
+    const strong = !!(hs && hs.td.querySelector('strong, b'));
+    const nCells = mn.heads.length;
+    mn.g.rows.forEach((tr, r) => {
+      const gridRow = mn.g.cells[r] || [];
+      let cells;
+      if (r === mn.headRow) cells = oldCols.map((c) => { const cell = document.createElement(headTag); const lab = (tag + ' ' + (mo.heads[c] || '')).trim(); cell.innerHTML = strong ? '<strong>' + esc(lab) + '</strong>' : esc(lab); return cell; });
+      else {
+        const nm = gridRow[0] && gridRow[0].first ? cellText(gridRow[0].td) : '';
+        const hit = r > mn.headRow && nm ? oldRows.find((o) => !o.used && o.key === norm(nm)) : null;
+        if (hit) hit.used = true;
+        cells = oldCols.map((c) => { const cell = document.createElement('td'); const x = hit && hit.row[c]; if (x && x.first) cell.innerHTML = x.td.innerHTML; return cell; });
+      }
+      insertAt(tr, tN + 1, cells);
+    });
+    const cg = mn.table.querySelector('colgroup'); if (cg) for (let k = 0; k < oldCols.length; k++) cg.appendChild(document.createElement('col'));
+    // Exercises only in the older note go at the bottom.
+    const body = mn.table.tBodies[0] || mn.table;
+    for (const o of oldRows.filter((x) => !x.used)) {
+      const tr = document.createElement('tr');
+      for (let c = 0; c <= tN; c++) { const td = document.createElement('td'); if (c === 0) td.innerHTML = o.row[0].td.innerHTML; else if (c === tN && o.row[tO] && o.row[tO].first) td.innerHTML = o.row[tO].td.innerHTML; tr.appendChild(td); }
+      for (const c of oldCols) { const td = document.createElement('td'); const x = o.row[c]; if (x && x.first) td.innerHTML = x.td.innerHTML; tr.appendChild(td); }
+      for (let c = tN + 1; c < nCells; c++) tr.appendChild(document.createElement('td'));
+      body.appendChild(tr);
+    }
+    // Videos for exercises the newer note doesn't list.
+    const vidTables = (root, main) => [...root.querySelectorAll('table')].filter((t) => t !== main.table);
+    const groupsOf = (t) => { const g = grid(t); const out = []; let cur = null; g.rows.forEach((tr, r) => { const row = g.cells[r] || []; const nm = row[0] && row[0].first ? cellText(row[0].td) : ''; if (nm) { cur = { key: norm(nm), rows: [] }; out.push(cur); } if (cur) cur.rows.push(tr); }); return out; };
+    const newV = vidTables(rn, mn), oldV = vidTables(ro, mo);
+    const have = new Set(newV.flatMap((t) => groupsOf(t).map((x) => x.key)));
+    for (const t of oldV) {
+      const extra = groupsOf(t).filter((x) => x.key && !have.has(x.key));
+      if (!extra.length) continue;
+      if (newV.length) { const b = newV[0].tBodies[0] || newV[0]; for (const gp of extra) for (const tr of gp.rows) b.appendChild(tr.cloneNode(true)); }
+      else { const h = document.createElement('h3'); h.textContent = 'Instruction Videos (' + tag + ')'; rn.append(h, t.cloneNode(true)); }
+    }
+    return rn.innerHTML;
+  }
   function home(host, list, ui) {
     host.innerHTML = '';
     const ws = list.filter(isWorkout).sort((a, b) => (a.title || '').localeCompare(b.title || ''));
@@ -314,5 +425,5 @@
     })));
   }
 
-  window.NCWorkout = { parse, readCell, writeCell, session, home, isWorkout };
+  window.NCWorkout = { parse, readCell, writeCell, session, home, isWorkout, merge, groups, shortLabel, baseTitle, versionOf, letterOf };
 })();
