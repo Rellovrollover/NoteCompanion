@@ -128,14 +128,20 @@
     await placePage(q.id, dir < 0 ? list[j].id : (list[j + 1] ? list[j + 1].id : null));
   }
   // HTML5 drag for a row representing page q; drop on another row places before it, drop on the list end appends.
+  // The pages being dragged: all the picked ones when a picked page is dragged, otherwise just that one.
+  function draggedPages(e) { try { const many = e.dataTransfer.getData('text/nc-pages'); if (many) return JSON.parse(many); } catch (err) { /* ignore */ } const one = e.dataTransfer.getData('text/nc-page'); return one ? [one] : []; }
   function dragPage(row, q) {
     if (isNarrow()) return row;
     row.draggable = true;
-    row.addEventListener('dragstart', (e) => { e.dataTransfer.setData('text/nc-page', q.id); e.dataTransfer.effectAllowed = 'move'; row.classList.add('dragging'); });
+    row.addEventListener('dragstart', (e) => {
+      e.dataTransfer.setData('text/nc-page', q.id); e.dataTransfer.effectAllowed = 'move'; row.classList.add('dragging');
+      const pk = state.view === 'section' && state.pagePicked;
+      if (pk && pk.size > 1 && pk.has(q.id)) e.dataTransfer.setData('text/nc-pages', JSON.stringify((state.pageOrder || []).filter((x) => pk.has(x))));
+    });
     row.addEventListener('dragend', () => row.classList.remove('dragging'));
     row.addEventListener('dragover', (e) => { if (e.dataTransfer.types.includes('text/nc-page')) { e.preventDefault(); row.classList.add('dropbefore'); } });
     row.addEventListener('dragleave', () => row.classList.remove('dropbefore'));
-    row.addEventListener('drop', async (e) => { e.preventDefault(); row.classList.remove('dropbefore'); const id = e.dataTransfer.getData('text/nc-page'); if (id && id !== q.id) { const src = await pages.get(id); if (!src) return; if (src.sectionId === q.sectionId) await placePage(id, q.id); else await movePageTo(id, q.sectionId, q.id); } });
+    row.addEventListener('drop', async (e) => { e.preventDefault(); row.classList.remove('dropbefore'); for (const id of draggedPages(e)) { if (id === q.id) continue; const src = await pages.get(id); if (!src) continue; if (src.sectionId === q.sectionId) await placePage(id, q.id); else await movePageTo(id, q.sectionId, q.id); } });
     return row;
   }
   // Any element standing for a section accepts dropped pages (and, in the tree, sections).
@@ -143,14 +149,14 @@
     if (isNarrow()) return target;
     target.addEventListener('dragover', (e) => { if (e.dataTransfer.types.includes('text/nc-page')) { e.preventDefault(); target.classList.add('dropinto'); } });
     target.addEventListener('dragleave', () => target.classList.remove('dropinto'));
-    target.addEventListener('drop', async (e) => { const id = e.dataTransfer.getData('text/nc-page'); if (!id) return; e.preventDefault(); e.stopPropagation(); target.classList.remove('dropinto'); await movePageTo(id, sectionId, null); });
+    target.addEventListener('drop', async (e) => { const ids = draggedPages(e); if (!ids.length) return; e.preventDefault(); e.stopPropagation(); target.classList.remove('dropinto'); for (const id of ids) await movePageTo(id, sectionId, null); if (ids.length > 1) { if (state.clearPagePicks) state.clearPagePicks(); toast('Moved ' + ids.length + ' pages'); } });
     return target;
   }
   function dropEnd(target, sectionId) {
     if (isNarrow()) return target;
     target.addEventListener('dragover', (e) => { if (e.dataTransfer.types.includes('text/nc-page')) { e.preventDefault(); target.classList.add('dropinto'); } });
     target.addEventListener('dragleave', () => target.classList.remove('dropinto'));
-    target.addEventListener('drop', async (e) => { e.preventDefault(); target.classList.remove('dropinto'); const id = e.dataTransfer.getData('text/nc-page'); if (id) { const src = await pages.get(id); if (!src) return; if (src.sectionId === sectionId) await placePage(id, null); else await movePageTo(id, sectionId, null); } });
+    target.addEventListener('drop', async (e) => { e.preventDefault(); target.classList.remove('dropinto'); for (const id of draggedPages(e)) { const src = await pages.get(id); if (!src) continue; if (src.sectionId === sectionId) await placePage(id, null); else await movePageTo(id, sectionId, null); } });
     return target;
   }
 
@@ -911,16 +917,34 @@
       el('button', { class: 'btn small primary', type: 'button', onclick: () => newPage(nb.id, id) }, '+ Page')));
     view.append(head);
     const bulk = el('div', { class: 'bulkbar', hidden: '' });
+    if (!sv.picked) sv.picked = new Set();
+    state.pagePicked = sv.picked;
+    const clearPicks = () => { sv.picked = new Set(); state.pagePicked = sv.picked; sv.select = false; draw(); };
     const syncBulk = () => {
       const n = sv.picked ? sv.picked.size : 0;
-      bulk.hidden = !sv.select;
+      bulk.hidden = !sv.select && !n;
       bulk.replaceChildren(el('span', {}, n + ' selected'),
         el('button', { class: 'btn small', type: 'button', onclick: () => { sv.picked = new Set(pgs.map((x) => x.id)); draw(); } }, 'All'),
         el('button', { class: 'btn small', type: 'button', onclick: () => { sv.picked = new Set(); draw(); } }, 'None'),
         el('span', { class: 'spacer' }),
         el('button', { class: 'btn small primary', type: 'button', disabled: n ? null : '', onclick: async () => { const t = await pickSection('Move ' + n + ' page' + (n === 1 ? '' : 's') + ' to'); if (!t) return; for (const pid of sv.picked) await pages.update(pid, { inbox: 0, notebookId: t.notebookId, sectionId: t.sectionId, order: Date.now() }); toast('Moved ' + n + ' page' + (n === 1 ? '' : 's')); sv.select = false; sv.picked = new Set(); onChanged(); renderSection(id); } }, 'Move to…'),
-        el('button', { class: 'btn small danger', type: 'button', disabled: n ? null : '', onclick: async () => { if (!(await confirm('Delete ' + n + ' page' + (n === 1 ? '' : 's') + '?'))) return; for (const pid of sv.picked) await pages.remove(pid); sv.select = false; sv.picked = new Set(); onChanged(); renderSection(id); } }, 'Delete'));
+        el('button', { class: 'btn small danger', type: 'button', disabled: n ? null : '', onclick: async () => { if (!(await confirm('Delete ' + n + ' page' + (n === 1 ? '' : 's') + '?'))) return; for (const pid of sv.picked) await pages.remove(pid); sv.select = false; sv.picked = new Set(); onChanged(); renderSection(id); } }, 'Delete'),
+        sv.select ? null : el('button', { class: 'btn small', type: 'button', title: 'Clear selection (Esc)', onclick: clearPicks }, '✕'));
     };
+    // Ctrl/⌘-click adds or removes one page; Shift-click picks the run from the last one clicked, like sections in the sidebar.
+    let shown = [];
+    const pickClick = (e, p) => {
+      if (!(e.ctrlKey || e.metaKey || e.shiftKey)) { if (sv.picked.size && !sv.select) { sv.picked = new Set(); state.pagePicked = sv.picked; } return false; }
+      e.preventDefault(); e.stopPropagation();
+      if (e.shiftKey) {
+        const ids = shown.map((x) => x.id); let a = ids.indexOf(sv.anchor); const b = ids.indexOf(p.id);
+        if (a < 0) a = ids.indexOf(state.pageId); if (a < 0) a = b;
+        if (!(e.ctrlKey || e.metaKey)) sv.picked = new Set();
+        for (let k = Math.min(a, b); k <= Math.max(a, b); k++) sv.picked.add(ids[k]);
+      } else { if (sv.picked.has(p.id)) sv.picked.delete(p.id); else sv.picked.add(p.id); sv.anchor = p.id; }
+      state.pagePicked = sv.picked; draw(); return true;
+    };
+    state.clearPagePicks = () => { if (sv.picked.size || sv.select) { clearPicks(); return true; } return false; };
     view.append(bulk);
     const filter = el('input', { class: 'searchbox', type: 'search', placeholder: 'Filter this section…', value: sv.q, id: 'section-filter' });
     filter.addEventListener('input', () => { sv.q = filter.value; draw(); });
@@ -996,6 +1020,7 @@
       const val = (p, k) => k === 'title' ? (p.title || '') : k === 'updated' ? (p.updated || 0) : k === 'created' ? (p.created || 0) : k === 'manual' ? orderOf(p) : k === 'tags' ? (p.tags || []).join(', ') : (k in BUILTIN) ? infoOf(p)[k] : propVal(p, k.replace(/^p:/, ''));
       rows.sort((a, b) => { const pa = (b.pinned || 0) - (a.pinned || 0); if (pa) return pa; const va = val(a, sv.sort), vb = val(b, sv.sort); return (typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb), undefined, { numeric: true })) * sv.dir; });
       if (s.view === 'table' && sv.sort === 'manual') { sv.sort = 'updated'; sv.dir = -1; rows.sort((a, b) => (b.pinned || 0) - (a.pinned || 0) || (b.updated || 0) - (a.updated || 0)); }
+      shown = rows; state.pageOrder = rows.map((x) => x.id);
       holder.innerHTML = '';
       if (!rows.length) { holder.append(el('p', { class: 'sub' }, q ? 'Nothing matched.' : 'No pages yet.')); return; }
       if (s.view === 'table') {
@@ -1009,11 +1034,11 @@
         const tb = el('tbody', {});
         const cellText = (p, k) => k === 'updated' || k === 'created' ? fmtWhen(k === 'updated' ? p.updated : p.created) : k === 'title' ? (p.pinned ? '📌 ' : '') + (p.title || 'Untitled') : (k === 'words' || k === 'images' || k === 'files') ? (infoOf(p)[k] || '') : String(val(p, k));
         for (const p of rows) {
-          const r = el('tr', { class: sv.select && sv.picked.has(p.id) ? 'picked' : '', onclick: () => { if (!sv.select) { openPage(p.id); return; } if (sv.picked.has(p.id)) sv.picked.delete(p.id); else sv.picked.add(p.id); r.classList.toggle('picked'); syncBulk(); } });
+          const r = el('tr', { class: sv.picked.has(p.id) ? 'picked' : '', onclick: (e) => { if (pickClick(e, p)) return; if (!sv.select) { openPage(p.id); return; } if (sv.picked.has(p.id)) sv.picked.delete(p.id); else sv.picked.add(p.id); r.classList.toggle('picked'); syncBulk(); } });
           for (const [k] of cols) {
             const editable = k === 'tags' || k.startsWith('p:');
             const td = el('td', { class: (k === 'title' ? 'tcell' : k === 'snippet' ? 'snip' : numeric(k) && k !== 'updated' && k !== 'created' ? 'num' : '') + (editable ? ' editable' : ''), title: k === 'snippet' ? infoOf(p).snippet : (editable && !sv.select ? 'Click to edit' : null) }, cellText(p, k));
-            if (editable) td.addEventListener('click', (e) => { if (sv.select) return; e.stopPropagation(); editCell(td, p, k); });
+            if (editable) td.addEventListener('click', (e) => { if (sv.select || e.ctrlKey || e.metaKey || e.shiftKey) return; e.stopPropagation(); editCell(td, p, k); });
             r.append(td);
           }
           tb.append(r);
@@ -1026,10 +1051,10 @@
         for (const p of rows) {
           if (sv.select) {
             const on = sv.picked.has(p.id);
-            pl.append(el('label', { class: on ? 'picked' : '' }, el('input', { type: 'checkbox', checked: on ? '' : null, onchange: (e) => { if (e.target.checked) sv.picked.add(p.id); else sv.picked.delete(p.id); e.target.closest('label').classList.toggle('picked', e.target.checked); syncBulk(); } }), el('span', {}, (p.pinned ? '📌 ' : '') + (p.title || 'Untitled')), el('span', { class: 'when' }, fmtWhen(p.updated))));
+            pl.append(el('label', { class: on ? 'picked' : '', onclick: (e) => { if (e.shiftKey) pickClick(e, p); else sv.anchor = p.id; } }, el('input', { type: 'checkbox', checked: on ? '' : null, onchange: (e) => { if (e.target.checked) sv.picked.add(p.id); else sv.picked.delete(p.id); e.target.closest('label').classList.toggle('picked', e.target.checked); syncBulk(); } }), el('span', {}, (p.pinned ? '📌 ' : '') + (p.title || 'Untitled')), el('span', { class: 'when' }, fmtWhen(p.updated))));
             continue;
           }
-          pl.append(gestures(dragPage(el('a', { href: '#page/' + p.id }, el('span', {}, (p.pinned ? '📌 ' : '') + (p.title || 'Untitled'), (p.props || []).length ? el('span', { class: 'proptxt' }, ' · ' + p.props.map((x) => x.k + ': ' + x.v).join(' · ')) : null), el('span', { class: 'when' }, fmtWhen(p.updated))), p),
+          pl.append(gestures(dragPage(el('a', { href: '#page/' + p.id, class: sv.picked.has(p.id) ? 'picked' : '', onclick: (e) => { pickClick(e, p); } }, el('span', {}, (p.pinned ? '📌 ' : '') + (p.title || 'Untitled'), (p.props || []).length ? el('span', { class: 'proptxt' }, ' · ' + p.props.map((x) => x.k + ': ' + x.v).join(' · ')) : null), el('span', { class: 'when' }, fmtWhen(p.updated))), p),
             { onDelete: async () => { if (await confirm('Delete "' + (p.title || 'Untitled') + '"?')) { await pages.remove(p.id); onChanged(); renderSection(id); } }, onLongPress: () => pageQuickMenu(p, () => renderSection(id)) }));
         }
         if (!sv.select && !q) pl.append(dropEnd(el('div', { class: 'pagelist-end' }, 'Drag pages to reorder'), id));
@@ -2288,9 +2313,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
       el('div', { class: 'kv' }, el('span', {}, 'Installed as app'), el('span', {}, (navigator.standalone || matchMedia('(display-mode: standalone)').matches) ? 'Yes' : 'No (use Add to Home Screen)')),
       el('div', { class: 'kv' }, el('span', {}, 'Version'), (() => { const v = el('span', { id: 'kv-ver' }, '…'); if (window.caches) caches.keys().then((k) => { const n = k.filter((x) => /^nc-\d/.test(x)).sort().pop(); v.textContent = n ? n.replace(/^nc-/, '') : 'unknown'; }).catch(() => { v.textContent = 'unknown'; }); return v; })()),
       el('div', { class: 'kv' }, el('span', {}, 'Offline cache'), el('span', { id: 'kv-sw' }, navigator.serviceWorker && navigator.serviceWorker.controller ? 'Ready' : 'Not yet; reload once')),
-      el('div', { class: 'kv' }, el('span', {}, 'Build'), kvBuild),
-      el('div', { class: 'kv' }, el('span', {}, 'Storage kept'), kvPersist),
-      el('div', { class: 'kv' }, el('span', {}, 'Version'), el('span', {}, C.version))));
+      el('div', { class: 'kv' }, el('span', {}, 'Storage kept'), kvPersist)));
     if (window.caches) caches.keys().then((ks) => { kvBuild.textContent = (ks.filter((x) => x.startsWith('nc-')).sort().pop() || 'none').replace(/^nc-/, ''); }).catch(() => { kvBuild.textContent = '?'; });
     if (navigator.storage && navigator.storage.persisted) navigator.storage.persisted().then((p) => { kvPersist.textContent = p ? 'Yes' : 'Not promised by the browser'; });
     if (g.signedIn) {
@@ -2420,11 +2443,6 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
     view.append(el('div', { class: 'panel' }, el('h2', {}, 'Backup'),
       el('p', { class: 'rule' }, 'Everything is in your OneDrive folder as plain JSON and files. This also downloads a single JSON file of all notes from this device.'),
       el('div', {}, el('button', { class: 'btn', type: 'button', onclick: async () => { const data = await window.NCDB.exportAll(); await deliver(new Blob([JSON.stringify(data)], { type: 'application/json' }), 'notecompanion-backup-' + isoDay(new Date()) + '.json'); } }, 'Download backup'))));
-    view.append(el('div', { class: 'panel help' }, el('h2', {}, 'Tips'),
-      el('ul', {}, el('li', {}, 'Type / in a page for headings, lists, to-dos, tables, callouts, toggles and more.'),
-        el('li', {}, 'Tap a section name to open it; the chevron expands it in place. Any section can be shown as a table of its pages and their properties.'),
-        el('li', {}, 'Set a notebook as the current rotation and filing offers it first.'),
-        el('li', {}, 'Scan in the Inbox cleans up a photo of a document; straightening comes with the PDF phase.'))));
     const gh = await window.NCDrop.config();
     const ghRepo = el('input', { type: 'text', id: 'gh-repo', placeholder: 'owner/repo (private)', value: gh.repo, autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false' });
     const ghToken = el('input', { type: 'password', id: 'gh-token', placeholder: 'GitHub token', value: gh.token, autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false' });
@@ -2521,19 +2539,29 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
     view.append(el('div', { class: 'panel help' }, el('h2', {}, 'Other capture routes'),
       el('p', {}, el('b', {}, 'OneDrive drop folder:'), ' in Shortcuts, make a shortcut that receives anything from the Share Sheet, then a ', el('b', {}, 'Save File'), ' action with "Ask Where to Save" off and the destination set to the OneDrive folder ', el('code', {}, 'NoteCompanion/inbox'), '. Text, links, photos and PDFs saved there appear in the Inbox the next time any device syncs, and the dropped file is cleared from OneDrive.'),
       el('p', {}, el('b', {}, 'Instant way (opens Safari):'), ' an "Open URLs" action set to ', el('code', {}, C.redirectUri + '?capture=1&text=[Shortcut Input]'), '. iOS always opens a URL in Safari rather than the home-screen app, so the note lands in the same shared inbox but the app itself does not come to the front.')));
-    // Settings as folding sections in a sensible order; which ones are open is remembered on this device.
-    const ORDER = ['OneDrive sync', 'Appearance', 'Symbol shortcuts', 'Google Calendar', 'Instant capture relay', 'Other capture routes', 'Import from OneNote', 'Import from OneNote without the API', 'Backup', 'Clean up', 'This device', 'Tips'];
-    const LABEL = { 'Import from OneNote': 'Import from OneNote (Microsoft sign-in)', 'Import from OneNote without the API': 'Import OneNote exports (.mht / Word)' };
+    // Settings as five folding groups; which ones are open is remembered on this device.
+    const GROUPS = [
+      ['Accounts & sync', ['OneDrive sync', 'Google Calendar', 'This device']],
+      ['Appearance & typing', ['Appearance', 'Symbol shortcuts']],
+      ['Capture', ['Instant capture relay', 'Other capture routes']],
+      ['Import from OneNote', ['Import from OneNote', 'Import from OneNote without the API']],
+      ['Backup & clean-up', ['Backup', 'Clean up']]
+    ];
+    const SUB = { 'OneDrive sync': 'OneDrive', 'Appearance': 'Look and new pages', 'Instant capture relay': 'Share Sheet relay', 'Import from OneNote': 'With Microsoft sign-in', 'Import from OneNote without the API': 'From exported files (.mht / Word)' };
     let openSet; try { openSet = new Set(JSON.parse(localStorage.getItem('nc-settings-open') || '[]')); } catch (e) { openSet = new Set(); }
-    const secs = [...view.children].filter((n) => n.classList && n.classList.contains('panel')).map((pn) => {
-      const h = pn.querySelector(':scope > h2'); const title = h ? h.textContent.trim() : '';
-      const d = el('details', { class: 'setsec', open: openSet.has(title) ? '' : null }, el('summary', {}, LABEL[title] || title));
-      pn.before(d); d.append(pn);
+    const panels = new Map([...view.children].filter((n) => n.classList && n.classList.contains('panel')).map((pn) => { const h = pn.querySelector(':scope > h2'); return [h ? h.textContent.trim() : '', pn]; }));
+    for (const pn of panels.values()) pn.remove();
+    for (const [title, names] of GROUPS) {
+      const have = names.filter((nm) => panels.has(nm)); if (!have.length) continue;
+      const d = el('details', { class: 'setsec', open: openSet.has(title) ? '' : null }, el('summary', {}, title));
+      for (const nm of have) {
+        const pn = panels.get(nm), h = pn.querySelector(':scope > h2');
+        if (h) h.replaceWith(el('h3', { class: 'setsub' }, SUB[nm] || nm));
+        d.append(pn);
+      }
       d.addEventListener('toggle', () => { if (d.open) openSet.add(title); else openSet.delete(title); try { localStorage.setItem('nc-settings-open', JSON.stringify([...openSet])); } catch (e) { /* ignore */ } });
-      return { d, title };
-    });
-    secs.sort((a, b) => (ORDER.indexOf(a.title) + 1 || 99) - (ORDER.indexOf(b.title) + 1 || 99));
-    for (const x of secs) view.append(x.d);
+      view.append(d);
+    }
     content.replaceChildren(view); syncNav();
   }
 
@@ -2769,7 +2797,11 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
     }
     document.addEventListener('focusout', () => { setTimeout(() => { if (!document.activeElement || document.activeElement === document.body) window.scrollTo(0, Math.max(0, window.scrollY)); }, 80); });
     // Right-click anywhere that has a menu opens it (desktop); typing areas keep the browser's own menu.
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && state.secSel.size && !document.querySelector('#sheet-host:not([hidden])')) { state.secSel.clear(); refreshTree(); } });
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape' || document.querySelector('#sheet-host:not([hidden])')) return;
+      if (state.secSel.size) { state.secSel.clear(); refreshTree(); }
+      if (state.view === 'section' && state.clearPagePicks) state.clearPagePicks();
+    });
     document.addEventListener('contextmenu', async (e) => {
       if (e.defaultPrevented) return;
       const t = e.target;

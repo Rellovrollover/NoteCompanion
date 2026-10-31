@@ -1535,3 +1535,7 @@ body.fullpage .inkbar { bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
 .bk-freebtn { background: var(--paper); border: 1px solid #4caf6e; border-radius: 8px; padding: 6px 10px; font-weight: 700; font-size: .88rem; cursor: pointer; color: var(--fg); }
 .bk-freebtn.half { border-style: dashed; }
 .bk-freebtn.reserved { border-color: #c9a84a; }
+.pagelist a.picked { background: var(--accent-soft); border-color: var(--accent); }
+.setsec > .panel + .panel { border-top: 1px solid var(--line); border-radius: 0; }
+.setsec > .panel:last-child { border-radius: 0 0 12px 12px; }
+.setsub { font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0; font-family: var(--sans); }
