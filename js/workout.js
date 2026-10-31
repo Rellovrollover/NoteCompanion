@@ -243,13 +243,34 @@
     if (!info) { host.append(el('p', { class: 'sub' }, 'No workout table found in this note — it needs a table with a Reps/Sets column.')); return { destroy() {} }; }
     const bar = el('div', { class: 'wk-bar' });
     const list = el('div', { class: 'wk-list' });
-    host.append(bar, list);
+    // Exercises you rarely do can be hidden: they fold away at the bottom (still there to log, history untouched).
+    // Which ones is kept on the note, so it's the same on every device.
+    let hidden = new Set(page.wkHide || []);
+    const isHidden = (ex) => hidden.has(ex.key);
+    const hidList = el('div', { class: 'wk-list' });
+    const hidSum = el('summary', {});
+    const hidBox = el('details', { class: 'wk-hidden' }, hidSum, hidList);
+    host.append(bar, list, hidBox);
+    const counted = () => info.exercises.filter((e) => !isHidden(e) || e.today);
     const drawBar = () => {
-      const done = info.exercises.filter((e) => e.today).length;
-      bar.replaceChildren(el('b', {}, 'Workout ' + info.next), el('span', {}, todayLabel() + ' · ' + done + ' of ' + info.exercises.length + ' logged'), el('span', { class: 'wk-prog' }, el('i', { style: 'width:' + Math.round(done / Math.max(1, info.exercises.length) * 100) + '%' })));
+      const done = info.exercises.filter((e) => e.today).length, of = counted().length;
+      bar.replaceChildren(el('b', {}, 'Workout ' + info.next), el('span', {}, todayLabel() + ' · ' + done + ' of ' + of + ' logged'), el('span', { class: 'wk-prog' }, el('i', { style: 'width:' + Math.round(done / Math.max(1, of) * 100) + '%' })));
     };
+    const place = () => {
+      cards.forEach((c, i) => (isHidden(info.exercises[i]) ? hidList : list).append(c.node));
+      const n = info.exercises.filter(isHidden).length;
+      hidBox.hidden = !n; hidSum.textContent = 'Hidden — rarely done (' + n + ')';
+    };
+    async function toggleHide(ex, undo) {
+      const name = ex.name.replace(/\s*\(.*\)\s*$/, '');
+      if (hidden.has(ex.key)) hidden.delete(ex.key); else hidden.add(ex.key);
+      if (ui.hide) await ui.hide([...hidden]);
+      page.wkHide = [...hidden];
+      cards.forEach((c) => c.redraw()); place(); drawBar();
+      if (!undo) ui.toast((hidden.has(ex.key) ? 'Hid ' : 'Showing ') + name, { label: 'Undo', fn: () => toggleHide(ex, true) });
+    }
     const cards = info.exercises.map((ex, i) => card(ex, i));
-    list.append(...cards.map((c) => c.node));
+    place();
     drawBar();
     // Finish: marks the session done, puts it in Google Calendar and makes the other workout next.
     const fin = el('div', { class: 'wk-finish' });
@@ -259,9 +280,9 @@
       fin.replaceChildren(el('button', { class: 'btn primary wk-finish-btn', type: 'button', onclick: finish }, 'Finish workout ✓'));
     };
     async function finish() {
-      const done = info.exercises.filter((e) => e.today);
+      const done = info.exercises.filter((e) => e.today), of = counted().length;
       if (!done.length) { ui.toast('Log at least one exercise first'); return; }
-      if (done.length < info.exercises.length && !(await ui.confirm('Finish with ' + done.length + ' of ' + info.exercises.length + ' logged?', 'The others stay blank for this session.', 'Finish'))) return;
+      if (done.length < of && !(await ui.confirm('Finish with ' + done.length + ' of ' + of + ' logged?', 'The others stay blank for this session.', 'Finish'))) return;
       const lines = done.map((e) => e.name.replace(/\s*\(.*\)\s*$/, '') + ': ' + entryText(e.today));
       if (ui.finish) await ui.finish({ n: info.next, lines });
       drawFin();
@@ -278,6 +299,7 @@
         node.className = 'wk-card' + (done ? ' done' : '');
         const head = el('div', { class: 'wk-head' },
           el('button', { type: 'button', class: 'wk-name', title: 'History and videos', onclick: () => historySheet(info.exercises[idx], ui) }, ex.name, ex.videos.some((v) => v.links.length) ? el('span', { class: 'wk-hasvid', 'aria-label': 'has videos' }, '▶') : null),
+          el('button', { type: 'button', class: 'wk-hide', title: isHidden(ex) ? 'Show it in every session again' : 'Hide — for exercises you rarely do', onclick: () => toggleHide(info.exercises[idx]) }, isHidden(ex) ? 'Show' : 'Hide'),
           el('span', { class: 'wk-tick', 'aria-hidden': 'true' }));
         const sub = el('div', { class: 'wk-sub' }, ex.target ? el('span', { class: 'wk-target' }, ex.target.replace(/\s*rest\s*$/i, '').replace(/·\s*$/, '')) : null,
           last ? el('span', { class: 'wk-last' }, 'Last: ', el('b', {}, entryText(last)), ' · ' + last.col.label) : el('span', { class: 'wk-last' }, 'First time'));
@@ -332,7 +354,7 @@
             el('button', { type: 'button', class: 'btn primary wk-log', onclick: log }, ex.today ? 'Update ✓' : 'Log ✓')));
       };
       draw();
-      return { node, redrawIfDone: () => { if (!editing) draw(); } };
+      return { node, redrawIfDone: () => { if (!editing) draw(); }, redraw: () => draw() };
     }
     return { destroy() { host.innerHTML = ''; } };
   }

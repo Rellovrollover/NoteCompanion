@@ -1389,7 +1389,8 @@
     };
     const finishedToday = () => !!(tile.wkLast && tile.wkLast.id === cur.id && tile.wkLast.date === isoToday);
     const nextLabel = () => W.shortLabel((list.find((x) => x.id === tile.wkNext) || nextOf(cur)).title);
-    state.appTeardown = W.session(host, cur, { save, toast, sheet, ask, confirm, menu, finish, finishedToday, nextLabel }).destroy;
+    const hide = async (keys) => { await pages.update(cur.id, { wkHide: keys }); cur.wkHide = keys; onChanged(); };
+    state.appTeardown = W.session(host, cur, { save, toast, sheet, ask, confirm, menu, finish, finishedToday, nextLabel, hide }).destroy;
     view.append(el('p', { class: 'sub organiser-foot' }, el('a', { href: '#page/' + cur.id }, 'Open the note')));
   }
 

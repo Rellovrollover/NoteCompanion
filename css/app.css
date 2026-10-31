@@ -1539,3 +1539,9 @@ body.fullpage .inkbar { bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
 .setsec > .panel + .panel { border-top: 1px solid var(--line); border-radius: 0; }
 .setsec > .panel:last-child { border-radius: 0 0 12px 12px; }
 .setsub { font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0; font-family: var(--sans); }
+.wk-hide { margin-left: auto; border: 1px solid var(--line); background: var(--paper); color: var(--muted); border-radius: 999px; font: inherit; font-size: .78rem; padding: 3px 10px; cursor: pointer; flex: none; }
+.wk-hide + .wk-tick { margin-left: 0; }
+.wk-hidden { margin-top: 14px; border: 1px dashed var(--line-strong); border-radius: 12px; padding: 0 12px; }
+.wk-hidden > summary { cursor: pointer; padding: 11px 2px; color: var(--muted); font-weight: 600; font-size: .92rem; }
+.wk-hidden[open] > summary { border-bottom: 1px solid var(--line); margin-bottom: 10px; }
+.wk-hidden .wk-list { padding-bottom: 12px; }
