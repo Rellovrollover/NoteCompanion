@@ -2746,12 +2746,13 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 
   // ---------- capture via URL (iOS Shortcut) ----------
+  if (window.NCAmazon) window.NCAmazon.onNotify((m) => { toast(m); onChanged(); });
   async function handleURLCapture() {
     const q = new URLSearchParams(location.search);
     if (!q.has('capture')) return;
     const text = [q.get('title'), q.get('text'), q.get('url')].filter(Boolean).join('\n');
     history.replaceState(null, '', location.pathname + '#inbox');
-    if (text.trim()) { await captureText(text, q.get('title') || undefined); toast('Captured'); }
+    if (text.trim()) { if (window.NCAmazon && await window.NCAmazon.route(text)) { onChanged(); return; } await captureText(text, q.get('title') || undefined); toast('Captured'); }
   }
 
   // ---------- boot ----------

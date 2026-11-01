@@ -1545,3 +1545,6 @@ body.fullpage .inkbar { bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
 .wk-hidden > summary { cursor: pointer; padding: 11px 2px; color: var(--muted); font-weight: 600; font-size: .92rem; }
 .wk-hidden[open] > summary { border-bottom: 1px solid var(--line); margin-bottom: 10px; }
 .wk-hidden .wk-list { padding-bottom: 12px; }
+.shop-amz { font-size: .78rem; font-weight: 700; color: #b35c00; border: 1px solid #f0c48a; background: #fff6e8; border-radius: 999px; padding: 4px 9px; text-decoration: none; white-space: nowrap; }
+:root[data-theme="dark"] .shop-amz { background: #3a2a14; border-color: #7a5520; color: #ffc77a; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .shop-amz { background: #3a2a14; border-color: #7a5520; color: #ffc77a; } }

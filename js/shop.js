@@ -15,7 +15,9 @@
   };
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const CATS = ['Fresh Produce', 'Tins and Pantry stuff', 'Dairy', 'Meat', 'Bakery', 'Home Baking', 'Alcohol/Drinks', 'Freezer', 'Cleaning', 'Non-Lidl'];
-  const STORES = ['Aldi', 'Tesco', 'Other'];
+  const STORES = ['Aldi', 'Tesco', 'Amazon', 'Other'];
+  // Amazon items open the Amazon app: the saved product link if there is one, otherwise a search for the name.
+  const amazonUrl = (r) => r.url || 'https://www.amazon.co.uk/s?k=' + encodeURIComponent(r.name || '');
   const KEYS = {
     'Fresh Produce': ['orange', 'apple', 'banana', 'grape', 'berr', 'lemon', 'lime', 'pear', 'plum', 'peach', 'mango', 'melon', 'pineapple', 'avocado', 'tomato', 'cucumber', 'lettuce', 'salad', 'spinach', 'kale', 'greens', 'broccoli', 'cauliflower', 'carrot', 'onion', 'garlic', 'ginger', 'chilli', 'pepper', 'potato', 'mushroom', 'courgette', 'aubergine', 'leek', 'celery', 'coriander', 'parsley', 'basil', 'mint', 'herb', 'fruit', 'veg', 'cabbage', 'sprout', 'beetroot', 'spring onion', 'corn', 'asparagus', 'butternut', 'butternut squash', 'kiwi', 'cherry'],
     'Tins and Pantry stuff': ['tin', 'canned', 'chopped tomato', 'passata', 'bean', 'chickpea', 'lentil', 'pasta', 'spaghetti', 'noodle', 'rice', 'couscous', 'oat', 'porridge', 'cereal', 'granola', 'peanut butter', 'jam', 'honey', 'marmite', 'spread', 'oil', 'olive', 'vinegar', 'soy', 'sauce', 'ketchup', 'mayo', 'mustard', 'stock', 'gravy', 'spice', 'paprika', 'cumin', 'curry', 'salt', 'tea', 'coffee', 'hot chocolate', 'crisps', 'nuts', 'biscuit', 'cracker', 'chocolate', 'sweets', 'soup', 'tuna', 'sweetcorn', 'coconut milk', 'puree', 'pesto', 'popcorn', 'protein bar'],
@@ -50,12 +52,13 @@
   const dateIn = (t) => { const m = String(t).match(/(\d{1,2})\s+([A-Za-z]{3})[a-z]*\s+(\d{4})/); if (!m) return ''; const mi = MONTHS.findIndex((x) => x.toLowerCase() === m[2].toLowerCase()); return mi < 0 ? '' : m[3] + '-' + String(mi + 1).padStart(2, '0') + '-' + m[1].padStart(2, '0'); };
   function parseItems(li, mode, heading) {
     const em = li.querySelector('em'); const note = em ? em.textContent.trim() : ''; if (em) em.remove();
+    const link = li.querySelector('a[href]'); const url = link ? link.getAttribute('href') : '';
     let text = li.textContent.replace(/\s+/g, ' ').trim(); let qty = 1;
     const m = text.match(/^(.*?)\s*[×x]\s*(\d+)$/); if (m) { text = m[1].trim(); qty = +m[2]; }
     if (!text) return null;
     const done = li.getAttribute('data-todo') === 'done' || li.classList.contains('done');
-    return mode === 'elsewhere' ? { name: text, qty, note, done, list: 'elsewhere', cat: guessCat(text), store: STORES.includes(heading) ? heading : 'Aldi' }
-      : { name: text, qty, note, done, list: 'lidl', cat: CATS.includes(heading) ? heading : guessCat(text), store: 'Aldi' };
+    return mode === 'elsewhere' ? { name: text, qty, note, done, url, list: 'elsewhere', cat: guessCat(text), store: STORES.includes(heading) ? heading : 'Aldi' }
+      : { name: text, qty, note, done, url, list: 'lidl', cat: CATS.includes(heading) ? heading : guessCat(text), store: 'Aldi' };
   }
   function parseBook(html) {
     const doc = new DOMParser().parseFromString('<div>' + (html || '') + '</div>', 'text/html');
@@ -78,7 +81,7 @@
     }
     return book;
   }
-  const liOf = (r) => '<li data-todo="' + (r.done ? 'done' : '') + '">' + esc(r.name) + ((r.qty || 1) > 1 ? ' ×' + r.qty : '') + (r.note ? ' <em>' + esc(r.note) + '</em>' : '') + '</li>';
+  const liOf = (r) => '<li data-todo="' + (r.done ? 'done' : '') + '">' + (r.url ? '<a href="' + esc(r.url) + '">' + esc(r.name) + '</a>' : esc(r.name)) + ((r.qty || 1) > 1 ? ' ×' + r.qty : '') + (r.note ? ' <em>' + esc(r.note) + '</em>' : '') + '</li>';
   const aisles = (rows) => { let h = ''; for (const c of CATS) { const r = rows.filter((i) => i.cat === c); if (r.length) h += '<h3>' + esc(c) + '</h3><ul>' + r.map(liOf).join('') + '</ul>'; } const other = rows.filter((i) => !CATS.includes(i.cat)); if (other.length) h += '<h3>Other</h3><ul>' + other.map(liOf).join('') + '</ul>'; return h; };
   function serialiseBook(book) {
     let h = '<h2>Shopping list · ' + (book.current.date ? 'started ' + fmtDate(book.current.date) : 'current') + '</h2>' + (aisles(book.current.items) || '<p>Nothing on it yet.</p>');
@@ -278,7 +281,7 @@
       const rowEl = (r, alt) => swipeRow(el('div', { class: 'shop-row' + (r.done ? ' done' : '') },
         el('button', { class: 'shop-tick', type: 'button', 'aria-label': r.done ? 'Untick' : 'Tick', onclick: async () => { r.done = !r.done; confirmMove = false; await save(); draw(); } }, el('span', {})),
         el('button', { class: 'shop-body', type: 'button', onclick: () => editSheet(r) }, el('span', { class: 'shop-name' }, r.name), r.note ? el('span', { class: 'shop-note' }, r.note) : null),
-        el('div', { class: 'shop-side' }, alt ? el('button', { class: 'shop-store', type: 'button', onclick: async () => { r.store = STORES[(STORES.indexOf(r.store || 'Aldi') + 1) % STORES.length]; await save(); draw(); } }, r.store || 'Aldi') : null, el('button', { class: 'shop-qty', type: 'button', 'aria-label': 'Quantity ' + (r.qty || 1) + ', tap to change', onclick: async (e) => { e.stopPropagation(); const q = r.qty || 1; r.qty = q >= 4 ? 1 : q + 1; await save(); draw(); } }, '×' + (r.qty || 1)))), r);
+        el('div', { class: 'shop-side' }, alt && r.store === 'Amazon' ? el('a', { class: 'shop-amz', href: amazonUrl(r), target: '_blank', rel: 'noopener', title: r.url ? 'Open this product in Amazon' : 'Search Amazon for it', onclick: (e) => e.stopPropagation() }, r.url ? 'Open ↗' : 'Search ↗') : null, alt ? el('button', { class: 'shop-store', type: 'button', onclick: async () => { r.store = STORES[(STORES.indexOf(r.store || 'Aldi') + 1) % STORES.length]; await save(); draw(); } }, r.store || 'Aldi') : null, el('button', { class: 'shop-qty', type: 'button', 'aria-label': 'Quantity ' + (r.qty || 1) + ', tap to change', onclick: async (e) => { e.stopPropagation(); const q = r.qty || 1; r.qty = q >= 4 ? 1 : q + 1; await save(); draw(); } }, '×' + (r.qty || 1)))), r);
       const group = (title, rows, alt) => { const sec = el('section', { class: 'shop-aisle' }, el('h3', {}, el('span', {}, title), el('span', { class: 'sub' }, rows.filter((x) => !x.done).length + ' of ' + rows.length))); const box = el('div', { class: 'shop-rows' }); for (const r of rows.slice().sort((a, b) => (a.done ? 1 : 0) - (b.done ? 1 : 0))) box.append(rowEl(r, alt)); sec.append(box); return sec; };
       if (view === 'lidl') {
         wrap.append(el('div', { class: 'shop-listhead' }, el('b', {}, 'This list'), el('span', { class: 'sub' }, 'started ' + fmtDate(book.current.date))));
@@ -347,13 +350,15 @@
         let qty = r.qty || 1; const qv = el('output', {}, String(qty));
         const cat = el('select', {}, ...CATS.map((c) => el('option', { selected: c === r.cat ? '' : null }, c)));
         const storeSeg = el('div', { class: 'shift-chips' }, ...STORES.map((s) => el('button', { class: 'chip' + ((r.store || 'Aldi') === s ? ' on' : ''), type: 'button', onclick: (e) => { r.store = s; for (const b of e.target.parentNode.children) b.classList.toggle('on', b === e.target); } }, s)));
-        const apply = () => { r.name = name.value.trim() || r.name; r.note = note.value.trim(); r.qty = qty; r.cat = cat.value; };
+        const link = el('input', { type: 'url', value: r.url || '', placeholder: 'Amazon product link (optional)', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false' });
+        const apply = () => { r.name = name.value.trim() || r.name; r.note = note.value.trim(); r.qty = qty; r.cat = cat.value; r.url = link.value.trim(); };
         const inEls = r.list === 'elsewhere';
         box.append(el('h2', {}, 'Edit item'),
           el('label', { class: 'shift-field' }, el('span', {}, 'Item'), name),
           el('div', { class: 'shift-two' }, el('label', { class: 'shift-field' }, el('span', {}, 'Quantity'), el('div', { class: 'shop-step' }, el('button', { type: 'button', onclick: () => { qty = Math.max(1, qty - 1); qv.textContent = qty; } }, '−'), qv, el('button', { type: 'button', onclick: () => { qty = Math.min(99, qty + 1); qv.textContent = qty; } }, '+'))), el('label', { class: 'shift-field' }, el('span', {}, 'Aisle'), cat)),
           el('label', { class: 'shift-field' }, el('span', {}, 'Note'), note),
           inEls ? el('div', { class: 'shift-field' }, el('span', {}, 'Try at'), storeSeg) : null,
+          inEls ? el('label', { class: 'shift-field' }, el('span', {}, 'Link'), link) : null,
           el('div', { class: 'actions' },
             el('button', { class: 'btn danger', type: 'button', onclick: async () => { const a = inEls ? book.elsewhere : cur(); const i = a.indexOf(r); if (i >= 0) a.splice(i, 1); close(); await save(); draw(); } }, 'Delete'),
             inEls ? el('button', { class: 'btn', type: 'button', onclick: async () => { apply(); book.elsewhere.splice(book.elsewhere.indexOf(r), 1); cur().push(Object.assign(r, { list: 'lidl', done: false })); close(); await save(); draw(); } }, 'Back to Lidl')
@@ -364,5 +369,5 @@
     draw();
   }
 
-  window.NCShop = { render, parsePage, serialise, parseBook, serialiseBook };
+  window.NCShop = { render, parsePage, serialise, parseBook, serialiseBook, keyOf, guessCat, STORES };
 })();

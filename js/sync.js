@@ -312,7 +312,7 @@
       const isText = /^text\//.test(mime) || /\.(txt|md|markdown)$/i.test(it.name) || mime === 'application/json';
       if (isText) {
         const text = (await res.text()).trim();
-        if (text) await pages.create({ inbox: 1, kind: 'text', title: text.split('\n')[0].slice(0, 60), html: text.split(/\n{2,}/).map((para) => '<p>' + escapeHtml(para).replace(/\n/g, '<br>') + '</p>').join('') });
+        if (text && !(window.NCAmazon && await window.NCAmazon.route(text))) await pages.create({ inbox: 1, kind: 'text', title: text.split('\n')[0].slice(0, 60), html: text.split(/\n{2,}/).map((para) => '<p>' + escapeHtml(para).replace(/\n/g, '<br>') + '</p>').join('') });
       } else {
         const blob = await res.blob();
         const a = await assets.create(new File([blob], it.name, { type: blob.type || mime || 'application/octet-stream' }), it.name);

@@ -115,7 +115,7 @@
         }
         if (mime === 'text/plain') {
           const text = new TextDecoder().decode(bytes).trim();
-          if (text) await pages.create({ inbox: 1, kind: 'text', title: text.split('\n')[0].slice(0, 60), html: text.split(/\n{2,}/).map((para) => '<p>' + escapeHtml(para).replace(/\n/g, '<br>') + '</p>').join('') });
+          if (text && !(window.NCAmazon && await window.NCAmazon.route(text))) await pages.create({ inbox: 1, kind: 'text', title: text.split('\n')[0].slice(0, 60), html: text.split(/\n{2,}/).map((para) => '<p>' + escapeHtml(para).replace(/\n/g, '<br>') + '</p>').join('') });
         } else {
           const ext = mime === 'application/pdf' ? 'pdf' : mime === 'image/png' ? 'png' : mime === 'image/jpeg' ? 'jpg' : mime === 'image/gif' ? 'gif' : mime === 'image/webp' ? 'webp' : mime === 'image/heic' ? 'heic' : mime === 'audio/mp4' ? 'm4a' : mime === 'video/quicktime' ? 'mov' : 'bin';
           const name = /\.\w+$/.test(it.name) ? it.name : it.name + '.' + ext;

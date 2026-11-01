@@ -117,7 +117,7 @@
   async function createEvent({ title, date, start, end, description }) {
     const body = { summary: title, description: description || '' };
     if (start) { body.start = { dateTime: start }; body.end = { dateTime: end || new Date(new Date(start).getTime() + 3600000).toISOString() }; }
-    else { const next = new Date(date + 'T00:00'); next.setDate(next.getDate() + 1); body.start = { date }; body.end = { date: next.toISOString().slice(0, 10) }; }
+    else { const next = new Date(date + 'T12:00'); next.setDate(next.getDate() + 1); body.start = { date }; body.end = { date: next.getFullYear() + '-' + String(next.getMonth() + 1).padStart(2, '0') + '-' + String(next.getDate()).padStart(2, '0') }; }
     return api('/calendars/primary/events', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   }
 
