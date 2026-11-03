@@ -1518,6 +1518,7 @@
     h3 { font-size: 18px; line-height: var(--pitch); }
     img { max-width: 100%; height: auto; border-radius: 8px; vertical-align: top; }
     table { border-collapse: collapse; width: 100%; } td, th { border: 1px solid #b9b4a8; padding: 0 8px; line-height: var(--pitch); vertical-align: top; } th { background: rgba(127,127,127,.12); }
+    table.nc-auto { width: auto; } table.nc-auto td, table.nc-auto th { min-width: 4em; }
     a.wikilink { color: #1f3a5f; text-decoration: none; border-bottom: 1px dashed currentColor; }
     a.maplink { color: #1f6b46; text-decoration: none; border-bottom: 1px dashed currentColor; cursor: pointer; }
     a.maplink::before { content: ''; display: inline-block; width: .62em; height: .62em; margin-right: .22em; border-radius: 50% 50% 50% 0; background: currentColor; transform: rotate(-45deg) translateY(-.08em); }
@@ -1627,7 +1628,7 @@
     #printout h1, #printout h2, #printout h3 { font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif; margin: 0; break-after: avoid; }
     #printout h1 { font-size: 28px; line-height: 48px; } #printout h2 { font-size: 22px; line-height: 24px; } #printout h3 { font-size: 18px; line-height: 24px; }
     #printout img { max-width: 100%; height: auto; border-radius: 8px; break-inside: avoid; }
-    #printout table { border-collapse: collapse; width: 100%; } #printout td, #printout th { border: 1px solid #b9b4a8; padding: 0 8px; vertical-align: top; } #printout th { background: #eee; }
+    #printout table { border-collapse: collapse; width: 100%; } #printout table.nc-auto { width: auto; } #printout td, #printout th { border: 1px solid #b9b4a8; padding: 0 8px; vertical-align: top; } #printout th { background: #eee; }
     #printout tr { break-inside: avoid; }
     #printout table.nc-cols { table-layout: fixed; } #printout table.nc-cols td { border: 0; padding: 0 12px 0 0; }
     #printout li[data-todo] { list-style: none; position: relative; padding-left: 1.7em; margin-left: -1.4em; }
@@ -1977,6 +1978,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
         ed.ui.registry.addIcon('mappin', '<svg width="24" height="24" viewBox="0 0 24 24"><path d="M12 21s-6.5-6.2-6.5-11a6.5 6.5 0 1 1 13 0c0 4.8-6.5 11-6.5 11z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="10" r="2.3" fill="currentColor"/></svg>');
         ed.ui.registry.addButton('maplink', { icon: 'mappin', tooltip: 'Link to Google Maps', onAction: () => { linkSelectionToMaps(ed); scheduleSave(); } });
         if (window.NCSymbols) NCSymbols.attachEditor(ed);
+        if (window.NCTableKeys) NCTableKeys.attach(ed, () => scheduleSave());
         // Slash commands
         ed.ui.registry.addAutocompleter('slash', {
           trigger: '/', minChars: 0, columns: 1,
