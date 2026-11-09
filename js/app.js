@@ -21,6 +21,7 @@
   try { state.nbId = localStorage.getItem('nc-nb') || null; } catch (e) { /* ignore */ }
   const setNotebook = (id) => { if (state.nbId === id) return false; state.nbId = id; state.nbCollapsed = false; try { localStorage.setItem('nc-nb', id || ''); } catch (e) { /* ignore */ } return true; };
   const isNarrow = () => matchMedia('(max-width: 899px)').matches;
+  const TOUCH = matchMedia('(pointer: coarse)').matches; // phones and tablets: a little more room under the text while typing
   const themePref = () => { try { return localStorage.getItem('nc-theme') || 'system'; } catch (e) { return 'system'; } };
   const applyTheme = (t) => { if (t === 'system') document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme', t); try { localStorage.setItem('nc-theme', t); } catch (e) { /* ignore */ } };
   applyTheme(themePref());
@@ -733,7 +734,14 @@
     const tree = await buildTree();
     $('#tree').replaceChildren(...tree.children);
     if (state.view === 'notes') renderNotes();
-    const tabs = $('.sectabs'); if (tabs && tabs.dataset.nb) { const fresh = await sectionTabs(await notebooks.get(tabs.dataset.nb), tabs.dataset.sec || null); if (fresh) tabs.replaceWith(fresh); }
+    // The section tabs above a note: only swapped when something in them changed, keeping their sideways scroll.
+    const tabs = $('.sectabs'); if (tabs && tabs.dataset.nb) {
+      const fresh = await sectionTabs(await notebooks.get(tabs.dataset.nb), tabs.dataset.sec || null);
+      if (fresh && tabs.isConnected && fresh.outerHTML !== tabs.outerHTML) {
+        const left = [...tabs.querySelectorAll('.tabrow')].map((r) => r.scrollLeft);
+        tabs.replaceWith(fresh); fresh.querySelectorAll('.tabrow').forEach((r, i) => { if (left[i]) r.scrollLeft = left[i]; });
+      }
+    }
   }
   async function refreshInboxCount() {
     const n = (await pages.inbox()).length; $('#inbox-count').textContent = n ? String(n) : '';
@@ -834,6 +842,11 @@
     content.replaceChildren(view); syncNav();
   }
   // OneNote-style section tabs for one notebook. Groups are tabs that open a second row.
+  function showTab(a) {
+    const row = a.parentNode; if (!row || row.scrollWidth <= row.clientWidth) return;
+    const r = a.getBoundingClientRect(), b = row.getBoundingClientRect();
+    if (r.left < b.left) row.scrollLeft += r.left - b.left - 8; else if (r.right > b.right) row.scrollLeft += r.right - b.right + 8;
+  }
   async function sectionTabs(nb, activeSecId) {
     if (!nb) return null;
     const secs = await sections.forNotebook(nb.id);
@@ -861,7 +874,10 @@
       row2.append(el('button', { class: 'stab add', type: 'button', title: 'New section in ' + g.name, onclick: async () => { const n = await ask('New section in ' + g.name, 'Section name'); if (n) { const sc = await sections.create(nb.id, n); await sections.update(sc.id, { group: g.name }); onChanged(); go('#section/' + sc.id); } } }, '+'));
       strip.append(row2);
     }
-    setTimeout(() => { const a = strip.querySelector('.stab.active'); if (a && a.scrollIntoView) a.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }, 0);
+    // Bring the open section's tab into view by scrolling the tab row sideways only. (scrollIntoView also scrolled the
+    // whole page back up to the tabs, which made a note jump to the top every time it saved while you typed.)
+    const reveal = (n) => { const a = strip.querySelector('.stab.active'); if (!a) return; if (!strip.isConnected) { if (n < 40) setTimeout(() => reveal(n + 1), 50); return; } showTab(a); };
+    setTimeout(() => reveal(0), 0);
     return strip;
   }
   async function renderNotebook(id) {
@@ -1510,6 +1526,7 @@
     #nc-breaks > div { position: absolute; border-top: 1.5px dashed rgba(70,80,95,.45); }
     #nc-breaks > div > span { position: absolute; right: 0; top: 2px; font: 11px/1 Calibri, Carlito, system-ui, sans-serif; color: rgba(70,80,95,.7); background: var(--page, #fff); padding: 1px 4px; border-radius: 3px; }
     table.nc-cols { table-layout: fixed; } table.nc-cols td { border: 1px dashed rgba(127,127,127,.35); padding: 0 12px; }
+    .mce-content-body[data-mce-placeholder]:not(.mce-visualblocks)::before { left: auto !important; right: auto !important; }
     p, ul, ol, blockquote, pre, table, details, .callout { margin: 0; }
     li { line-height: var(--pitch); }
     h1, h2, h3 { font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif; letter-spacing: -0.01em; margin: 0; }
@@ -1617,7 +1634,7 @@
     h.classList.toggle('sized', sized); h.classList.toggle('dark-desk', sized && isDark());
     if (d) { h.style.setProperty('--sheet-w', d.w + 'px'); h.style.setProperty('--sheet-h', d.h + 'px'); h.style.setProperty('--sheet-m', PAGE_MARGIN + 'px'); }
     drawBreaks(ed, q);
-    try { ed.execCommand('mceAutoResize', false, null, { skip_focus: true }); } catch (e) { /* not loaded */ }
+    try { ed.dispatch('ResizeContent'); } catch (e) { /* not loaded */ }
   }
   // Print / Save as PDF: the note on its own, at the page's size (or the printer's default for Fit pages).
   const PRINT_CSS = `
@@ -1715,7 +1732,7 @@
     const off = ed.iframeElement.getBoundingClientRect().top - host.getBoundingClientRect().top;
     const h = ed.getDoc().documentElement;
     h.style.setProperty('--ink-min', Math.max(0, Math.round(hostPx - off - 24)) + 'px'); h.classList.add('ink-extend');
-    try { ed.execCommand('mceAutoResize', false, null, { skip_focus: true }); } catch (e) { /* not loaded */ }
+    try { ed.dispatch('ResizeContent'); } catch (e) { /* not loaded */ }
   }
   // Full screen: just the note — no sidebar, page list, section tabs or bottom bar. Remembered on this device.
   const fullPagePref = () => { try { return localStorage.getItem('nc-fullpage') === '1'; } catch (e) { return false; } };
@@ -1957,7 +1974,7 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
       toolbar: 'drawpen fullpage | undo redo | blocks | bold italic underline strikethrough | forecolor backcolor | bullist numlist todo | outdent indent | alignleft aligncenter alignright | callout accordion table image link pagelink | fontsize fontfamily | codesample removeformat searchreplace',
       quickbars_selection_toolbar: 'bold italic underline | forecolor backcolor | quicklink maplink',
       quickbars_insert_toolbar: false, quickbars_image_toolbar: 'alignleft aligncenter alignright | imageoptions',
-      autoresize_bottom_margin: 24, autoresize_overflow_padding: 14, min_height: isNarrow() ? 360 : 460,
+      autoresize_bottom_margin: TOUCH ? 72 : 24, autoresize_overflow_padding: 14, min_height: isNarrow() ? 360 : 460,
       convert_urls: false, paste_data_images: true, automatic_uploads: true, image_title: false, image_dimensions: false,
       images_upload_handler: (blobInfo) => storeAsset(blobInfo.blob(), blobInfo.filename()).then((a) => { onChanged(); return assetUrl(a.id); }),
       link_default_target: '_blank', link_assume_external_targets: 'https',
@@ -1997,6 +2014,8 @@ window.NoteCompanion.savePage=function(title,html){try{P.postMessage({nc:'app-pa
           if (li && e.target === li && e.offsetX < 24) { ed.dom.setAttrib(li, 'data-todo', li.getAttribute('data-todo') === 'done' ? '' : 'done'); ed.undoManager.add(); scheduleSave(); }
         });
         ed.on('input change undo redo SetContent ExecCommand', () => { if (ed.initialized) scheduleSave(); });
+        // Phone keyboards' predictive text inserts words without a keyup, so grow the note straight away then too.
+        if (TOUCH) ed.on('input', () => ed.dispatch('ResizeContent'));
         ed.on('blur', () => { if (linkPostcodes(ed)) { ed.undoManager.add(); scheduleSave(); } });
         // Page-end lines follow the text as it grows; the sheet re-fits if the window changes width.
         let brk = 0; const breaks = () => { cancelAnimationFrame(brk); brk = requestAnimationFrame(() => drawBreaks(ed, p)); };
